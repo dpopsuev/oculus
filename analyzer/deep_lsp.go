@@ -1,6 +1,7 @@
-package oculus
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -9,7 +10,7 @@ import (
 	"github.com/dpopsuev/oculus/lsp"
 )
 
-// LSPDeepAnalyzer uses a single gopls connection for all DeepAnalyzer
+// LSPDeepAnalyzer uses a single gopls connection for all oculus.DeepAnalyzer
 // methods. The connection is started lazily on first call and reused.
 type LSPDeepAnalyzer struct {
 	root    string
@@ -32,9 +33,9 @@ func (a *LSPDeepAnalyzer) startConn() (*lspConn, func(), error) {
 	return analyzer.startServer(a.root)
 }
 
-// CallGraph uses callHierarchy/outgoingCalls recursively from all
+// oculus.CallGraph uses callHierarchy/outgoingCalls recursively from all
 // exported functions (or a single entry if opts.Entry is set).
-func (a *LSPDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGraph, error) {
+func (a *LSPDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	conn, cleanup, err := a.startConn()
 	if err != nil {
 		return nil, fmt.Errorf("lsp deep call graph: %w", err)
@@ -43,13 +44,13 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGraph, e
 
 	depth := opts.Depth
 	if depth <= 0 {
-		depth = DefaultCallGraphDepth
+		depth = oculus.DefaultCallGraphDepth
 	}
 
 	roots := lspCallGraphRoots(opts, conn, a.root)
 
-	nodeSet := make(map[string]FuncNode)
-	var edges []CallEdge
+	nodeSet := make(map[string]oculus.FuncNode)
+	var edges []oculus.CallEdge
 	visited := make(map[string]bool)
 
 	for _, entry := range roots {
@@ -66,7 +67,7 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGraph, e
 			visited[it.Name] = true
 
 			pkg := uriToPackage(it.URI, a.root)
-			nodeSet[pkg+"."+it.Name] = FuncNode{
+			nodeSet[pkg+"."+it.Name] = oculus.FuncNode{
 				Name: it.Name, Package: pkg, Line: it.Range.Start.Line + 1,
 			}
 
@@ -82,11 +83,11 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGraph, e
 			}
 			for _, out := range outs {
 				calleePkg := uriToPackage(out.To.URI, a.root)
-				nodeSet[calleePkg+"."+out.To.Name] = FuncNode{
+				nodeSet[calleePkg+"."+out.To.Name] = oculus.FuncNode{
 					Name: out.To.Name, Package: calleePkg,
 					Line: out.To.Range.Start.Line + 1,
 				}
-				edges = append(edges, CallEdge{
+				edges = append(edges, oculus.CallEdge{
 					Caller:    it.Name,
 					Callee:    out.To.Name,
 					CallerPkg: pkg,
@@ -100,16 +101,16 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGraph, e
 		walk(item, 0)
 	}
 
-	nodes := make([]FuncNode, 0, len(nodeSet))
+	nodes := make([]oculus.FuncNode, 0, len(nodeSet))
 	for _, n := range nodeSet {
 		nodes = append(nodes, n)
 	}
-	return &CallGraph{Nodes: nodes, Edges: edges, Layer: LayerLSP}, nil
+	return &oculus.CallGraph{Nodes: nodes, Edges: edges, Layer: oculus.LayerLSP}, nil
 }
 
 // DataFlowTrace uses callHierarchy to trace data flow from an entry,
 // detecting data stores via workspace/symbol heuristics.
-func (a *LSPDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*DataFlow, error) {
+func (a *LSPDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*oculus.DataFlow, error) {
 	conn, cleanup, err := a.startConn()
 	if err != nil {
 		return nil, fmt.Errorf("lsp deep dataflow: %w", err)
@@ -117,20 +118,20 @@ func (a *LSPDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*DataFlo
 	defer cleanup()
 
 	if maxDepth <= 0 {
-		maxDepth = DefaultDataFlowDepth
+		maxDepth = oculus.DefaultDataFlowDepth
 	}
 
-	nodeMap := make(map[string]DataFlowNode)
-	var edges []DataFlowEdge
+	nodeMap := make(map[string]oculus.DataFlowNode)
+	var edges []oculus.DataFlowEdge
 	visited := make(map[string]bool)
 
-	nodeMap[entry] = DataFlowNode{Name: entry, Kind: "entry"}
+	nodeMap[entry] = oculus.DataFlowNode{Name: entry, Kind: "entry"}
 
 	item, err := conn.findCallHierarchyItem(a.root, entry)
 	if err != nil || item == nil {
-		return &DataFlow{
-			Nodes: []DataFlowNode{{Name: entry, Kind: "entry"}},
-			Layer: LayerLSP,
+		return &oculus.DataFlow{
+			Nodes: []oculus.DataFlowNode{{Name: entry, Kind: "entry"}},
+			Layer: oculus.LayerLSP,
 		}, nil
 	}
 
@@ -143,7 +144,7 @@ func (a *LSPDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*DataFlo
 
 		pkg := uriToPackage(it.URI, a.root)
 		if _, exists := nodeMap[it.Name]; !exists {
-			nodeMap[it.Name] = DataFlowNode{Name: it.Name, Kind: "process", Pkg: pkg}
+			nodeMap[it.Name] = oculus.DataFlowNode{Name: it.Name, Kind: "process", Pkg: pkg}
 		}
 
 		outgoing, err := conn.Request("callHierarchy/outgoingCalls", map[string]any{"item": it})
@@ -165,14 +166,14 @@ func (a *LSPDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*DataFlo
 			if isStore {
 				storeName := calleePkg + " Store"
 				if _, exists := nodeMap[storeName]; !exists {
-					nodeMap[storeName] = DataFlowNode{Name: storeName, Kind: "data_store", Pkg: calleePkg}
+					nodeMap[storeName] = oculus.DataFlowNode{Name: storeName, Kind: "data_store", Pkg: calleePkg}
 				}
-				edges = append(edges, DataFlowEdge{From: it.Name, To: storeName, Label: out.To.Name})
+				edges = append(edges, oculus.DataFlowEdge{From: it.Name, To: storeName, Label: out.To.Name})
 			} else {
 				if _, exists := nodeMap[out.To.Name]; !exists {
-					nodeMap[out.To.Name] = DataFlowNode{Name: out.To.Name, Kind: "process", Pkg: calleePkg}
+					nodeMap[out.To.Name] = oculus.DataFlowNode{Name: out.To.Name, Kind: "process", Pkg: calleePkg}
 				}
-				edges = append(edges, DataFlowEdge{From: it.Name, To: out.To.Name})
+				edges = append(edges, oculus.DataFlowEdge{From: it.Name, To: out.To.Name})
 			}
 			trace(&out.To, d+1)
 		}
@@ -180,16 +181,16 @@ func (a *LSPDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*DataFlo
 
 	trace(item, 0)
 
-	nodes := make([]DataFlowNode, 0, len(nodeMap))
+	nodes := make([]oculus.DataFlowNode, 0, len(nodeMap))
 	for _, n := range nodeMap {
 		nodes = append(nodes, n)
 	}
-	return &DataFlow{Nodes: nodes, Edges: edges, Layer: LayerLSP}, nil
+	return &oculus.DataFlow{Nodes: nodes, Edges: edges, Layer: oculus.LayerLSP}, nil
 }
 
 // DetectStateMachines uses documentSymbol to find const groups and
 // then workspace/symbol + textDocument/references to find switch contexts.
-func (a *LSPDeepAnalyzer) DetectStateMachines(_ string) ([]StateMachine, error) {
+func (a *LSPDeepAnalyzer) DetectStateMachines(_ string) ([]oculus.StateMachine, error) {
 	conn, cleanup, err := a.startConn()
 	if err != nil {
 		return nil, fmt.Errorf("lsp deep state machines: %w", err)
@@ -197,7 +198,7 @@ func (a *LSPDeepAnalyzer) DetectStateMachines(_ string) ([]StateMachine, error) 
 	defer cleanup()
 
 	files := findSrcFiles(a.root)
-	var machines []StateMachine
+	var machines []oculus.StateMachine
 	seen := make(map[string]bool)
 
 	for _, f := range files {
@@ -236,7 +237,7 @@ func (a *LSPDeepAnalyzer) DetectStateMachines(_ string) ([]StateMachine, error) 
 				}
 			}
 
-			machines = append(machines, StateMachine{
+			machines = append(machines, oculus.StateMachine{
 				Name:    typeName,
 				Package: uriToPackage(pathToURI(f), a.root),
 				States:  states,
@@ -249,7 +250,7 @@ func (a *LSPDeepAnalyzer) DetectStateMachines(_ string) ([]StateMachine, error) 
 }
 
 // lspCallGraphRoots determines the root functions for call graph analysis.
-func lspCallGraphRoots(opts CallGraphOpts, conn *lspConn, root string) []string {
+func lspCallGraphRoots(opts oculus.CallGraphOpts, conn *lspConn, root string) []string {
 	if opts.Entry != "" {
 		return []string{opts.Entry}
 	}

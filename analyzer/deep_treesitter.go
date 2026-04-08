@@ -1,6 +1,7 @@
-package oculus
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"strings"
 	"sync"
 
@@ -8,7 +9,7 @@ import (
 )
 
 // TreeSitterDeepAnalyzer uses a pre-parsed ParsedProject (built once)
-// for all three DeepAnalyzer methods, avoiding redundant filesystem walks.
+// for all three oculus.DeepAnalyzer methods, avoiding redundant filesystem walks.
 type TreeSitterDeepAnalyzer struct {
 	project *ParsedProject
 }
@@ -24,7 +25,7 @@ func NewTreeSitterDeep(root string) (*TreeSitterDeepAnalyzer, error) {
 	return &TreeSitterDeepAnalyzer{project: pp}, nil
 }
 
-// CallGraph implements DeepAnalyzer using Divide-and-Conquer by package:
+// oculus.CallGraph implements oculus.DeepAnalyzer using Divide-and-Conquer by package:
 //  1. Divide: group ParsedProject.Files by Package
 //  2. Conquer: extract function defs + call expressions per package
 //  3. Combine: merge per-package graphs, mark cross-package edges
@@ -36,7 +37,7 @@ type cgFuncDef struct {
 	line int
 }
 
-func (a *TreeSitterDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGraph, error) {
+func (a *TreeSitterDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	depth := opts.Depth
 	if depth <= 0 {
 		depth = 10
@@ -45,18 +46,18 @@ func (a *TreeSitterDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallG
 	allFuncs, nodeSet := a.extractCallGraphFuncs(opts)
 	edges := walkCallGraph(allFuncs, nodeSet, opts, depth)
 
-	nodes := make([]FuncNode, 0, len(nodeSet))
+	nodes := make([]oculus.FuncNode, 0, len(nodeSet))
 	for _, n := range nodeSet {
 		nodes = append(nodes, n)
 	}
 
-	return &CallGraph{Nodes: nodes, Edges: edges, Layer: LayerTreeSitter}, nil
+	return &oculus.CallGraph{Nodes: nodes, Edges: edges, Layer: oculus.LayerTreeSitter}, nil
 }
 
 // extractCallGraphFuncs extracts function definitions grouped by package.
-func (a *TreeSitterDeepAnalyzer) extractCallGraphFuncs(opts CallGraphOpts) (allFuncs map[string]cgFuncDef, nodeSet map[string]FuncNode) {
+func (a *TreeSitterDeepAnalyzer) extractCallGraphFuncs(opts oculus.CallGraphOpts) (allFuncs map[string]cgFuncDef, nodeSet map[string]oculus.FuncNode) {
 	allFuncs = make(map[string]cgFuncDef)
-	nodeSet = make(map[string]FuncNode)
+	nodeSet = make(map[string]oculus.FuncNode)
 
 	for _, f := range a.project.Files {
 		pkg := f.Package
@@ -81,7 +82,7 @@ func (a *TreeSitterDeepAnalyzer) extractCallGraphFuncs(opts CallGraphOpts) (allF
 			key := pkg + "." + name
 			line := int(nameNode.StartPoint().Row) + 1
 			allFuncs[key] = cgFuncDef{name: name, pkg: pkg, body: body, src: f.Source, line: line}
-			nodeSet[key] = FuncNode{Name: name, Package: pkg, Line: line}
+			nodeSet[key] = oculus.FuncNode{Name: name, Package: pkg, Line: line}
 		}
 	}
 	return allFuncs, nodeSet
@@ -102,10 +103,10 @@ func resolveCallee(callee, callerPkg string, allFuncs map[string]cgFuncDef) (key
 }
 
 // walkCallGraph walks the call graph from roots determined by opts.
-func walkCallGraph(allFuncs map[string]cgFuncDef, nodeSet map[string]FuncNode,
-	opts CallGraphOpts, depth int,
-) []CallEdge {
-	var edges []CallEdge
+func walkCallGraph(allFuncs map[string]cgFuncDef, nodeSet map[string]oculus.FuncNode,
+	opts oculus.CallGraphOpts, depth int,
+) []oculus.CallEdge {
+	var edges []oculus.CallEdge
 	visited := make(map[string]bool)
 
 	var walk func(key string, d int)
@@ -120,7 +121,7 @@ func walkCallGraph(allFuncs map[string]cgFuncDef, nodeSet map[string]FuncNode,
 		}
 		extractCalls(fd.body, fd.src, func(callee string, line int) {
 			calleeKey, calleePkg := resolveCallee(callee, fd.pkg, allFuncs)
-			edges = append(edges, CallEdge{
+			edges = append(edges, oculus.CallEdge{
 				Caller:    fd.name,
 				Callee:    callee,
 				CallerPkg: fd.pkg,
@@ -129,7 +130,7 @@ func walkCallGraph(allFuncs map[string]cgFuncDef, nodeSet map[string]FuncNode,
 				CrossPkg:  fd.pkg != calleePkg,
 			})
 			if _, exists := allFuncs[calleeKey]; exists {
-				nodeSet[calleeKey] = FuncNode{Name: callee, Package: calleePkg}
+				nodeSet[calleeKey] = oculus.FuncNode{Name: callee, Package: calleePkg}
 				walk(calleeKey, d+1)
 			}
 		})
@@ -152,10 +153,10 @@ func walkCallGraph(allFuncs map[string]cgFuncDef, nodeSet map[string]FuncNode,
 	return edges
 }
 
-// DataFlowTrace implements DeepAnalyzer using memoized recursive DFS.
+// DataFlowTrace implements oculus.DeepAnalyzer using memoized recursive DFS.
 // It traces data flow from an entry point, detecting data stores via
 // import heuristics and trust boundaries via auth middleware patterns.
-func (a *TreeSitterDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*DataFlow, error) {
+func (a *TreeSitterDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*oculus.DataFlow, error) {
 	if maxDepth <= 0 {
 		maxDepth = 8
 	}
@@ -166,16 +167,16 @@ func (a *TreeSitterDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*
 	nodeMap, edges := traceDataFlow(funcIndex, dataStores, entry, maxDepth)
 	boundaries := detectTrustBoundaries(funcIndex, nodeMap)
 
-	nodes := make([]DataFlowNode, 0, len(nodeMap))
+	nodes := make([]oculus.DataFlowNode, 0, len(nodeMap))
 	for _, n := range nodeMap {
 		nodes = append(nodes, n)
 	}
 
-	return &DataFlow{
+	return &oculus.DataFlow{
 		Nodes:      nodes,
 		Edges:      edges,
 		Boundaries: boundaries,
-		Layer:      LayerTreeSitter,
+		Layer:      oculus.LayerTreeSitter,
 	}, nil
 }
 
@@ -258,11 +259,11 @@ func isStoreAccess(callee string) bool {
 // traceDataFlow builds the data flow graph by walking from the entry point.
 func traceDataFlow(funcIndex map[string]tsFuncDef, dataStores map[string]bool,
 	entry string, maxDepth int,
-) (nodes map[string]DataFlowNode, edges []DataFlowEdge) {
-	nodeMap := make(map[string]DataFlowNode)
+) (nodes map[string]oculus.DataFlowNode, edges []oculus.DataFlowEdge) {
+	nodeMap := make(map[string]oculus.DataFlowNode)
 	memo := make(map[string]bool)
 
-	nodeMap[entry] = DataFlowNode{Name: entry, Kind: "entry"}
+	nodeMap[entry] = oculus.DataFlowNode{Name: entry, Kind: "entry"}
 
 	var trace func(name string, depth int)
 	trace = func(name string, depth int) {
@@ -277,25 +278,25 @@ func traceDataFlow(funcIndex map[string]tsFuncDef, dataStores map[string]bool,
 		}
 
 		if _, exists := nodeMap[name]; !exists {
-			nodeMap[name] = DataFlowNode{Name: name, Kind: "process", Pkg: fd.pkg}
+			nodeMap[name] = oculus.DataFlowNode{Name: name, Kind: "process", Pkg: fd.pkg}
 		}
 
 		extractCalls(fd.body, fd.src, func(callee string, _ int) {
 			if isStoreAccess(callee) && len(dataStores) > 0 {
 				for store := range dataStores {
 					if _, exists := nodeMap[store]; !exists {
-						nodeMap[store] = DataFlowNode{Name: store, Kind: "data_store"}
+						nodeMap[store] = oculus.DataFlowNode{Name: store, Kind: "data_store"}
 					}
-					edges = append(edges, DataFlowEdge{From: name, To: store, Label: callee})
+					edges = append(edges, oculus.DataFlowEdge{From: name, To: store, Label: callee})
 					break
 				}
 			}
 
 			if _, exists := funcIndex[callee]; exists {
 				if _, inMap := nodeMap[callee]; !inMap {
-					nodeMap[callee] = DataFlowNode{Name: callee, Kind: "process", Pkg: funcIndex[callee].pkg}
+					nodeMap[callee] = oculus.DataFlowNode{Name: callee, Kind: "process", Pkg: funcIndex[callee].pkg}
 				}
-				edges = append(edges, DataFlowEdge{From: name, To: callee})
+				edges = append(edges, oculus.DataFlowEdge{From: name, To: callee})
 				trace(callee, depth+1)
 			}
 		})
@@ -306,24 +307,24 @@ func traceDataFlow(funcIndex map[string]tsFuncDef, dataStores map[string]bool,
 }
 
 // detectTrustBoundaries identifies auth and public API boundaries from function metadata.
-func detectTrustBoundaries(funcIndex map[string]tsFuncDef, nodeMap map[string]DataFlowNode) []TrustBoundary {
-	var boundaries []TrustBoundary
+func detectTrustBoundaries(funcIndex map[string]tsFuncDef, nodeMap map[string]oculus.DataFlowNode) []oculus.TrustBoundary {
+	var boundaries []oculus.TrustBoundary
 
 	authList := filterBoundaryNodes(funcIndex, nodeMap, isAuthFunc)
 	if len(authList) > 0 {
-		boundaries = append(boundaries, TrustBoundary{Name: "Auth Boundary", Nodes: authList})
+		boundaries = append(boundaries, oculus.TrustBoundary{Name: "Auth Boundary", Nodes: authList})
 	}
 
 	pubList := filterBoundaryNodes(funcIndex, nodeMap, isPublicFunc)
 	if len(pubList) > 0 {
-		boundaries = append(boundaries, TrustBoundary{Name: "Public API", Nodes: pubList})
+		boundaries = append(boundaries, oculus.TrustBoundary{Name: "Public API", Nodes: pubList})
 	}
 
 	return boundaries
 }
 
 // filterBoundaryNodes returns function names that match the predicate and exist in nodeMap.
-func filterBoundaryNodes(funcIndex map[string]tsFuncDef, nodeMap map[string]DataFlowNode,
+func filterBoundaryNodes(funcIndex map[string]tsFuncDef, nodeMap map[string]oculus.DataFlowNode,
 	pred func(name string, fd tsFuncDef) bool,
 ) []string {
 	var result []string
@@ -361,14 +362,14 @@ func funcOrMethodName(child *sitter.Node) *sitter.Node {
 	}
 }
 
-// DetectStateMachines implements DeepAnalyzer using file-level parallelism.
+// DetectStateMachines implements oculus.DeepAnalyzer using file-level parallelism.
 // For each ParsedFile it:
 //  1. Extracts const blocks with iota (Go state candidates)
 //  2. Finds switch statements on those types
 //  3. Builds transitions from case arms
-func (a *TreeSitterDeepAnalyzer) DetectStateMachines(_ string) ([]StateMachine, error) {
+func (a *TreeSitterDeepAnalyzer) DetectStateMachines(_ string) ([]oculus.StateMachine, error) {
 	type perFileResult struct {
-		machines []StateMachine
+		machines []oculus.StateMachine
 	}
 
 	results := make([]perFileResult, len(a.project.Files))
@@ -383,7 +384,7 @@ func (a *TreeSitterDeepAnalyzer) DetectStateMachines(_ string) ([]StateMachine, 
 	}
 	wg.Wait()
 
-	var machines []StateMachine
+	var machines []oculus.StateMachine
 	seen := make(map[string]bool)
 	for _, r := range results {
 		for _, m := range r.machines {
@@ -397,8 +398,8 @@ func (a *TreeSitterDeepAnalyzer) DetectStateMachines(_ string) ([]StateMachine, 
 }
 
 // extractStateMachines finds iota-based const groups and switch statements
-// that reference those types, building StateMachine structures.
-func extractStateMachines(pf ParsedFile) []StateMachine {
+// that reference those types, building oculus.StateMachine structures.
+func extractStateMachines(pf ParsedFile) []oculus.StateMachine {
 	root := pf.Tree.RootNode()
 
 	// Phase 1: find const blocks with iota
@@ -450,7 +451,7 @@ func extractStateMachines(pf ParsedFile) []StateMachine {
 	}
 
 	// Phase 2: find switch statements and build transitions
-	machines := make([]StateMachine, 0, len(groups))
+	machines := make([]oculus.StateMachine, 0, len(groups))
 	for _, g := range groups {
 		transitions := findSwitchTransitions(root, pf.Source, g.typeName, g.values)
 		initial := g.values[0]
@@ -464,7 +465,7 @@ func extractStateMachines(pf ParsedFile) []StateMachine {
 			}
 		}
 
-		machines = append(machines, StateMachine{
+		machines = append(machines, oculus.StateMachine{
 			Name:        g.typeName,
 			Package:     pf.Package,
 			States:      g.values,
@@ -477,18 +478,18 @@ func extractStateMachines(pf ParsedFile) []StateMachine {
 
 // findSwitchTransitions searches for switch statements that reference
 // the given type's values and extracts transitions between states.
-func findSwitchTransitions(root *sitter.Node, src []byte, _ string, values []string) []StateTransition {
+func findSwitchTransitions(root *sitter.Node, src []byte, _ string, values []string) []oculus.StateTransition {
 	valueSet := make(map[string]bool)
 	for _, v := range values {
 		valueSet[v] = true
 	}
 
-	var transitions []StateTransition
+	var transitions []oculus.StateTransition
 	walkForSwitches(root, src, valueSet, &transitions)
 	return transitions
 }
 
-func walkForSwitches(node *sitter.Node, src []byte, valueSet map[string]bool, transitions *[]StateTransition) {
+func walkForSwitches(node *sitter.Node, src []byte, valueSet map[string]bool, transitions *[]oculus.StateTransition) {
 	if node == nil {
 		return
 	}
@@ -525,7 +526,7 @@ func extractCaseValues(node *sitter.Node, src []byte, valueSet map[string]bool) 
 
 // buildSwitchTransitions finds state transitions by checking if case bodies
 // for one state reference another state.
-func buildSwitchTransitions(bodyContent string, caseValues []string, transitions *[]StateTransition) {
+func buildSwitchTransitions(bodyContent string, caseValues []string, transitions *[]oculus.StateTransition) {
 	for _, fromState := range caseValues {
 		for _, toState := range caseValues {
 			if fromState == toState {
@@ -533,7 +534,7 @@ func buildSwitchTransitions(bodyContent string, caseValues []string, transitions
 			}
 			segment := caseSegment(bodyContent, fromState)
 			if segment != "" && strings.Contains(segment, toState) {
-				*transitions = append(*transitions, StateTransition{
+				*transitions = append(*transitions, oculus.StateTransition{
 					From:    fromState,
 					To:      toState,
 					Trigger: "switch",

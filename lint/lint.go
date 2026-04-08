@@ -4,6 +4,7 @@
 package lint
 
 import (
+	"github.com/dpopsuev/oculus/analyzer"
 	"fmt"
 	"sort"
 	"strings"
@@ -179,7 +180,7 @@ func safeClasses(root string) []oculus.ClassInfo {
 	if root == "" {
 		return nil
 	}
-	fb := oculus.NewFallback(root, nil)
+	fb := analyzer.NewFallback(root, nil)
 	classes, err := fb.Classes(root)
 	if err != nil {
 		return nil
@@ -192,7 +193,7 @@ func safeImpls(root string) []oculus.ImplEdge {
 	if root == "" {
 		return nil
 	}
-	fb := oculus.NewFallback(root, nil)
+	fb := analyzer.NewFallback(root, nil)
 	impls, err := fb.Implements(root)
 	if err != nil {
 		return nil

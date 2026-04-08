@@ -1,6 +1,7 @@
-package oculus
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"context"
 	"os"
 	"path/filepath"
@@ -32,10 +33,10 @@ type tsFunc struct {
 	callees []string
 }
 
-func (a *TypeScriptDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGraph, error) {
+func (a *TypeScriptDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	depth := opts.Depth
 	if depth <= 0 {
-		depth = DefaultCallGraphDepth
+		depth = oculus.DefaultCallGraphDepth
 	}
 
 	funcs, err := a.parseFunctions()
@@ -60,12 +61,12 @@ func (a *TypeScriptDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallG
 		}
 	}
 
-	return buildSimpleCallGraph(nf, roots, depth, LayerTypeScript), nil
+	return buildSimpleCallGraph(nf, roots, depth, oculus.LayerTypeScript), nil
 }
 
-func (a *TypeScriptDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*DataFlow, error) {
+func (a *TypeScriptDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*oculus.DataFlow, error) {
 	if maxDepth <= 0 {
-		maxDepth = DefaultDataFlowDepth
+		maxDepth = oculus.DefaultDataFlowDepth
 	}
 	funcs, err := a.parseFunctions()
 	if err != nil {
@@ -76,10 +77,10 @@ func (a *TypeScriptDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*
 	for i, f := range funcs {
 		nf[i] = namedFunc(f)
 	}
-	return dataFlowTrace(nf, entry, maxDepth, LayerTypeScript), nil
+	return dataFlowTrace(nf, entry, maxDepth, oculus.LayerTypeScript), nil
 }
 
-func (a *TypeScriptDeepAnalyzer) DetectStateMachines(_ string) ([]StateMachine, error) {
+func (a *TypeScriptDeepAnalyzer) DetectStateMachines(_ string) ([]oculus.StateMachine, error) {
 	return nil, nil
 }
 

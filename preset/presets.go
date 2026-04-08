@@ -3,6 +3,7 @@
 package preset
 
 import (
+	"github.com/dpopsuev/oculus/analyzer"
 	"context"
 	"fmt"
 	"strings"
@@ -15,7 +16,6 @@ import (
 	"github.com/dpopsuev/oculus/constraint"
 	"github.com/dpopsuev/oculus/port"
 	"github.com/dpopsuev/oculus/survey"
-	"github.com/dpopsuev/oculus"
 	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
 )
@@ -164,7 +164,7 @@ func preRefactor(b *strings.Builder, path string, report *arch.ContextReport) {
 		fmt.Fprintf(b, "- %s (churn:%d, fan-in:%d)\n", s.Component, s.Churn, s.FanIn)
 	}
 
-	da := oculus.NewFallback(path, nil)
+	da := analyzer.NewFallback(path, nil)
 	if classes, err := da.Classes(path); err == nil {
 		impls, _ := da.Implements(path)
 		imReport := constraint.ComputeInterfaceMetrics(classes, impls)
@@ -207,7 +207,7 @@ func fullClinic(ctx context.Context, b *strings.Builder, path string, report *ar
 		}
 	}
 
-	fa := oculus.NewFallback(path, deps.Pool)
+	fa := analyzer.NewFallback(path, deps.Pool)
 	if classes, err := fa.Classes(path); err == nil {
 		impls, _ := fa.Implements(path)
 		imReport := constraint.ComputeInterfaceMetrics(classes, impls)
@@ -246,7 +246,7 @@ func codeHealth(b *strings.Builder, path string, report *arch.ContextReport, dep
 	fmt.Fprintf(b, "# Code Health Clinic: %s\n\n", report.ModulePath)
 	fmt.Fprintf(b, "%d components, %d edges\n\n", len(report.Architecture.Services), len(report.Architecture.Edges))
 
-	fa := oculus.NewFallback(path, deps.Pool)
+	fa := analyzer.NewFallback(path, deps.Pool)
 	classes, _ := fa.Classes(path)
 	impls, _ := fa.Implements(path)
 

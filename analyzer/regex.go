@@ -1,6 +1,7 @@
-package oculus
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"errors"
 	"os"
 	"path/filepath"
@@ -32,67 +33,67 @@ var (
 	reNestBlock   = regexp.MustCompile(`\b(if|for|switch|select|while|match|try)\b`)
 )
 
-func (a *RegexAnalyzer) Classes(root string) ([]ClassInfo, error) {
-	var classes []ClassInfo
+func (a *RegexAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
+	var classes []oculus.ClassInfo
 	walkSrcFiles(root, func(path, pkg string, content []byte) {
 		text := string(content)
 		ext := filepath.Ext(path)
 		switch ext {
 		case extGo:
 			for _, m := range reGoStruct.FindAllStringSubmatch(text, -1) {
-				classes = append(classes, ClassInfo{
+				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: kindStruct,
 					Exported: isExported(m[1]),
 				})
 			}
 			for _, m := range reGoIface.FindAllStringSubmatch(text, -1) {
-				classes = append(classes, ClassInfo{
+				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: kindInterface,
 					Exported: isExported(m[1]),
 				})
 			}
 		case extJava:
 			for _, m := range reClass.FindAllStringSubmatch(text, -1) {
-				classes = append(classes, ClassInfo{
+				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: "class",
 					Exported: isExported(m[1]),
 				})
 			}
 			for _, m := range reInterface.FindAllStringSubmatch(text, -1) {
-				classes = append(classes, ClassInfo{
+				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: kindInterface,
 					Exported: true,
 				})
 			}
 		case extPy:
 			for _, m := range rePyClass.FindAllStringSubmatch(text, -1) {
-				classes = append(classes, ClassInfo{
+				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: "class",
 					Exported: !strings.HasPrefix(m[1], "_"),
 				})
 			}
 		case extRust:
 			for _, m := range reRustStruct.FindAllStringSubmatch(text, -1) {
-				classes = append(classes, ClassInfo{
+				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: kindStruct,
 					Exported: true,
 				})
 			}
 			for _, m := range reRustTrait.FindAllStringSubmatch(text, -1) {
-				classes = append(classes, ClassInfo{
+				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: "trait",
 					Exported: true,
 				})
 			}
 		case extTS, extJS:
 			for _, m := range reTSClass.FindAllStringSubmatch(text, -1) {
-				classes = append(classes, ClassInfo{
+				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: "class",
 					Exported: true,
 				})
 			}
 			for _, m := range reTSInterface.FindAllStringSubmatch(text, -1) {
-				classes = append(classes, ClassInfo{
+				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: kindInterface,
 					Exported: true,
 				})
@@ -103,26 +104,26 @@ func (a *RegexAnalyzer) Classes(root string) ([]ClassInfo, error) {
 }
 
 //nolint:gocyclo // multi-language regex matching requires branching per language
-func (a *RegexAnalyzer) Implements(root string) ([]ImplEdge, error) {
-	var edges []ImplEdge
+func (a *RegexAnalyzer) Implements(root string) ([]oculus.ImplEdge, error) {
+	var edges []oculus.ImplEdge
 	walkSrcFiles(root, func(path, pkg string, content []byte) {
 		text := string(content)
 		ext := filepath.Ext(path)
 		switch ext {
 		case extRust:
 			for _, m := range reRustImpl.FindAllStringSubmatch(text, -1) {
-				edges = append(edges, ImplEdge{From: m[2], To: m[1], Kind: "implements"})
+				edges = append(edges, oculus.ImplEdge{From: m[2], To: m[1], Kind: "implements"})
 			}
 		case extJava:
 			for _, m := range reClass.FindAllStringSubmatch(text, -1) {
 				if m[2] != "" {
-					edges = append(edges, ImplEdge{From: m[1], To: m[2], Kind: "extends"})
+					edges = append(edges, oculus.ImplEdge{From: m[1], To: m[2], Kind: "extends"})
 				}
 				if m[3] != "" {
 					for _, iface := range strings.Split(m[3], ",") {
 						iface = strings.TrimSpace(iface)
 						if iface != "" {
-							edges = append(edges, ImplEdge{From: m[1], To: iface, Kind: "implements"})
+							edges = append(edges, oculus.ImplEdge{From: m[1], To: iface, Kind: "implements"})
 						}
 					}
 				}
@@ -133,7 +134,7 @@ func (a *RegexAnalyzer) Implements(root string) ([]ImplEdge, error) {
 					for _, parent := range strings.Split(m[2], ",") {
 						parent = strings.TrimSpace(parent)
 						if parent != "" && parent != "object" {
-							edges = append(edges, ImplEdge{From: m[1], To: parent, Kind: "extends"})
+							edges = append(edges, oculus.ImplEdge{From: m[1], To: parent, Kind: "extends"})
 						}
 					}
 				}
@@ -141,13 +142,13 @@ func (a *RegexAnalyzer) Implements(root string) ([]ImplEdge, error) {
 		case extTS, extJS:
 			for _, m := range reTSClass.FindAllStringSubmatch(text, -1) {
 				if m[2] != "" {
-					edges = append(edges, ImplEdge{From: m[1], To: m[2], Kind: "extends"})
+					edges = append(edges, oculus.ImplEdge{From: m[1], To: m[2], Kind: "extends"})
 				}
 				if m[3] != "" {
 					for _, iface := range strings.Split(m[3], ",") {
 						iface = strings.TrimSpace(iface)
 						if iface != "" {
-							edges = append(edges, ImplEdge{From: m[1], To: iface, Kind: "implements"})
+							edges = append(edges, oculus.ImplEdge{From: m[1], To: iface, Kind: "implements"})
 						}
 					}
 				}
@@ -157,28 +158,28 @@ func (a *RegexAnalyzer) Implements(root string) ([]ImplEdge, error) {
 	return edges, nil
 }
 
-func (a *RegexAnalyzer) FieldRefs(root string) ([]FieldRef, error) {
+func (a *RegexAnalyzer) FieldRefs(root string) ([]oculus.FieldRef, error) {
 	return nil, nil
 }
 
-func (a *RegexAnalyzer) CallChain(root, entry string, depth int) ([]Call, error) {
+func (a *RegexAnalyzer) CallChain(root, entry string, depth int) ([]oculus.Call, error) {
 	return nil, ErrRegexCallChainNotSupported
 }
 
-func (a *RegexAnalyzer) EntryPoints(root string) ([]EntryPoint, error) {
-	var entries []EntryPoint
+func (a *RegexAnalyzer) EntryPoints(root string) ([]oculus.EntryPoint, error) {
+	var entries []oculus.EntryPoint
 	walkSrcFiles(root, func(path, pkg string, content []byte) {
 		text := string(content)
 		ext := filepath.Ext(path)
 		if ext == extGo {
 			if reGoMain.MatchString(text) {
-				entries = append(entries, EntryPoint{
+				entries = append(entries, oculus.EntryPoint{
 					Name: "main", Kind: "main", Package: pkg, File: path,
 				})
 			}
 			for _, m := range reFunc.FindAllStringSubmatch(text, -1) {
 				if strings.HasPrefix(m[1], "Test") {
-					entries = append(entries, EntryPoint{
+					entries = append(entries, oculus.EntryPoint{
 						Name: m[1], Kind: "test", Package: pkg, File: path,
 					})
 				}
@@ -188,8 +189,8 @@ func (a *RegexAnalyzer) EntryPoints(root string) ([]EntryPoint, error) {
 	return entries, nil
 }
 
-func (a *RegexAnalyzer) NestingDepth(root string) ([]NestingResult, error) {
-	var results []NestingResult
+func (a *RegexAnalyzer) NestingDepth(root string) ([]oculus.NestingResult, error) {
+	var results []oculus.NestingResult
 	walkSrcFiles(root, func(path, pkg string, content []byte) {
 		if filepath.Ext(path) != extGo {
 			return
@@ -220,7 +221,7 @@ func (a *RegexAnalyzer) NestingDepth(root string) ([]NestingResult, error) {
 					}
 				}
 			}
-			results = append(results, NestingResult{
+			results = append(results, oculus.NestingResult{
 				Function: funcName, Package: pkg, MaxDepth: maxDepth,
 			})
 		}

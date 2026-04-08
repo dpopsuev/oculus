@@ -1,6 +1,7 @@
-package oculus
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -8,20 +9,6 @@ import (
 
 	"github.com/dpopsuev/oculus/lang"
 )
-
-// Convention represents a detected coding convention.
-type Convention struct {
-	Category string   `json:"category"` // naming, structure, style
-	Pattern  string   `json:"pattern"`
-	Examples []string `json:"examples,omitempty"`
-	Count    int      `json:"count"`
-}
-
-// ConventionReport holds the result of convention detection.
-type ConventionReport struct {
-	Conventions []Convention `json:"conventions"`
-	Total       int          `json:"total"`
-}
 
 // conventionData holds intermediate data collected during the filesystem walk.
 type conventionData struct {
@@ -39,7 +26,7 @@ var (
 )
 
 // DetectConventions scans the project and detects coding conventions.
-func DetectConventions(root string) (*ConventionReport, error) {
+func DetectConventions(root string) (*oculus.ConventionReport, error) {
 	data := &conventionData{
 		structureDirs:  make(map[string]int),
 		testPatterns:   make(map[string][]string),
@@ -129,13 +116,13 @@ func (d *conventionData) classifyFile(rel, base string) {
 	}
 }
 
-// buildReport converts collected data into a ConventionReport.
-func (d *conventionData) buildReport() *ConventionReport {
-	report := &ConventionReport{}
+// buildReport converts collected data into a oculus.ConventionReport.
+func (d *conventionData) buildReport() *oculus.ConventionReport {
+	report := &oculus.ConventionReport{}
 
 	for _, prefix := range structurePrefixes {
 		if d.structureDirs[prefix] > 0 {
-			report.Conventions = append(report.Conventions, Convention{
+			report.Conventions = append(report.Conventions, oculus.Convention{
 				Category: "structure",
 				Pattern:  prefix + " directory layout",
 				Count:    d.structureDirs[prefix],
@@ -154,10 +141,10 @@ func (d *conventionData) buildReport() *ConventionReport {
 }
 
 // addPatternConventions adds conventions from pattern-to-examples maps.
-func addPatternConventions(report *ConventionReport, category, prefix string, patterns map[string][]string) {
+func addPatternConventions(report *oculus.ConventionReport, category, prefix string, patterns map[string][]string) {
 	for pattern, examples := range patterns {
 		if len(examples) > 0 {
-			report.Conventions = append(report.Conventions, Convention{
+			report.Conventions = append(report.Conventions, oculus.Convention{
 				Category: category,
 				Pattern:  prefix + pattern,
 				Count:    len(examples),
@@ -169,10 +156,10 @@ func addPatternConventions(report *ConventionReport, category, prefix string, pa
 }
 
 // addCountConventions adds conventions from name-to-count maps.
-func addCountConventions(report *ConventionReport, category, prefix string, counts map[string]int) {
+func addCountConventions(report *oculus.ConventionReport, category, prefix string, counts map[string]int) {
 	for name, count := range counts {
 		if count > 0 {
-			report.Conventions = append(report.Conventions, Convention{
+			report.Conventions = append(report.Conventions, oculus.Convention{
 				Category: category,
 				Pattern:  prefix + name,
 				Count:    count,

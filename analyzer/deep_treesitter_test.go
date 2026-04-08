@@ -1,6 +1,7 @@
-package oculus
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,7 +33,7 @@ func Helper() {}
 	if err != nil {
 		t.Fatal(err)
 	}
-	cg, err := a.CallGraph(dir, CallGraphOpts{Entry: "main", Depth: 5})
+	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +43,7 @@ func Helper() {}
 	if cg.Layer != "treesitter" {
 		t.Fatalf("expected layer=treesitter, got %s", cg.Layer)
 	}
-	t.Logf("CallGraph: %d nodes, %d edges", len(cg.Nodes), len(cg.Edges))
+	t.Logf("oculus.CallGraph: %d nodes, %d edges", len(cg.Nodes), len(cg.Edges))
 }
 
 func TestTreeSitterDeepDataFlowTrace(t *testing.T) {
@@ -74,7 +75,7 @@ func Save() {}
 	if flow.Layer != "treesitter" {
 		t.Fatalf("expected layer=treesitter, got %s", flow.Layer)
 	}
-	t.Logf("DataFlow: %d nodes, %d edges", len(flow.Nodes), len(flow.Edges))
+	t.Logf("oculus.DataFlow: %d nodes, %d edges", len(flow.Nodes), len(flow.Edges))
 }
 
 func TestTreeSitterDeepStateMachines(t *testing.T) {
@@ -118,7 +119,7 @@ func transition(s Status) Status {
 	if len(sm.States) != 3 {
 		t.Fatalf("expected 3 states, got %d: %v", len(sm.States), sm.States)
 	}
-	t.Logf("StateMachine: %s with %d states, %d transitions", sm.Name, len(sm.States), len(sm.Transitions))
+	t.Logf("oculus.StateMachine: %s with %d states, %d transitions", sm.Name, len(sm.States), len(sm.Transitions))
 }
 
 func TestDeepFallbackCallGraph(t *testing.T) {
@@ -133,12 +134,12 @@ func main() {
 func Hello() {}
 `)
 	fb := NewDeepFallback(dir, nil)
-	cg, err := fb.CallGraph(dir, CallGraphOpts{Entry: "main", Depth: 3})
+	cg, err := fb.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(cg.Edges) == 0 {
 		t.Fatal("expected at least one edge from fallback")
 	}
-	t.Logf("Fallback CallGraph: %d edges, layer=%s", len(cg.Edges), cg.Layer)
+	t.Logf("Fallback oculus.CallGraph: %d edges, layer=%s", len(cg.Edges), cg.Layer)
 }

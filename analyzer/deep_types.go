@@ -1,6 +1,7 @@
-package oculus
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"context"
 	"os"
 	"path/filepath"
@@ -12,7 +13,7 @@ import (
 
 // ParsedFile holds a pre-parsed source file with its AST, source bytes,
 // package name, and relative path. Created once by BuildParsedProject
-// and reused by all DeepAnalyzer queries without redundant I/O.
+// and reused by all oculus.DeepAnalyzer queries without redundant I/O.
 type ParsedFile struct {
 	Tree    *sitter.Tree
 	Source  []byte
@@ -21,7 +22,7 @@ type ParsedFile struct {
 }
 
 // ParsedProject caches parsed ASTs for an entire Go repository.
-// It enables "parse once, query many" — all DeepAnalyzer methods
+// It enables "parse once, query many" — all oculus.DeepAnalyzer methods
 // iterate over Files instead of re-walking the filesystem.
 type ParsedProject struct {
 	Root  string
@@ -38,14 +39,14 @@ type namedFunc struct {
 
 // buildSimpleCallGraph constructs a call graph from a list of named functions.
 // Shared between Python and TypeScript deep analyzers to avoid duplication.
-func buildSimpleCallGraph(funcs []namedFunc, roots []string, depth int, layer string) *CallGraph {
+func buildSimpleCallGraph(funcs []namedFunc, roots []string, depth int, layer string) *oculus.CallGraph {
 	funcIndex := make(map[string]*namedFunc, len(funcs))
 	for i := range funcs {
 		funcIndex[funcs[i].name] = &funcs[i]
 	}
 
-	nodeSet := make(map[string]FuncNode)
-	var edges []CallEdge
+	nodeSet := make(map[string]oculus.FuncNode)
+	var edges []oculus.CallEdge
 	visited := make(map[string]bool)
 
 	var walk func(name string, d int)
@@ -59,15 +60,15 @@ func buildSimpleCallGraph(funcs []namedFunc, roots []string, depth int, layer st
 			return
 		}
 		key := fn.pkg + "." + fn.name
-		nodeSet[key] = FuncNode{Name: fn.name, Package: fn.pkg, Line: fn.line}
+		nodeSet[key] = oculus.FuncNode{Name: fn.name, Package: fn.pkg, Line: fn.line}
 		for _, callee := range fn.callees {
 			cf, ok := funcIndex[callee]
 			if !ok {
 				continue
 			}
 			ck := cf.pkg + "." + cf.name
-			nodeSet[ck] = FuncNode{Name: cf.name, Package: cf.pkg, Line: cf.line}
-			edges = append(edges, CallEdge{
+			nodeSet[ck] = oculus.FuncNode{Name: cf.name, Package: cf.pkg, Line: cf.line}
+			edges = append(edges, oculus.CallEdge{
 				Caller:    fn.name,
 				Callee:    cf.name,
 				CallerPkg: fn.pkg,
@@ -81,25 +82,25 @@ func buildSimpleCallGraph(funcs []namedFunc, roots []string, depth int, layer st
 		walk(r, 0)
 	}
 
-	nodes := make([]FuncNode, 0, len(nodeSet))
+	nodes := make([]oculus.FuncNode, 0, len(nodeSet))
 	for _, n := range nodeSet {
 		nodes = append(nodes, n)
 	}
-	return &CallGraph{Nodes: nodes, Edges: edges, Layer: layer}
+	return &oculus.CallGraph{Nodes: nodes, Edges: edges, Layer: layer}
 }
 
 // dataFlowTrace is a shared implementation for DataFlowTrace across deep analyzers.
 // It avoids duplication between GoAST, Python, and TypeScript deep analyzers.
-func dataFlowTrace(funcs []namedFunc, entry string, maxDepth int, layer string) *DataFlow {
+func dataFlowTrace(funcs []namedFunc, entry string, maxDepth int, layer string) *oculus.DataFlow {
 	funcIndex := make(map[string]*namedFunc, len(funcs))
 	for i := range funcs {
 		funcIndex[funcs[i].name] = &funcs[i]
 	}
 
-	nodeMap := make(map[string]DataFlowNode)
-	var edges []DataFlowEdge
+	nodeMap := make(map[string]oculus.DataFlowNode)
+	var edges []oculus.DataFlowEdge
 	visited := make(map[string]bool)
-	nodeMap[entry] = DataFlowNode{Name: entry, Kind: "entry"}
+	nodeMap[entry] = oculus.DataFlowNode{Name: entry, Kind: "entry"}
 
 	var trace func(name string, d int)
 	trace = func(name string, d int) {
@@ -116,19 +117,19 @@ func dataFlowTrace(funcs []namedFunc, entry string, maxDepth int, layer string) 
 				continue
 			}
 			if _, exists := nodeMap[callee]; !exists {
-				nodeMap[callee] = DataFlowNode{Name: callee, Kind: "process", Pkg: funcIndex[callee].pkg}
+				nodeMap[callee] = oculus.DataFlowNode{Name: callee, Kind: "process", Pkg: funcIndex[callee].pkg}
 			}
-			edges = append(edges, DataFlowEdge{From: name, To: callee})
+			edges = append(edges, oculus.DataFlowEdge{From: name, To: callee})
 			trace(callee, d+1)
 		}
 	}
 	trace(entry, 0)
 
-	nodes := make([]DataFlowNode, 0, len(nodeMap))
+	nodes := make([]oculus.DataFlowNode, 0, len(nodeMap))
 	for _, n := range nodeMap {
 		nodes = append(nodes, n)
 	}
-	return &DataFlow{Nodes: nodes, Edges: edges, Layer: layer}
+	return &oculus.DataFlow{Nodes: nodes, Edges: edges, Layer: layer}
 }
 
 // collectTreeSitterCalls walks a tree-sitter node tree collecting function call names.

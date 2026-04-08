@@ -1,6 +1,7 @@
-package oculus
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"fmt"
 	"go/token"
 	"path/filepath"
@@ -32,7 +33,7 @@ func NewGoToolsDeep(root string) *GoToolsDeepAnalyzer {
 	return &GoToolsDeepAnalyzer{root: root}
 }
 
-func (a *GoToolsDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGraph, error) {
+func (a *GoToolsDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	absRoot, err := filepath.Abs(a.root)
 	if err != nil {
 		return nil, err
@@ -56,8 +57,8 @@ func (a *GoToolsDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGrap
 	cg := cha.CallGraph(prog)
 
 	// Convert gonum call graph to Locus format.
-	nodeSet := make(map[string]FuncNode)
-	var edges []CallEdge
+	nodeSet := make(map[string]oculus.FuncNode)
+	var edges []oculus.CallEdge
 
 	for fn, node := range cg.Nodes {
 		if fn == nil || fn.Synthetic != "" {
@@ -74,7 +75,7 @@ func (a *GoToolsDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGrap
 		}
 
 		callerKey := callerPkg + "." + fn.Name()
-		nodeSet[callerKey] = FuncNode{
+		nodeSet[callerKey] = oculus.FuncNode{
 			Name:    fn.Name(),
 			Package: callerPkg,
 			Line:    pos.Line,
@@ -89,12 +90,12 @@ func (a *GoToolsDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGrap
 			calleeKey := calleePkg + "." + callee.Name()
 			calleePos := prog.Fset.Position(callee.Pos())
 
-			nodeSet[calleeKey] = FuncNode{
+			nodeSet[calleeKey] = oculus.FuncNode{
 				Name:    callee.Name(),
 				Package: calleePkg,
 				Line:    calleePos.Line,
 			}
-			edges = append(edges, CallEdge{
+			edges = append(edges, oculus.CallEdge{
 				Caller:    fn.Name(),
 				Callee:    callee.Name(),
 				CallerPkg: callerPkg,
@@ -105,23 +106,23 @@ func (a *GoToolsDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGrap
 		}
 	}
 
-	nodes := make([]FuncNode, 0, len(nodeSet))
+	nodes := make([]oculus.FuncNode, 0, len(nodeSet))
 	for _, n := range nodeSet {
 		nodes = append(nodes, n)
 	}
-	return &CallGraph{Nodes: nodes, Edges: edges, Layer: LayerGoTools}, nil
+	return &oculus.CallGraph{Nodes: nodes, Edges: edges, Layer: LayerGoTools}, nil
 }
 
-func (a *GoToolsDeepAnalyzer) DataFlowTrace(root, entry string, maxDepth int) (*DataFlow, error) {
+func (a *GoToolsDeepAnalyzer) DataFlowTrace(root, entry string, maxDepth int) (*oculus.DataFlow, error) {
 	// Delegate to GoAST for data flow — CHA doesn't provide data flow info.
 	goast := NewGoASTDeep(a.root)
 	if goast == nil {
-		return &DataFlow{Layer: LayerGoTools}, nil
+		return &oculus.DataFlow{Layer: LayerGoTools}, nil
 	}
 	return goast.DataFlowTrace(root, entry, maxDepth)
 }
 
-func (a *GoToolsDeepAnalyzer) DetectStateMachines(root string) ([]StateMachine, error) {
+func (a *GoToolsDeepAnalyzer) DetectStateMachines(root string) ([]oculus.StateMachine, error) {
 	// Delegate to GoAST — state machines are AST pattern matching, not call graph.
 	goast := NewGoASTDeep(a.root)
 	if goast == nil {

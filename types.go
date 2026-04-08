@@ -144,3 +144,17 @@ type StateMachine struct {
 	Transitions []StateTransition `json:"transitions"`
 	Initial     string            `json:"initial,omitempty"`
 }
+
+// Convention represents a detected coding convention.
+type Convention struct {
+	Category string   `json:"category"` // naming, structure, style
+	Pattern  string   `json:"pattern"`
+	Examples []string `json:"examples,omitempty"`
+	Count    int      `json:"count"`
+}
+
+// ConventionReport holds the result of convention detection.
+type ConventionReport struct {
+	Conventions []Convention `json:"conventions"`
+	Total       int          `json:"total"`
+}

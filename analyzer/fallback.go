@@ -1,6 +1,7 @@
-package oculus
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"os/exec"
 	"strings"
 
@@ -11,9 +12,9 @@ import (
 // FallbackAnalyzer chains LSP -> tree-sitter -> regex. Each method tries
 // the highest-fidelity analyzer first and falls through on error or empty results.
 type FallbackAnalyzer struct {
-	lsp   TypeAnalyzer
-	ts    TypeAnalyzer
-	regex TypeAnalyzer
+	lsp   oculus.TypeAnalyzer
+	ts    oculus.TypeAnalyzer
+	regex oculus.TypeAnalyzer
 }
 
 // NewFallback creates a FallbackAnalyzer. It checks whether an LSP server
@@ -40,7 +41,7 @@ func NewFallback(root string, pool lsp.Pool) *FallbackAnalyzer {
 	return f
 }
 
-func (f *FallbackAnalyzer) Classes(root string) ([]ClassInfo, error) {
+func (f *FallbackAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
 	if f.lsp != nil {
 		if r, err := f.lsp.Classes(root); err == nil && len(r) > 0 {
 			return r, nil
@@ -52,7 +53,7 @@ func (f *FallbackAnalyzer) Classes(root string) ([]ClassInfo, error) {
 	return f.regex.Classes(root)
 }
 
-func (f *FallbackAnalyzer) Implements(root string) ([]ImplEdge, error) {
+func (f *FallbackAnalyzer) Implements(root string) ([]oculus.ImplEdge, error) {
 	if f.lsp != nil {
 		if r, err := f.lsp.Implements(root); err == nil && len(r) > 0 {
 			return r, nil
@@ -64,14 +65,14 @@ func (f *FallbackAnalyzer) Implements(root string) ([]ImplEdge, error) {
 	return f.regex.Implements(root)
 }
 
-func (f *FallbackAnalyzer) FieldRefs(root string) ([]FieldRef, error) {
+func (f *FallbackAnalyzer) FieldRefs(root string) ([]oculus.FieldRef, error) {
 	if r, err := f.ts.FieldRefs(root); err == nil && len(r) > 0 {
 		return r, nil
 	}
 	return f.regex.FieldRefs(root)
 }
 
-func (f *FallbackAnalyzer) CallChain(root, entry string, depth int) ([]Call, error) {
+func (f *FallbackAnalyzer) CallChain(root, entry string, depth int) ([]oculus.Call, error) {
 	if f.lsp != nil {
 		if r, err := f.lsp.CallChain(root, entry, depth); err == nil && len(r) > 0 {
 			return r, nil
@@ -83,14 +84,14 @@ func (f *FallbackAnalyzer) CallChain(root, entry string, depth int) ([]Call, err
 	return f.regex.CallChain(root, entry, depth)
 }
 
-func (f *FallbackAnalyzer) EntryPoints(root string) ([]EntryPoint, error) {
+func (f *FallbackAnalyzer) EntryPoints(root string) ([]oculus.EntryPoint, error) {
 	if r, err := f.ts.EntryPoints(root); err == nil && len(r) > 0 {
 		return r, nil
 	}
 	return f.regex.EntryPoints(root)
 }
 
-func (f *FallbackAnalyzer) NestingDepth(root string) ([]NestingResult, error) {
+func (f *FallbackAnalyzer) NestingDepth(root string) ([]oculus.NestingResult, error) {
 	if r, err := f.ts.NestingDepth(root); err == nil && len(r) > 0 {
 		return r, nil
 	}

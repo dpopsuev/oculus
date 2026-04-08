@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"github.com/dpopsuev/oculus/analyzer"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -11,7 +12,6 @@ import (
 	clinicsolid "github.com/dpopsuev/oculus/clinic/solid"
 	"github.com/dpopsuev/oculus/impact"
 	"github.com/dpopsuev/oculus/port"
-	"github.com/dpopsuev/oculus"
 )
 
 // oculusRoot returns the absolute path to the Oculus repository root,
@@ -60,7 +60,7 @@ func TestDogfood_RoleAwareScanReducesFalsePositives(t *testing.T) {
 	services := report.Architecture.Services
 	edges := report.Architecture.Edges
 
-	fa := oculus.NewFallback(root, nil)
+	fa := analyzer.NewFallback(root, nil)
 	classes, err := fa.Classes(root)
 	if err != nil {
 		t.Fatalf("Classes: %v", err)
@@ -123,7 +123,7 @@ func TestDogfood_AcceptedSuppressionWorks(t *testing.T) {
 	edges := report.Architecture.Edges
 	cycles := report.Cycles
 
-	fa := oculus.NewFallback(root, nil)
+	fa := analyzer.NewFallback(root, nil)
 	classes, _ := fa.Classes(root)
 	impls, _ := fa.Implements(root)
 

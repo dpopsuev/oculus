@@ -1,4 +1,4 @@
-package oculus
+package analyzer
 
 // Internal constants used by analyzer implementations.
 const (

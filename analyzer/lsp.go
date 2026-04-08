@@ -1,6 +1,7 @@
-package oculus
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"bufio"
 	"encoding/json"
 	"errors"
@@ -44,7 +45,7 @@ type LSPAnalyzer struct {
 	pool    lsp.Pool      // optional connection pool (nil = cold-start per request)
 }
 
-func (a *LSPAnalyzer) Classes(root string) ([]ClassInfo, error) {
+func (a *LSPAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
 	conn, cleanup, err := a.startServer(root)
 	if err != nil {
 		return nil, err
@@ -53,7 +54,7 @@ func (a *LSPAnalyzer) Classes(root string) ([]ClassInfo, error) {
 	return conn.documentClasses(root)
 }
 
-func (a *LSPAnalyzer) Implements(root string) ([]ImplEdge, error) {
+func (a *LSPAnalyzer) Implements(root string) ([]oculus.ImplEdge, error) {
 	conn, cleanup, err := a.startServer(root)
 	if err != nil {
 		return nil, err
@@ -62,11 +63,11 @@ func (a *LSPAnalyzer) Implements(root string) ([]ImplEdge, error) {
 	return conn.implementations(root)
 }
 
-func (a *LSPAnalyzer) FieldRefs(root string) ([]FieldRef, error) {
+func (a *LSPAnalyzer) FieldRefs(root string) ([]oculus.FieldRef, error) {
 	return nil, ErrLSPFieldRefs
 }
 
-func (a *LSPAnalyzer) CallChain(root, entry string, depth int) ([]Call, error) {
+func (a *LSPAnalyzer) CallChain(root, entry string, depth int) ([]oculus.Call, error) {
 	conn, cleanup, err := a.startServer(root)
 	if err != nil {
 		return nil, err
@@ -75,11 +76,11 @@ func (a *LSPAnalyzer) CallChain(root, entry string, depth int) ([]Call, error) {
 	return conn.callChain(root, entry, depth)
 }
 
-func (a *LSPAnalyzer) EntryPoints(root string) ([]EntryPoint, error) {
+func (a *LSPAnalyzer) EntryPoints(root string) ([]oculus.EntryPoint, error) {
 	return nil, ErrLSPEntryPoints
 }
 
-func (a *LSPAnalyzer) NestingDepth(root string) ([]NestingResult, error) {
+func (a *LSPAnalyzer) NestingDepth(root string) ([]oculus.NestingResult, error) {
 	return nil, ErrLSPNestingDepth
 }
 
@@ -121,10 +122,10 @@ func (c *lspConn) shutdown() {
 
 // documentClasses uses textDocument/documentSymbol on all source files.
 //
-//nolint:unparam // error return kept for API consistency with TypeAnalyzer interface
-func (c *lspConn) documentClasses(root string) ([]ClassInfo, error) {
+//nolint:unparam // error return kept for API consistency with oculus.TypeAnalyzer interface
+func (c *lspConn) documentClasses(root string) ([]oculus.ClassInfo, error) {
 	files := findSrcFiles(root)
-	var classes []ClassInfo
+	var classes []oculus.ClassInfo
 	for _, f := range files {
 		syms, err := c.documentSymbols(f, root)
 		if err != nil {
@@ -147,7 +148,7 @@ func (c *lspConn) documentClasses(root string) ([]ClassInfo, error) {
 			default:
 				continue
 			}
-			ci := ClassInfo{
+			ci := oculus.ClassInfo{
 				Name:     sym.Name,
 				Package:  pkg,
 				Kind:     kind,
@@ -156,12 +157,12 @@ func (c *lspConn) documentClasses(root string) ([]ClassInfo, error) {
 			for _, ch := range sym.Children {
 				switch ch.Kind {
 				case 8: // field
-					ci.Fields = append(ci.Fields, FieldInfo{
+					ci.Fields = append(ci.Fields, oculus.FieldInfo{
 						Name:     ch.Name,
 						Exported: isExported(ch.Name),
 					})
 				case 6: // method
-					ci.Methods = append(ci.Methods, MethodInfo{
+					ci.Methods = append(ci.Methods, oculus.MethodInfo{
 						Name:      ch.Name,
 						Signature: ch.Name,
 						Exported:  isExported(ch.Name),
@@ -176,13 +177,13 @@ func (c *lspConn) documentClasses(root string) ([]ClassInfo, error) {
 
 // implementations uses textDocument/implementation to find interface edges.
 //
-//nolint:unparam // error return kept for API consistency with TypeAnalyzer interface
-func (c *lspConn) implementations(root string) ([]ImplEdge, error) {
+//nolint:unparam // error return kept for API consistency with oculus.TypeAnalyzer interface
+func (c *lspConn) implementations(root string) ([]oculus.ImplEdge, error) {
 	// LSP textDocument/implementation requires a specific position.
 	// We first get all interface symbols via documentSymbol, then query
 	// implementations at each interface name position.
 	files := findSrcFiles(root)
-	var edges []ImplEdge
+	var edges []oculus.ImplEdge
 	for _, f := range files {
 		syms, err := c.documentSymbols(f, root)
 		if err != nil {
@@ -214,7 +215,7 @@ func (c *lspConn) implementations(root string) ([]ImplEdge, error) {
 			for _, loc := range locations {
 				implName := resolveNameAtURI(loc.URI, loc.Range.Start.Line)
 				if implName != "" {
-					edges = append(edges, ImplEdge{
+					edges = append(edges, oculus.ImplEdge{
 						From: implName,
 						To:   sym.Name,
 						Kind: "implements",
@@ -227,7 +228,7 @@ func (c *lspConn) implementations(root string) ([]ImplEdge, error) {
 }
 
 // callChain uses callHierarchy/outgoingCalls recursively.
-func (c *lspConn) callChain(root, entry string, maxDepth int) ([]Call, error) {
+func (c *lspConn) callChain(root, entry string, maxDepth int) ([]oculus.Call, error) {
 	if maxDepth <= 0 {
 		maxDepth = 5
 	}
@@ -237,7 +238,7 @@ func (c *lspConn) callChain(root, entry string, maxDepth int) ([]Call, error) {
 		return nil, fmt.Errorf("%w: %q", ErrCallChainEntryNotFound, entry)
 	}
 
-	var calls []Call
+	var calls []oculus.Call
 	visited := make(map[string]bool)
 	var walk func(it *callHierarchyItem, depth int)
 	walk = func(it *callHierarchyItem, depth int) {
@@ -256,7 +257,7 @@ func (c *lspConn) callChain(root, entry string, maxDepth int) ([]Call, error) {
 			return
 		}
 		for _, out := range outs {
-			calls = append(calls, Call{
+			calls = append(calls, oculus.Call{
 				Caller:  it.Name,
 				Callee:  out.To.Name,
 				Package: uriToPackage(out.To.URI, root),

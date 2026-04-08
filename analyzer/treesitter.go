@@ -1,6 +1,7 @@
-package oculus
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"context"
 	"errors"
 	"fmt"
@@ -21,7 +22,7 @@ var ErrUnsupportedLanguage = errors.New("tree-sitter: unsupported language")
 // with tree-sitter grammars. Accuracy is ~70% (syntactic, not semantic).
 type TreeSitterAnalyzer struct{}
 
-func (a *TreeSitterAnalyzer) Classes(root string) ([]ClassInfo, error) {
+func (a *TreeSitterAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
 	lang := olang.DetectLanguage(root)
 	switch lang {
 	case olang.Go:
@@ -31,7 +32,7 @@ func (a *TreeSitterAnalyzer) Classes(root string) ([]ClassInfo, error) {
 	}
 }
 
-func (a *TreeSitterAnalyzer) Implements(root string) ([]ImplEdge, error) {
+func (a *TreeSitterAnalyzer) Implements(root string) ([]oculus.ImplEdge, error) {
 	lang := olang.DetectLanguage(root)
 	switch lang {
 	case olang.Go:
@@ -41,7 +42,7 @@ func (a *TreeSitterAnalyzer) Implements(root string) ([]ImplEdge, error) {
 	}
 }
 
-func (a *TreeSitterAnalyzer) FieldRefs(root string) ([]FieldRef, error) {
+func (a *TreeSitterAnalyzer) FieldRefs(root string) ([]oculus.FieldRef, error) {
 	lang := olang.DetectLanguage(root)
 	switch lang {
 	case olang.Go:
@@ -51,7 +52,7 @@ func (a *TreeSitterAnalyzer) FieldRefs(root string) ([]FieldRef, error) {
 	}
 }
 
-func (a *TreeSitterAnalyzer) CallChain(root, entry string, depth int) ([]Call, error) {
+func (a *TreeSitterAnalyzer) CallChain(root, entry string, depth int) ([]oculus.Call, error) {
 	lang := olang.DetectLanguage(root)
 	switch lang {
 	case olang.Go:
@@ -61,7 +62,7 @@ func (a *TreeSitterAnalyzer) CallChain(root, entry string, depth int) ([]Call, e
 	}
 }
 
-func (a *TreeSitterAnalyzer) EntryPoints(root string) ([]EntryPoint, error) {
+func (a *TreeSitterAnalyzer) EntryPoints(root string) ([]oculus.EntryPoint, error) {
 	lang := olang.DetectLanguage(root)
 	switch lang {
 	case olang.Go:
@@ -71,7 +72,7 @@ func (a *TreeSitterAnalyzer) EntryPoints(root string) ([]EntryPoint, error) {
 	}
 }
 
-func (a *TreeSitterAnalyzer) NestingDepth(root string) ([]NestingResult, error) {
+func (a *TreeSitterAnalyzer) NestingDepth(root string) ([]oculus.NestingResult, error) {
 	lang := olang.DetectLanguage(root)
 	switch lang {
 	case olang.Go:
@@ -83,8 +84,8 @@ func (a *TreeSitterAnalyzer) NestingDepth(root string) ([]NestingResult, error) 
 
 // --- Go-specific implementations ---
 
-func (a *TreeSitterAnalyzer) goClasses(root string) ([]ClassInfo, error) {
-	var classes []ClassInfo
+func (a *TreeSitterAnalyzer) goClasses(root string) ([]oculus.ClassInfo, error) {
+	var classes []oculus.ClassInfo
 	err := a.walkGoFiles(root, func(tree *sitter.Tree, src []byte, pkg, file string) {
 		root := tree.RootNode()
 		for i := 0; i < int(root.ChildCount()); i++ {
@@ -103,7 +104,7 @@ func (a *TreeSitterAnalyzer) goClasses(root string) ([]ClassInfo, error) {
 					continue
 				}
 				name := nameNode.Content(src)
-				ci := ClassInfo{
+				ci := oculus.ClassInfo{
 					Name:     name,
 					Package:  pkg,
 					Exported: isExported(name),
@@ -145,7 +146,7 @@ func (a *TreeSitterAnalyzer) goClasses(root string) ([]ClassInfo, error) {
 			}
 			for k := range classes {
 				if classes[k].Name == recvType && classes[k].Package == pkg {
-					classes[k].Methods = append(classes[k].Methods, MethodInfo{
+					classes[k].Methods = append(classes[k].Methods, oculus.MethodInfo{
 						Name:      methodName,
 						Signature: sig,
 						Exported:  isExported(methodName),
@@ -158,8 +159,8 @@ func (a *TreeSitterAnalyzer) goClasses(root string) ([]ClassInfo, error) {
 }
 
 //nolint:gocyclo // struct embedding detection requires iterating nested AST nodes
-func (a *TreeSitterAnalyzer) goImplements(root string) ([]ImplEdge, error) {
-	var edges []ImplEdge
+func (a *TreeSitterAnalyzer) goImplements(root string) ([]oculus.ImplEdge, error) {
+	var edges []oculus.ImplEdge
 	err := a.walkGoFiles(root, func(tree *sitter.Tree, src []byte, pkg, file string) {
 		rootNode := tree.RootNode()
 		for i := 0; i < int(rootNode.ChildCount()); i++ {
@@ -214,7 +215,7 @@ func (a *TreeSitterAnalyzer) goImplements(root string) ([]ImplEdge, error) {
 					}
 					if nameCount == 0 && typeContent != "" {
 						typeContent = strings.TrimPrefix(typeContent, "*")
-						edges = append(edges, ImplEdge{
+						edges = append(edges, oculus.ImplEdge{
 							From: name,
 							To:   typeContent,
 							Kind: "embeds",
@@ -227,7 +228,7 @@ func (a *TreeSitterAnalyzer) goImplements(root string) ([]ImplEdge, error) {
 	return edges, err
 }
 
-func (a *TreeSitterAnalyzer) goFieldRefs(root string) ([]FieldRef, error) {
+func (a *TreeSitterAnalyzer) goFieldRefs(root string) ([]oculus.FieldRef, error) {
 	classes, err := a.goClasses(root)
 	if err != nil {
 		return nil, err
@@ -236,7 +237,7 @@ func (a *TreeSitterAnalyzer) goFieldRefs(root string) ([]FieldRef, error) {
 	for _, c := range classes {
 		typeSet[c.Name] = true
 	}
-	var refs []FieldRef
+	var refs []oculus.FieldRef
 	for _, c := range classes {
 		if c.Kind != kindStruct {
 			continue
@@ -249,7 +250,7 @@ func (a *TreeSitterAnalyzer) goFieldRefs(root string) ([]FieldRef, error) {
 				refType = refType[idx+1:]
 			}
 			if typeSet[refType] && refType != c.Name {
-				refs = append(refs, FieldRef{
+				refs = append(refs, oculus.FieldRef{
 					Owner:   c.Name,
 					Field:   f.Name,
 					RefType: refType,
@@ -260,7 +261,7 @@ func (a *TreeSitterAnalyzer) goFieldRefs(root string) ([]FieldRef, error) {
 	return refs, nil
 }
 
-func (a *TreeSitterAnalyzer) goCallChain(root, entry string, maxDepth int) ([]Call, error) {
+func (a *TreeSitterAnalyzer) goCallChain(root, entry string, maxDepth int) ([]oculus.Call, error) {
 	if maxDepth <= 0 {
 		maxDepth = 5
 	}
@@ -299,7 +300,7 @@ func (a *TreeSitterAnalyzer) goCallChain(root, entry string, maxDepth int) ([]Ca
 		return nil, err
 	}
 
-	var calls []Call
+	var calls []oculus.Call
 	visited := make(map[string]bool)
 
 	var walk func(funcName string, depth int)
@@ -313,7 +314,7 @@ func (a *TreeSitterAnalyzer) goCallChain(root, entry string, maxDepth int) ([]Ca
 			return
 		}
 		extractCalls(fb.node, fb.src, func(callee string, line int) {
-			calls = append(calls, Call{
+			calls = append(calls, oculus.Call{
 				Caller:  funcName,
 				Callee:  callee,
 				Package: fb.pkg,
@@ -326,8 +327,8 @@ func (a *TreeSitterAnalyzer) goCallChain(root, entry string, maxDepth int) ([]Ca
 	return calls, nil
 }
 
-func (a *TreeSitterAnalyzer) goEntryPoints(root string) ([]EntryPoint, error) {
-	var entries []EntryPoint
+func (a *TreeSitterAnalyzer) goEntryPoints(root string) ([]oculus.EntryPoint, error) {
+	var entries []oculus.EntryPoint
 	err := a.walkGoFiles(root, func(tree *sitter.Tree, src []byte, pkg, file string) {
 		rootNode := tree.RootNode()
 		for i := 0; i < int(rootNode.ChildCount()); i++ {
@@ -344,22 +345,22 @@ func (a *TreeSitterAnalyzer) goEntryPoints(root string) ([]EntryPoint, error) {
 
 			switch {
 			case name == "main":
-				entries = append(entries, EntryPoint{
+				entries = append(entries, oculus.EntryPoint{
 					Name: name, Kind: "main", Package: pkg, File: file,
 					Line: int(nameNode.StartPoint().Row) + 1,
 				})
 			case name == "init":
-				entries = append(entries, EntryPoint{
+				entries = append(entries, oculus.EntryPoint{
 					Name: name, Kind: "init", Package: pkg, File: file,
 					Line: int(nameNode.StartPoint().Row) + 1,
 				})
 			case strings.HasPrefix(name, "Test") && params != nil && isTestParam(params, src):
-				entries = append(entries, EntryPoint{
+				entries = append(entries, oculus.EntryPoint{
 					Name: name, Kind: "test", Package: pkg, File: file,
 					Line: int(nameNode.StartPoint().Row) + 1,
 				})
 			case isHTTPHandlerSignature(params, src):
-				entries = append(entries, EntryPoint{
+				entries = append(entries, oculus.EntryPoint{
 					Name: name, Kind: "http_handler", Package: pkg, File: file,
 					Line: int(nameNode.StartPoint().Row) + 1,
 				})
@@ -369,8 +370,8 @@ func (a *TreeSitterAnalyzer) goEntryPoints(root string) ([]EntryPoint, error) {
 	return entries, err
 }
 
-func (a *TreeSitterAnalyzer) goNestingDepth(root string) ([]NestingResult, error) {
-	var results []NestingResult
+func (a *TreeSitterAnalyzer) goNestingDepth(root string) ([]oculus.NestingResult, error) {
+	var results []oculus.NestingResult
 	err := a.walkGoFiles(root, func(tree *sitter.Tree, src []byte, pkg, file string) {
 		rootNode := tree.RootNode()
 		for i := 0; i < int(rootNode.ChildCount()); i++ {
@@ -392,7 +393,7 @@ func (a *TreeSitterAnalyzer) goNestingDepth(root string) ([]NestingResult, error
 				continue
 			}
 			maxD := computeNesting(body, 0)
-			results = append(results, NestingResult{
+			results = append(results, oculus.NestingResult{
 				Function: nameNode.Content(src),
 				Package:  pkg,
 				MaxDepth: maxD,
@@ -448,8 +449,8 @@ func (a *TreeSitterAnalyzer) walkGoFiles(root string, fn func(*sitter.Tree, []by
 	})
 }
 
-func extractGoStructFields(structNode *sitter.Node, src []byte) []FieldInfo {
-	var fields []FieldInfo
+func extractGoStructFields(structNode *sitter.Node, src []byte) []oculus.FieldInfo {
+	var fields []oculus.FieldInfo
 	var fieldList *sitter.Node
 	for i := 0; i < int(structNode.ChildCount()); i++ {
 		c := structNode.Child(i)
@@ -490,7 +491,7 @@ func extractGoStructFields(structNode *sitter.Node, src []byte) []FieldInfo {
 			if idx := strings.LastIndex(shortName, "."); idx >= 0 {
 				shortName = shortName[idx+1:]
 			}
-			fields = append(fields, FieldInfo{
+			fields = append(fields, oculus.FieldInfo{
 				Name:     shortName,
 				Type:     typStr,
 				Exported: isExported(shortName),
@@ -499,7 +500,7 @@ func extractGoStructFields(structNode *sitter.Node, src []byte) []FieldInfo {
 			continue
 		}
 		for _, n := range names {
-			fields = append(fields, FieldInfo{
+			fields = append(fields, oculus.FieldInfo{
 				Name:     n,
 				Type:     typStr,
 				Exported: isExported(n),
@@ -510,8 +511,8 @@ func extractGoStructFields(structNode *sitter.Node, src []byte) []FieldInfo {
 	return fields
 }
 
-func extractGoInterfaceMethods(ifaceNode *sitter.Node, src []byte) []MethodInfo {
-	var methods []MethodInfo
+func extractGoInterfaceMethods(ifaceNode *sitter.Node, src []byte) []oculus.MethodInfo {
+	var methods []oculus.MethodInfo
 	for i := 0; i < int(ifaceNode.ChildCount()); i++ {
 		child := ifaceNode.Child(i)
 		if child.Type() == "method_spec" {
@@ -525,7 +526,7 @@ func extractGoInterfaceMethods(ifaceNode *sitter.Node, src []byte) []MethodInfo 
 			if params != nil {
 				sig = name + params.Content(src)
 			}
-			methods = append(methods, MethodInfo{
+			methods = append(methods, oculus.MethodInfo{
 				Name:      name,
 				Signature: sig,
 				Exported:  isExported(name),

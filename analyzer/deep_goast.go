@@ -1,6 +1,7 @@
-package oculus
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -36,10 +37,10 @@ type goFunc struct {
 	body         *ast.BlockStmt
 }
 
-func (a *GoASTDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGraph, error) {
+func (a *GoASTDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	depth := opts.Depth
 	if depth <= 0 {
-		depth = DefaultCallGraphDepth
+		depth = oculus.DefaultCallGraphDepth
 	}
 
 	funcs, err := a.parseFunctions(opts.Scope)
@@ -71,8 +72,8 @@ func (a *GoASTDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGraph,
 		}
 	}
 
-	nodeSet := make(map[string]FuncNode)
-	var edges []CallEdge
+	nodeSet := make(map[string]oculus.FuncNode)
+	var edges []oculus.CallEdge
 	visited := make(map[string]bool)
 
 	var walk func(name string, d int)
@@ -88,7 +89,7 @@ func (a *GoASTDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGraph,
 		}
 
 		key := fn.pkg + "." + fn.name
-		nodeSet[key] = FuncNode{Name: fn.name, Package: fn.pkg, Line: fn.line}
+		nodeSet[key] = oculus.FuncNode{Name: fn.name, Package: fn.pkg, Line: fn.line}
 
 		for _, callee := range fn.callees {
 			calleeFn, ok := funcIndex[callee]
@@ -96,8 +97,8 @@ func (a *GoASTDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGraph,
 				continue
 			}
 			calleeKey := calleeFn.pkg + "." + calleeFn.name
-			nodeSet[calleeKey] = FuncNode{Name: calleeFn.name, Package: calleeFn.pkg, Line: calleeFn.line}
-			edges = append(edges, CallEdge{
+			nodeSet[calleeKey] = oculus.FuncNode{Name: calleeFn.name, Package: calleeFn.pkg, Line: calleeFn.line}
+			edges = append(edges, oculus.CallEdge{
 				Caller:       fn.name,
 				Callee:       calleeFn.name,
 				CallerPkg:    fn.pkg,
@@ -115,16 +116,16 @@ func (a *GoASTDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGraph,
 		walk(root, 0)
 	}
 
-	nodes := make([]FuncNode, 0, len(nodeSet))
+	nodes := make([]oculus.FuncNode, 0, len(nodeSet))
 	for _, n := range nodeSet {
 		nodes = append(nodes, n)
 	}
-	return &CallGraph{Nodes: nodes, Edges: edges, Layer: LayerGoAST}, nil
+	return &oculus.CallGraph{Nodes: nodes, Edges: edges, Layer: oculus.LayerGoAST}, nil
 }
 
-func (a *GoASTDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*DataFlow, error) {
+func (a *GoASTDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*oculus.DataFlow, error) {
 	if maxDepth <= 0 {
-		maxDepth = DefaultDataFlowDepth
+		maxDepth = oculus.DefaultDataFlowDepth
 	}
 
 	funcs, err := a.parseFunctions("") // DataFlowTrace needs full graph
@@ -136,14 +137,14 @@ func (a *GoASTDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*DataF
 	for i, f := range funcs {
 		nf[i] = namedFunc{name: f.name, pkg: f.pkg, line: f.line, callees: f.callees}
 	}
-	return dataFlowTrace(nf, entry, maxDepth, LayerGoAST), nil
+	return dataFlowTrace(nf, entry, maxDepth, oculus.LayerGoAST), nil
 }
 
-func (a *GoASTDeepAnalyzer) DetectStateMachines(_ string) ([]StateMachine, error) {
+func (a *GoASTDeepAnalyzer) DetectStateMachines(_ string) ([]oculus.StateMachine, error) {
 	fset := token.NewFileSet()
 	absRoot, _ := filepath.Abs(a.root)
 
-	var machines []StateMachine
+	var machines []oculus.StateMachine
 
 	_ = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -182,8 +183,8 @@ func (a *GoASTDeepAnalyzer) DetectStateMachines(_ string) ([]StateMachine, error
 }
 
 // parseIotaConstGroup checks if a declaration is an iota-based const group
-// and returns a StateMachine if so.
-func parseIotaConstGroup(decl ast.Decl, f *ast.File, pkg string) *StateMachine {
+// and returns a oculus.StateMachine if so.
+func parseIotaConstGroup(decl ast.Decl, f *ast.File, pkg string) *oculus.StateMachine {
 	gd, ok := decl.(*ast.GenDecl)
 	if !ok || gd.Tok != token.CONST || len(gd.Specs) < 3 {
 		return nil
@@ -221,7 +222,7 @@ func parseIotaConstGroup(decl ast.Decl, f *ast.File, pkg string) *StateMachine {
 	}
 
 	transitions := findASTSwitchTransitions(f, values)
-	return &StateMachine{
+	return &oculus.StateMachine{
 		Name:        typeName,
 		Package:     pkg,
 		States:      values,
@@ -230,13 +231,13 @@ func parseIotaConstGroup(decl ast.Decl, f *ast.File, pkg string) *StateMachine {
 	}
 }
 
-func findASTSwitchTransitions(f *ast.File, states []string) []StateTransition {
+func findASTSwitchTransitions(f *ast.File, states []string) []oculus.StateTransition {
 	stateSet := make(map[string]bool, len(states))
 	for _, s := range states {
 		stateSet[s] = true
 	}
 
-	var transitions []StateTransition
+	var transitions []oculus.StateTransition
 	ast.Inspect(f, func(n ast.Node) bool {
 		sw, ok := n.(*ast.SwitchStmt)
 		if !ok {
@@ -258,7 +259,7 @@ func findASTSwitchTransitions(f *ast.File, states []string) []StateTransition {
 						}
 						for _, rhs := range as.Rhs {
 							if ri, ok := rhs.(*ast.Ident); ok && stateSet[ri.Name] && ri.Name != ident.Name {
-								transitions = append(transitions, StateTransition{
+								transitions = append(transitions, oculus.StateTransition{
 									From: ident.Name,
 									To:   ri.Name,
 								})

@@ -1,11 +1,11 @@
-package oculus_test
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/dpopsuev/oculus"
 )
 
 func TestTypeScriptDeepCallGraph(t *testing.T) {
@@ -44,14 +44,14 @@ function sendResult(result: number[]) {
 		os.WriteFile(p, []byte(content), 0o644)
 	}
 
-	a := oculus.NewTypeScriptDeep(dir)
+	a := NewTypeScriptDeep(dir)
 	if a == nil {
 		t.Fatal("expected TypeScriptDeepAnalyzer for TS project")
 	}
 
 	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
-		t.Fatalf("CallGraph: %v", err)
+		t.Fatalf("oculus.CallGraph: %v", err)
 	}
 	if cg.Layer != oculus.LayerTypeScript {
 		t.Errorf("layer = %q, want typescript", cg.Layer)
@@ -72,7 +72,7 @@ function sendResult(result: number[]) {
 		t.Error("expected main in call graph")
 	}
 
-	t.Logf("TypeScript CallGraph: %d nodes, %d edges", len(cg.Nodes), len(cg.Edges))
+	t.Logf("TypeScript oculus.CallGraph: %d nodes, %d edges", len(cg.Nodes), len(cg.Edges))
 }
 
 func TestTypeScriptDeep_ArrowFunctions(t *testing.T) {
@@ -97,14 +97,14 @@ const formatName = (name: string) => {
 		os.WriteFile(p, []byte(content), 0o644)
 	}
 
-	a := oculus.NewTypeScriptDeep(dir)
+	a := NewTypeScriptDeep(dir)
 	if a == nil {
 		t.Fatal("expected TypeScriptDeepAnalyzer")
 	}
 
 	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "greet", Depth: 3})
 	if err != nil {
-		t.Fatalf("CallGraph: %v", err)
+		t.Fatalf("oculus.CallGraph: %v", err)
 	}
 
 	found := false
@@ -116,14 +116,14 @@ const formatName = (name: string) => {
 	if !found {
 		t.Error("expected edge greet -> formatName")
 	}
-	t.Logf("Arrow function CallGraph: %d nodes, %d edges", len(cg.Nodes), len(cg.Edges))
+	t.Logf("Arrow function oculus.CallGraph: %d nodes, %d edges", len(cg.Nodes), len(cg.Edges))
 }
 
 func TestTypeScriptDeep_NonTSRepo(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\n"), 0o644)
 
-	a := oculus.NewTypeScriptDeep(dir)
+	a := NewTypeScriptDeep(dir)
 	if a != nil {
 		t.Error("expected nil for non-TS repo")
 	}

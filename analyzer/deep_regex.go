@@ -1,6 +1,7 @@
-package oculus
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,14 +23,14 @@ var (
 	reGoImport   = regexp.MustCompile(`"([^"]+)"`)
 )
 
-func (a *RegexDeepAnalyzer) CallGraph(root string, opts CallGraphOpts) (*CallGraph, error) {
+func (a *RegexDeepAnalyzer) CallGraph(root string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	depth := opts.Depth
 	if depth <= 0 {
-		depth = DefaultCallGraphDepth
+		depth = oculus.DefaultCallGraphDepth
 	}
 
 	funcIndex := make(map[string]regexFuncDef)
-	nodeSet := make(map[string]FuncNode)
+	nodeSet := make(map[string]oculus.FuncNode)
 
 	walkSourceFiles(root, func(content, pkg, relPath string) {
 		for _, m := range reGoFunc.FindAllStringSubmatchIndex(content, -1) {
@@ -50,11 +51,11 @@ func (a *RegexDeepAnalyzer) CallGraph(root string, opts CallGraphOpts) (*CallGra
 			line := strings.Count(content[:start], "\n") + 1
 			key := pkg + "." + name
 			funcIndex[key] = regexFuncDef{name: name, pkg: pkg, body: content[start:endIdx], line: line}
-			nodeSet[key] = FuncNode{Name: name, Package: pkg, Line: line}
+			nodeSet[key] = oculus.FuncNode{Name: name, Package: pkg, Line: line}
 		}
 	})
 
-	var edges []CallEdge
+	var edges []oculus.CallEdge
 	visited := make(map[string]bool)
 
 	var walk func(key string, d int)
@@ -73,7 +74,7 @@ func (a *RegexDeepAnalyzer) CallGraph(root string, opts CallGraphOpts) (*CallGra
 				continue
 			}
 			calleeKey, calleePkg := resolveRegexCallee(callee, fd.pkg, funcIndex)
-			edges = append(edges, CallEdge{
+			edges = append(edges, oculus.CallEdge{
 				Caller:    fd.name,
 				Callee:    callee,
 				CallerPkg: fd.pkg,
@@ -101,17 +102,17 @@ func (a *RegexDeepAnalyzer) CallGraph(root string, opts CallGraphOpts) (*CallGra
 		}
 	}
 
-	nodes := make([]FuncNode, 0, len(nodeSet))
+	nodes := make([]oculus.FuncNode, 0, len(nodeSet))
 	for _, n := range nodeSet {
 		nodes = append(nodes, n)
 	}
-	return &CallGraph{Nodes: nodes, Edges: edges, Layer: LayerRegex}, nil
+	return &oculus.CallGraph{Nodes: nodes, Edges: edges, Layer: oculus.LayerRegex}, nil
 }
 
 //nolint:gocyclo // data flow tracing with import heuristics requires multiple branches
-func (a *RegexDeepAnalyzer) DataFlowTrace(root, entry string, maxDepth int) (*DataFlow, error) {
+func (a *RegexDeepAnalyzer) DataFlowTrace(root, entry string, maxDepth int) (*oculus.DataFlow, error) {
 	if maxDepth <= 0 {
-		maxDepth = DefaultDataFlowDepth
+		maxDepth = oculus.DefaultDataFlowDepth
 	}
 
 	funcBodies := make(map[string]string)
@@ -145,11 +146,11 @@ func (a *RegexDeepAnalyzer) DataFlowTrace(root, entry string, maxDepth int) (*Da
 		}
 	})
 
-	nodeMap := make(map[string]DataFlowNode)
-	var edges []DataFlowEdge
+	nodeMap := make(map[string]oculus.DataFlowNode)
+	var edges []oculus.DataFlowEdge
 	visited := make(map[string]bool)
 
-	nodeMap[entry] = DataFlowNode{Name: entry, Kind: "entry"}
+	nodeMap[entry] = oculus.DataFlowNode{Name: entry, Kind: "entry"}
 
 	var trace func(name string, d int)
 	trace = func(name string, d int) {
@@ -168,9 +169,9 @@ func (a *RegexDeepAnalyzer) DataFlowTrace(root, entry string, maxDepth int) (*Da
 			}
 			if _, exists := funcBodies[callee]; exists {
 				if _, exists := nodeMap[callee]; !exists {
-					nodeMap[callee] = DataFlowNode{Name: callee, Kind: "process", Pkg: funcPkgs[callee]}
+					nodeMap[callee] = oculus.DataFlowNode{Name: callee, Kind: "process", Pkg: funcPkgs[callee]}
 				}
-				edges = append(edges, DataFlowEdge{From: name, To: callee})
+				edges = append(edges, oculus.DataFlowEdge{From: name, To: callee})
 				trace(callee, d+1)
 			}
 		}
@@ -180,19 +181,19 @@ func (a *RegexDeepAnalyzer) DataFlowTrace(root, entry string, maxDepth int) (*Da
 	// Add detected data stores
 	for _, store := range dataStores {
 		if _, exists := nodeMap[store]; !exists {
-			nodeMap[store] = DataFlowNode{Name: store, Kind: "data_store"}
+			nodeMap[store] = oculus.DataFlowNode{Name: store, Kind: "data_store"}
 		}
 	}
 
-	nodes := make([]DataFlowNode, 0, len(nodeMap))
+	nodes := make([]oculus.DataFlowNode, 0, len(nodeMap))
 	for _, n := range nodeMap {
 		nodes = append(nodes, n)
 	}
-	return &DataFlow{Nodes: nodes, Edges: edges, Layer: LayerRegex}, nil
+	return &oculus.DataFlow{Nodes: nodes, Edges: edges, Layer: oculus.LayerRegex}, nil
 }
 
-func (a *RegexDeepAnalyzer) DetectStateMachines(root string) ([]StateMachine, error) {
-	var machines []StateMachine
+func (a *RegexDeepAnalyzer) DetectStateMachines(root string) ([]oculus.StateMachine, error) {
+	var machines []oculus.StateMachine
 
 	walkSourceFiles(root, func(content, pkg, _ string) {
 		blocks := reGoConst.FindAllStringIndex(content, -1)
@@ -230,7 +231,7 @@ func (a *RegexDeepAnalyzer) DetectStateMachines(root string) ([]StateMachine, er
 						break
 					}
 				}
-				machines = append(machines, StateMachine{
+				machines = append(machines, oculus.StateMachine{
 					Name:    typeName,
 					Package: pkg,
 					States:  values,

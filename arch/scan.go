@@ -1,6 +1,7 @@
 package arch
 
 import (
+	"github.com/dpopsuev/oculus/analyzer"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -20,7 +21,6 @@ import (
 	"github.com/dpopsuev/oculus/graph"
 	"github.com/dpopsuev/oculus/model"
 	"github.com/dpopsuev/oculus/survey"
-	"github.com/dpopsuev/oculus"
 	olang "github.com/dpopsuev/oculus/lang"
 )
 
@@ -620,7 +620,7 @@ func applyLOC(root string, proj *model.Project, modPath string, m *ArchModel) {
 // applyNestingDepth runs tree-sitter nesting analysis and populates
 // MaxNesting and AvgNesting on each ArchService.
 func applyNestingDepth(root, _ string, m *ArchModel) {
-	ts := &oculus.TreeSitterAnalyzer{}
+	ts := &analyzer.TreeSitterAnalyzer{}
 	results, err := ts.NestingDepth(root)
 	if err != nil || len(results) == 0 {
 		return

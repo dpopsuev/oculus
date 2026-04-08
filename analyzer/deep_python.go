@@ -1,6 +1,7 @@
-package oculus
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"context"
 	"os"
 	"path/filepath"
@@ -32,10 +33,10 @@ type pyFunc struct {
 	callees []string
 }
 
-func (a *PythonDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGraph, error) {
+func (a *PythonDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	depth := opts.Depth
 	if depth <= 0 {
-		depth = DefaultCallGraphDepth
+		depth = oculus.DefaultCallGraphDepth
 	}
 
 	funcs, err := a.parseFunctions()
@@ -65,12 +66,12 @@ func (a *PythonDeepAnalyzer) CallGraph(_ string, opts CallGraphOpts) (*CallGraph
 		}
 	}
 
-	return buildSimpleCallGraph(nf, roots, depth, LayerPython), nil
+	return buildSimpleCallGraph(nf, roots, depth, oculus.LayerPython), nil
 }
 
-func (a *PythonDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*DataFlow, error) {
+func (a *PythonDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*oculus.DataFlow, error) {
 	if maxDepth <= 0 {
-		maxDepth = DefaultDataFlowDepth
+		maxDepth = oculus.DefaultDataFlowDepth
 	}
 	funcs, err := a.parseFunctions()
 	if err != nil {
@@ -81,10 +82,10 @@ func (a *PythonDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*Data
 	for i, f := range funcs {
 		nf[i] = namedFunc(f)
 	}
-	return dataFlowTrace(nf, entry, maxDepth, LayerPython), nil
+	return dataFlowTrace(nf, entry, maxDepth, oculus.LayerPython), nil
 }
 
-func (a *PythonDeepAnalyzer) DetectStateMachines(_ string) ([]StateMachine, error) {
+func (a *PythonDeepAnalyzer) DetectStateMachines(_ string) ([]oculus.StateMachine, error) {
 	return nil, nil
 }
 

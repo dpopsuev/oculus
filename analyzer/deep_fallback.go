@@ -1,6 +1,7 @@
-package oculus
+package analyzer
 
 import (
+	"github.com/dpopsuev/oculus"
 	"os"
 	"os/exec"
 	"strings"
@@ -9,15 +10,15 @@ import (
 	"github.com/dpopsuev/oculus/lsp"
 )
 
-// DeepFallbackAnalyzer chains LSP -> TreeSitter -> Regex for DeepAnalyzer
+// DeepFallbackAnalyzer chains LSP -> TreeSitter -> Regex for oculus.DeepAnalyzer
 // methods. Each method tries the highest-fidelity analyzer first and falls
 // through on error or empty results. The Layer field on results indicates
 // which analyzer produced the data.
 type DeepFallbackAnalyzer struct {
-	lsp   DeepAnalyzer
-	goast DeepAnalyzer
-	ts    DeepAnalyzer
-	regex DeepAnalyzer
+	lsp   oculus.DeepAnalyzer
+	goast oculus.DeepAnalyzer
+	ts    oculus.DeepAnalyzer
+	regex oculus.DeepAnalyzer
 }
 
 // NewDeepFallback creates a DeepFallbackAnalyzer. It checks whether
@@ -65,7 +66,7 @@ func NewDeepFallback(root string, pool lsp.Pool) *DeepFallbackAnalyzer {
 	return f
 }
 
-func (f *DeepFallbackAnalyzer) CallGraph(root string, opts CallGraphOpts) (*CallGraph, error) {
+func (f *DeepFallbackAnalyzer) CallGraph(root string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	if f.lsp != nil {
 		if r, err := f.lsp.CallGraph(root, opts); err == nil && len(r.Edges) > 0 {
 			return r, nil
@@ -84,7 +85,7 @@ func (f *DeepFallbackAnalyzer) CallGraph(root string, opts CallGraphOpts) (*Call
 	return f.regex.CallGraph(root, opts)
 }
 
-func (f *DeepFallbackAnalyzer) DataFlowTrace(root, entry string, depth int) (*DataFlow, error) {
+func (f *DeepFallbackAnalyzer) DataFlowTrace(root, entry string, depth int) (*oculus.DataFlow, error) {
 	if f.lsp != nil {
 		if r, err := f.lsp.DataFlowTrace(root, entry, depth); err == nil && len(r.Edges) > 0 {
 			return r, nil
@@ -103,7 +104,7 @@ func (f *DeepFallbackAnalyzer) DataFlowTrace(root, entry string, depth int) (*Da
 	return f.regex.DataFlowTrace(root, entry, depth)
 }
 
-func (f *DeepFallbackAnalyzer) DetectStateMachines(root string) ([]StateMachine, error) {
+func (f *DeepFallbackAnalyzer) DetectStateMachines(root string) ([]oculus.StateMachine, error) {
 	if f.lsp != nil {
 		if r, err := f.lsp.DetectStateMachines(root); err == nil && len(r) > 0 {
 			return r, nil

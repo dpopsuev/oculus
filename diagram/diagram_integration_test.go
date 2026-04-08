@@ -1,6 +1,7 @@
 package diagram
 
 import (
+	"github.com/dpopsuev/oculus/analyzer"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -8,7 +9,6 @@ import (
 	"github.com/dpopsuev/oculus/arch"
 	clinichexa "github.com/dpopsuev/oculus/clinic/hexa"
 	"github.com/dpopsuev/oculus/diagram/core"
-	"github.com/dpopsuev/oculus"
 )
 
 func integrationRoot(t *testing.T) string {
@@ -36,7 +36,7 @@ func TestIntegration_ClassDiagram(t *testing.T) {
 	}
 	root := integrationRoot(t)
 	report := integrationScan(t)
-	fa := oculus.NewFallback(root, nil)
+	fa := analyzer.NewFallback(root, nil)
 
 	input := core.Input{Report: report, Analyzer: fa, Root: root}
 	out, err := Render(input, core.Options{Type: "classes"})
@@ -52,7 +52,7 @@ func TestIntegration_InterfacesDiagram(t *testing.T) {
 	}
 	root := integrationRoot(t)
 	report := integrationScan(t)
-	fa := oculus.NewFallback(root, nil)
+	fa := analyzer.NewFallback(root, nil)
 
 	input := core.Input{Report: report, Analyzer: fa, Root: root}
 	out, err := Render(input, core.Options{Type: "interfaces"})
@@ -68,7 +68,7 @@ func TestIntegration_HexaDiagram(t *testing.T) {
 	}
 	root := integrationRoot(t)
 	report := integrationScan(t)
-	fa := oculus.NewFallback(root, nil)
+	fa := analyzer.NewFallback(root, nil)
 	classes, _ := fa.Classes(root)
 	hexaClass := clinichexa.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
 
@@ -92,7 +92,7 @@ func TestIntegration_CallgraphDiagram(t *testing.T) {
 	}
 	root := integrationRoot(t)
 	report := integrationScan(t)
-	da := oculus.CachedDeepFallback(root, nil)
+	da := analyzer.CachedDeepFallback(root, nil)
 
 	input := core.Input{Report: report, DeepAnalyzer: da, Root: root}
 	out, err := Render(input, core.Options{Type: "callgraph"})
