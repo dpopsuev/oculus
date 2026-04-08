@@ -1,14 +1,21 @@
 package analyzer
 
 import (
-	"github.com/dpopsuev/oculus"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/dpopsuev/oculus"
 	"github.com/dpopsuev/oculus/lsp"
 )
+
+// isWorkspaceURI checks if a file:// URI falls within the workspace root.
+func isWorkspaceURI(uri, absRoot string) bool {
+	path := strings.TrimPrefix(uri, "file://")
+	return strings.HasPrefix(path, absRoot)
+}
 
 // LSPDeepAnalyzer uses a single gopls connection for all oculus.DeepAnalyzer
 // methods. The connection is started lazily on first call and reused.
@@ -47,6 +54,7 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculu
 		depth = oculus.DefaultCallGraphDepth
 	}
 
+	absRoot, _ := filepath.Abs(a.root)
 	roots := lspCallGraphRoots(opts, conn, a.root)
 
 	nodeSet := make(map[string]oculus.FuncNode)
@@ -84,25 +92,39 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculu
 			}
 			for _, out := range outs {
 				calleePkg := uriToPackage(out.To.URI, a.root)
-				nodeSet[calleePkg+"."+out.To.Name] = oculus.FuncNode{
-					Name: out.To.Name, Package: calleePkg,
-					Line: out.To.Range.Start.Line + 1,
-					File: uriToRelPath(out.To.URI, a.root), EndLine: out.To.Range.End.Line + 1,
+				inWorkspace := isWorkspaceURI(out.To.URI, absRoot)
+				if inWorkspace {
+					nodeSet[calleePkg+"."+out.To.Name] = oculus.FuncNode{
+						Name: out.To.Name, Package: calleePkg,
+						Line: out.To.Range.Start.Line + 1,
+						File: uriToRelPath(out.To.URI, a.root), EndLine: out.To.Range.End.Line + 1,
+					}
 				}
+				calleeParams, calleeReturns := parseSignatureTypes(out.To.Detail)
 				edges = append(edges, oculus.CallEdge{
-					Caller:    it.Name,
-					Callee:    out.To.Name,
-					CallerPkg: pkg,
-					CalleePkg: calleePkg,
-					Line:      out.To.Range.Start.Line + 1,
-					File:      uriToRelPath(it.URI, a.root),
-					CrossPkg:  pkg != calleePkg,
+					Caller:      it.Name,
+					Callee:      out.To.Name,
+					CallerPkg:   pkg,
+					CalleePkg:   calleePkg,
+					Line:        out.To.Range.Start.Line + 1,
+					File:        uriToRelPath(it.URI, a.root),
+					CrossPkg:    pkg != calleePkg,
+					ParamTypes:  calleeParams,
+					ReturnTypes: calleeReturns,
 				})
-				walk(&out.To, d+1)
+				// Only recurse into workspace callees — external calls are
+				// kept as leaf edges but we don't walk into stdlib internals.
+				if inWorkspace {
+					walk(&out.To, d+1)
+				}
 			}
 		}
 		walk(item, 0)
 	}
+
+	// Enrich edges with param/return types by parsing source files.
+	// Uses the shared enrichment tap from deep_goast.go.
+	EnrichCallEdgeTypes(a.root, edges)
 
 	nodes := make([]oculus.FuncNode, 0, len(nodeSet))
 	for _, n := range nodeSet {
@@ -110,6 +132,7 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculu
 	}
 	return &oculus.CallGraph{Nodes: nodes, Edges: edges, Layer: oculus.LayerLSP}, nil
 }
+
 
 // DataFlowTrace uses callHierarchy to trace data flow from an entry,
 // detecting data stores via workspace/symbol heuristics.

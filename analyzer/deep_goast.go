@@ -438,3 +438,64 @@ func extractFieldTypes(fl *ast.FieldList) []string {
 	}
 	return types
 }
+
+// EnrichCallEdgeTypes fills in ParamTypes/ReturnTypes on edges that lack them
+// by parsing source files at the callee's location. Shared enrichment tap
+// for any analyzer that produces edges without type info (e.g., LSP, Regex).
+func EnrichCallEdgeTypes(root string, edges []oculus.CallEdge) {
+	type fileLine struct {
+		file string
+		line int
+	}
+	edgesByLoc := make(map[fileLine][]int)
+	for i, e := range edges {
+		if len(e.ParamTypes) > 0 || e.File == "" || e.Line == 0 {
+			continue
+		}
+		fl := fileLine{e.File, e.Line}
+		edgesByLoc[fl] = append(edgesByLoc[fl], i)
+	}
+	if len(edgesByLoc) == 0 {
+		return
+	}
+
+	parsedFiles := make(map[string]*ast.File)
+	fileSets := make(map[string]*token.FileSet)
+	for fl := range edgesByLoc {
+		if _, done := parsedFiles[fl.file]; done {
+			continue
+		}
+		absPath := filepath.Join(root, fl.file)
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, absPath, nil, 0)
+		if err != nil {
+			continue
+		}
+		parsedFiles[fl.file] = f
+		fileSets[fl.file] = fset
+	}
+
+	for fl, indices := range edgesByLoc {
+		f, ok := parsedFiles[fl.file]
+		if !ok {
+			continue
+		}
+		fset := fileSets[fl.file]
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Type == nil {
+				continue
+			}
+			if fset.Position(fd.Pos()).Line != fl.line {
+				continue
+			}
+			pt := extractFieldTypes(fd.Type.Params)
+			rt := extractFieldTypes(fd.Type.Results)
+			for _, idx := range indices {
+				edges[idx].ParamTypes = pt
+				edges[idx].ReturnTypes = rt
+			}
+			break
+		}
+	}
+}

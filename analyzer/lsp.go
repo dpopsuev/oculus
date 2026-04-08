@@ -279,10 +279,11 @@ func (c *lspConn) callChain(root, entry string, maxDepth int) ([]oculus.Call, er
 }
 
 type callHierarchyItem struct {
-	Name  string `json:"name"`
-	Kind  int    `json:"kind"`
-	URI   string `json:"uri"`
-	Range struct {
+	Name   string `json:"name"`
+	Kind   int    `json:"kind"`
+	Detail string `json:"detail"` // function signature from gopls
+	URI    string `json:"uri"`
+	Range  struct {
 		Start struct {
 			Line      int `json:"line"`
 			Character int `json:"character"`
@@ -292,6 +293,107 @@ type callHierarchyItem struct {
 			Character int `json:"character"`
 		} `json:"end"`
 	} `json:"range"`
+}
+
+// parseSignatureTypes extracts parameter and return types from a Go function
+// signature string like "func(x int, y string) (*Result, error)".
+func parseSignatureTypes(sig string) (paramTypes, returnTypes []string) {
+	if !strings.HasPrefix(sig, "func") {
+		return nil, nil
+	}
+	// Find params: between first ( and matching )
+	openParen := strings.Index(sig, "(")
+	if openParen < 0 {
+		return nil, nil
+	}
+	closeParen := findMatchingParen(sig, openParen)
+	if closeParen < 0 {
+		return nil, nil
+	}
+	paramStr := sig[openParen+1 : closeParen]
+	paramTypes = extractTypesFromParamList(paramStr)
+
+	// Find returns: after the closing paren
+	rest := strings.TrimSpace(sig[closeParen+1:])
+	if rest == "" {
+		return paramTypes, nil
+	}
+	if strings.HasPrefix(rest, "(") {
+		// Multi-return: (Type1, Type2)
+		closeReturn := findMatchingParen(rest, 0)
+		if closeReturn > 0 {
+			returnStr := rest[1:closeReturn]
+			returnTypes = extractTypesFromParamList(returnStr)
+		}
+	} else {
+		// Single return type
+		returnTypes = []string{strings.TrimSpace(rest)}
+	}
+	return paramTypes, returnTypes
+}
+
+// findMatchingParen finds the index of the closing paren matching the open paren at pos.
+func findMatchingParen(s string, pos int) int {
+	depth := 0
+	for i := pos; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// extractTypesFromParamList splits "x int, y string, z *Config" into ["int", "string", "*Config"].
+func extractTypesFromParamList(paramStr string) []string {
+	paramStr = strings.TrimSpace(paramStr)
+	if paramStr == "" {
+		return nil
+	}
+	var types []string
+	// Split by comma, respecting nested parens/brackets
+	params := splitParams(paramStr)
+	for _, p := range params {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		// Last token is the type (e.g., "x int" → "int", "y *Config" → "*Config")
+		// But unnamed params are just the type (e.g., "int", "*Config")
+		parts := strings.Fields(p)
+		if len(parts) == 0 {
+			continue
+		}
+		types = append(types, parts[len(parts)-1])
+	}
+	return types
+}
+
+// splitParams splits a comma-separated param list, respecting nested brackets.
+func splitParams(s string) []string {
+	var parts []string
+	depth := 0
+	start := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			depth--
+		case ',':
+			if depth == 0 {
+				parts = append(parts, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, s[start:])
+	return parts
 }
 
 func (c *lspConn) findCallHierarchyItem(_, name string) (*callHierarchyItem, error) {
