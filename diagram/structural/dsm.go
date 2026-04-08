@@ -8,45 +8,54 @@ import (
 	"github.com/dpopsuev/oculus/graph"
 )
 
-// DSM renders a Dependency Structure Matrix as a text table.
-// Components are reordered by RCM partitioning to reveal clusters.
-// Mermaid doesn't support matrix diagrams natively, so we use a
-// pre-formatted text table with x markers for dependencies.
+// DSM renders a Dependency Structure Matrix from the architecture report.
 func DSM(in core.Input, _ core.Options) string {
-	m := in.Report.Architecture
+	return DSMFromEdges(in.Report.Architecture.Edges, "Dependency Structure Matrix")
+}
 
-	// Partition nodes for cluster grouping.
-	order := graph.Partition(m.Edges)
+// SymbolDSM renders a DSM at symbol granularity from the unified symbol graph.
+func SymbolDSM(in core.Input, _ core.Options) (string, error) {
+	if in.SymbolGraph == nil || len(in.SymbolGraph.Edges) == 0 {
+		return "", core.ErrSymbolGraphRequired
+	}
+	return DSMFromEdges(in.SymbolGraph.Edges, "Symbol Dependency Structure Matrix"), nil
+}
+
+// DSMFromEdges renders a Dependency Structure Matrix from any edge slice.
+// Components are reordered by RCM partitioning to reveal clusters.
+func DSMFromEdges[E graph.Edge](edges []E, title string) string {
+	order := graph.Partition(edges)
 	if len(order) == 0 {
-		return "# DSM\n\nNo components to display."
+		return fmt.Sprintf("# %s\n\nNo components to display.", title)
 	}
 
 	// Build edge lookup.
 	hasEdge := make(map[string]map[string]bool)
-	for _, e := range m.Edges {
-		if hasEdge[e.From] == nil {
-			hasEdge[e.From] = make(map[string]bool)
+	for _, e := range edges {
+		src, tgt := e.Source(), e.Target()
+		if hasEdge[src] == nil {
+			hasEdge[src] = make(map[string]bool)
 		}
-		hasEdge[e.From][e.To] = true
+		hasEdge[src][tgt] = true
 	}
 
-	// Abbreviate component names for readability.
+	// Abbreviate names for readability.
 	abbrev := make([]string, len(order))
 	for i, name := range order {
 		parts := strings.Split(name, "/")
-		if len(parts) > 1 {
-			abbrev[i] = parts[len(parts)-1]
-		} else {
-			abbrev[i] = name
+		short := parts[len(parts)-1]
+		// For FQN names like "pkg.Symbol", use the symbol part
+		if dotIdx := strings.LastIndex(short, "."); dotIdx >= 0 {
+			short = short[dotIdx+1:]
 		}
+		abbrev[i] = short
 	}
 
 	// Render matrix.
 	var b strings.Builder
-	b.WriteString("# Dependency Structure Matrix\n\n")
+	b.WriteString(fmt.Sprintf("# %s\n\n", title))
 	b.WriteString(fmt.Sprintf("%d components, RCM-partitioned\n\n", len(order)))
 
-	// Header row.
 	maxName := 0
 	for _, a := range abbrev {
 		if len(a) > maxName {
@@ -89,8 +98,6 @@ func DSM(in core.Input, _ core.Options) string {
 		fmt.Fprintf(&b, " [%d]\n", i+1)
 	}
 
-	// Legend.
 	b.WriteString("\n\u25a0 = self  \u00d7 = depends on  \u00b7 = no dependency\n")
-
 	return b.String()
 }

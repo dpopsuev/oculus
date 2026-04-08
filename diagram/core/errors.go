@@ -13,4 +13,5 @@ var (
 	ErrNoCallsFound         = errors.New("no calls found from entry")
 	ErrUnknownDiagramType   = errors.New("unknown diagram type")
 	ErrHexaRolesRequired    = errors.New("hexagonal classification required — run hexa_validate first")
+	ErrSymbolGraphRequired  = errors.New("symbol graph required — run symbol_graph first")
 )

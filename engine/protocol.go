@@ -934,6 +934,22 @@ func (p *Engine) DetectStateMachines(_ context.Context, path string, cacheKey ..
 	return &StateMachineReport{Machines: machines, Summary: summary}, nil
 }
 
+// GetSymbolGraph builds a unified symbol-level dependency graph by merging
+// call graph, type hierarchy, and field reference data.
+func (p *Engine) GetSymbolGraph(_ context.Context, path string, cacheKey ...string) (*oculus.SymbolGraph, error) {
+	path = p.resolvePath(path)
+	da := analyzer.CachedDeepFallback(path, p.pool)
+	cg, err := da.CallGraph(path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+	if err != nil {
+		return nil, fmt.Errorf("call graph: %w", err)
+	}
+	fa := analyzer.NewFallback(path, p.pool)
+	classes, _ := fa.Classes(path)
+	impls, _ := fa.Implements(path)
+	refs, _ := fa.FieldRefs(path)
+	return oculus.MergeSymbolGraph(cg, classes, impls, refs), nil
+}
+
 // --- Cross-repo comparison ---
 
 // CrossRepoReport holds comparison results between two repos.

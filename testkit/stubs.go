@@ -171,6 +171,23 @@ func SampleEntryPoints() []oculus.EntryPoint {
 	}
 }
 
+// SampleSymbolGraph returns a minimal symbol graph for testing.
+func SampleSymbolGraph() *oculus.SymbolGraph {
+	return &oculus.SymbolGraph{
+		Nodes: []oculus.SymbolNode{
+			{Name: "main", Package: "cmd/app", Kind: "function", File: "cmd/app/main.go", Line: 10, EndLine: 20, Exported: false},
+			{Name: "Run", Package: "internal/core", Kind: "function", File: "internal/core/core.go", Line: 15, EndLine: 45, Exported: true},
+			{Name: "Get", Package: "internal/store", Kind: "function", File: "internal/store/store.go", Line: 20, EndLine: 35, Exported: true},
+			{Name: "Store", Package: "internal/store", Kind: "interface", File: "internal/store/store.go", Line: 5, EndLine: 12, Exported: true},
+		},
+		Edges: []oculus.SymbolEdge{
+			{SourceFQN: "cmd/app.main", TargetFQN: "internal/core.Run", Kind: "call", File: "cmd/app/main.go", Line: 12},
+			{SourceFQN: "internal/core.Run", TargetFQN: "internal/store.Get", Kind: "call", File: "internal/core/core.go", Line: 30},
+			{SourceFQN: "internal/store.Get", TargetFQN: "internal/store.Store", Kind: "implements"},
+		},
+	}
+}
+
 // --- Assertion helpers ---
 
 // AssertDataFlow verifies a DataFlow result has expected properties.

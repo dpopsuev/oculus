@@ -47,6 +47,41 @@ func TestGetDataFlow_DefaultEntry(t *testing.T) {
 	}
 }
 
+func TestGetSymbolGraph_Dogfood(t *testing.T) {
+	if testing.Short() {
+		t.Skip("dogfood: skipping in -short mode")
+	}
+	root := oculusRoot(t)
+	eng := New(nil, []string{root})
+
+	sg, err := eng.GetSymbolGraph(context.Background(), root)
+	if err != nil {
+		t.Fatalf("GetSymbolGraph: %v", err)
+	}
+	if sg == nil {
+		t.Fatal("GetSymbolGraph returned nil")
+	}
+	if len(sg.Nodes) == 0 {
+		t.Error("expected nodes")
+	}
+	if len(sg.Edges) == 0 {
+		t.Error("expected edges")
+	}
+	t.Logf("SymbolGraph: %d nodes, %d edges", len(sg.Nodes), len(sg.Edges))
+
+	// Verify call edges exist
+	callEdges := 0
+	for _, e := range sg.Edges {
+		if e.Kind == "call" {
+			callEdges++
+		}
+	}
+	if callEdges == 0 {
+		t.Error("expected call edges")
+	}
+	t.Logf("  %d call edges", callEdges)
+}
+
 func TestDetectStateMachines_Dogfood(t *testing.T) {
 	if testing.Short() {
 		t.Skip("dogfood: skipping in -short mode")

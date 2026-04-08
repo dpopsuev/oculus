@@ -27,5 +27,6 @@ type Input struct {
 	DeepAnalyzer  oculus.DeepAnalyzer
 	Root          string // repository root path (needed by Tier 2/3 renderers)
 	ResolvedTheme *ResolvedTheme
-	HexaRoles     map[string]string // component name → hexa role (domain, port, adapter, infra, app, entrypoint)
+	HexaRoles     map[string]string    // component name → hexa role (domain, port, adapter, infra, app, entrypoint)
+	SymbolGraph   *oculus.SymbolGraph   // unified symbol-level graph (for symbol_dsm)
 }

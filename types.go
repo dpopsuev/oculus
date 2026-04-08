@@ -172,3 +172,47 @@ type ConventionReport struct {
 	Conventions []Convention `json:"conventions"`
 	Total       int          `json:"total"`
 }
+
+// SymbolNode represents a symbol in the unified symbol graph.
+type SymbolNode struct {
+	Name     string `json:"name"`
+	Package  string `json:"package"`
+	Kind     string `json:"kind"` // "function", "struct", "interface", "method", "field"
+	File     string `json:"file,omitempty"`
+	Line     int    `json:"line,omitempty"`
+	EndLine  int    `json:"end_line,omitempty"`
+	Exported bool   `json:"exported"`
+}
+
+// FQN returns the fully-qualified name: "package.Name".
+func (n SymbolNode) FQN() string {
+	if n.Package == "" {
+		return n.Name
+	}
+	return n.Package + "." + n.Name
+}
+
+// SymbolEdge represents a typed, directed relationship between two symbols.
+// Satisfies graph.Edge via Source()/Target().
+type SymbolEdge struct {
+	SourceFQN   string   `json:"source"`
+	TargetFQN   string   `json:"target"`
+	Kind        string   `json:"kind"` // "call", "implements", "extends", "embeds", "field_ref"
+	File        string   `json:"file,omitempty"`
+	Line        int      `json:"line,omitempty"`
+	EndLine     int      `json:"end_line,omitempty"`
+	ParamTypes  []string `json:"param_types,omitempty"`
+	ReturnTypes []string `json:"return_types,omitempty"`
+}
+
+// Source implements graph.Edge.
+func (e SymbolEdge) Source() string { return e.SourceFQN }
+
+// Target implements graph.Edge.
+func (e SymbolEdge) Target() string { return e.TargetFQN }
+
+// SymbolGraph is the unified symbol-level graph result.
+type SymbolGraph struct {
+	Nodes []SymbolNode `json:"nodes"`
+	Edges []SymbolEdge `json:"edges"`
+}

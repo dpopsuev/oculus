@@ -35,6 +35,8 @@ func Render(in core.Input, opts core.Options) (string, error) {
 		return structural.Zones(in, opts), nil
 	case "dsm":
 		return structural.DSM(in, opts), nil
+	case "symbol_dsm":
+		return structural.SymbolDSM(in, opts)
 	case "sequence":
 		return behavioral.Sequence(in, opts)
 	case "callgraph":
@@ -70,6 +72,6 @@ func Types() []string {
 	return []string{
 		"dependency", "c4", "coupling", "churn", "layers", "tree",
 		"classes", "interfaces", "sequence", "er",
-		"dataflow", "callgraph", "state", "zones", "hexa", "dsm",
+		"dataflow", "callgraph", "state", "zones", "hexa", "dsm", "symbol_dsm",
 	}
 }
