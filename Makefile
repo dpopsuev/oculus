@@ -6,9 +6,9 @@ test:
 
 # Run tests with coverage profile
 cover:
-	go test -coverprofile=coverage.out ./...
-	go tool cover -func=coverage.out | tail -1
-	@echo "Full report: go tool cover -html=coverage.out"
+	go test -coverprofile=/tmp/oculus-coverage.out ./...
+	go tool cover -func=/tmp/oculus-coverage.out | tail -1
+	@echo "Full report: go tool cover -html=/tmp/oculus-coverage.out"
 
 # Run go vet
 vet:
