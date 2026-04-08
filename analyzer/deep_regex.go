@@ -51,7 +51,7 @@ func (a *RegexDeepAnalyzer) CallGraph(root string, opts oculus.CallGraphOpts) (*
 			line := strings.Count(content[:start], "\n") + 1
 			key := pkg + "." + name
 			funcIndex[key] = regexFuncDef{name: name, pkg: pkg, body: content[start:endIdx], line: line}
-			nodeSet[key] = oculus.FuncNode{Name: name, Package: pkg, Line: line}
+			nodeSet[key] = oculus.FuncNode{Name: name, Package: pkg, Line: line, File: relPath}
 		}
 	})
 

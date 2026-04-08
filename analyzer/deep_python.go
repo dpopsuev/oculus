@@ -29,7 +29,9 @@ func NewPythonDeep(root string) *PythonDeepAnalyzer {
 type pyFunc struct {
 	name    string
 	pkg     string
+	file    string
 	line    int
+	endLine int
 	callees []string
 }
 
@@ -154,6 +156,7 @@ func extractPyFunctions(root *sitter.Node, src []byte, pkg string, funcs *[]pyFu
 				name:    name,
 				pkg:     pkg,
 				line:    int(child.StartPoint().Row) + 1,
+				endLine: int(child.EndPoint().Row) + 1,
 				callees: callees,
 			})
 		}

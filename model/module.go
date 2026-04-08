@@ -129,6 +129,7 @@ type Symbol struct {
 	Exported     bool       `json:"exported"`
 	File         string     `json:"file,omitempty"`
 	Line         int        `json:"line,omitempty"`
+	EndLine      int        `json:"end_line,omitempty"`
 	Dependencies []string   `json:"dependencies,omitempty"`
 }
 

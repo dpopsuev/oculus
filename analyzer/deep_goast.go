@@ -32,6 +32,7 @@ type goFunc struct {
 	pkg          string
 	file         string
 	line         int
+	endLine      int
 	receiverType string   // non-empty for methods (e.g., "*APIDriver")
 	callees      []string // function names called in the body
 	body         *ast.BlockStmt
@@ -89,7 +90,7 @@ func (a *GoASTDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*ocu
 		}
 
 		key := fn.pkg + "." + fn.name
-		nodeSet[key] = oculus.FuncNode{Name: fn.name, Package: fn.pkg, Line: fn.line}
+		nodeSet[key] = oculus.FuncNode{Name: fn.name, Package: fn.pkg, Line: fn.line, File: fn.file, EndLine: fn.endLine}
 
 		for _, callee := range fn.callees {
 			calleeFn, ok := funcIndex[callee]
@@ -97,7 +98,7 @@ func (a *GoASTDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*ocu
 				continue
 			}
 			calleeKey := calleeFn.pkg + "." + calleeFn.name
-			nodeSet[calleeKey] = oculus.FuncNode{Name: calleeFn.name, Package: calleeFn.pkg, Line: calleeFn.line}
+			nodeSet[calleeKey] = oculus.FuncNode{Name: calleeFn.name, Package: calleeFn.pkg, Line: calleeFn.line, File: calleeFn.file, EndLine: calleeFn.endLine}
 			edges = append(edges, oculus.CallEdge{
 				Caller:       fn.name,
 				Callee:       calleeFn.name,
@@ -333,6 +334,7 @@ func (a *GoASTDeepAnalyzer) parseFunctions(scope string) ([]goFunc, error) {
 				pkg:          pkg,
 				file:         relFile,
 				line:         fset.Position(fd.Pos()).Line,
+				endLine:      fset.Position(fd.End()).Line,
 				receiverType: recvType,
 				callees:      callees,
 				body:         fd.Body,

@@ -138,6 +138,7 @@ func extractSymbols(f *ast.File, fset *token.FileSet, filePath string, pkg *mode
 				Exported: ast.IsExported(name),
 				File:     filePath,
 				Line:     fset.Position(d.Pos()).Line,
+				EndLine:  fset.Position(d.End()).Line,
 			})
 
 		case *ast.GenDecl:
@@ -167,6 +168,7 @@ func extractGenDeclSymbols(d *ast.GenDecl, fset *token.FileSet, filePath string,
 				Exported: ast.IsExported(name),
 				File:     filePath,
 				Line:     fset.Position(s.Pos()).Line,
+				EndLine:  fset.Position(s.End()).Line,
 			})
 
 		case *ast.ValueSpec:
@@ -186,6 +188,7 @@ func extractGenDeclSymbols(d *ast.GenDecl, fset *token.FileSet, filePath string,
 					Exported: ast.IsExported(name),
 					File:     filePath,
 					Line:     fset.Position(ident.Pos()).Line,
+					EndLine:  fset.Position(s.End()).Line,
 				})
 			}
 		}

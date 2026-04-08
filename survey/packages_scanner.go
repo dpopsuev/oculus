@@ -157,6 +157,7 @@ func extractTypedSymbols(pkg *packages.Package, ns *model.Namespace) {
 					Exported: ast.IsExported(name),
 					File:     filePath,
 					Line:     pkg.Fset.Position(d.Pos()).Line,
+					EndLine:  pkg.Fset.Position(d.End()).Line,
 				}
 				if deps, ok := symbolDeps[name]; ok {
 					for dep := range deps {

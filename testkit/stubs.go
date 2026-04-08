@@ -105,13 +105,13 @@ func (s *StubTypeAnalyzer) NestingDepth(_ string) ([]oculus.NestingResult, error
 func SampleCallGraph() *oculus.CallGraph {
 	return &oculus.CallGraph{
 		Nodes: []oculus.FuncNode{
-			{Name: "main", Package: "cmd/app", Line: 10},
-			{Name: "Run", Package: "internal/core", Line: 15},
-			{Name: "Get", Package: "internal/store", Line: 20},
+			{Name: "main", Package: "cmd/app", Line: 10, File: "cmd/app/main.go", EndLine: 20},
+			{Name: "Run", Package: "internal/core", Line: 15, File: "internal/core/core.go", EndLine: 45},
+			{Name: "Get", Package: "internal/store", Line: 20, File: "internal/store/store.go", EndLine: 35},
 		},
 		Edges: []oculus.CallEdge{
-			{Caller: "main", Callee: "Run", CallerPkg: "cmd/app", CalleePkg: "internal/core", CrossPkg: true},
-			{Caller: "Run", Callee: "Get", CallerPkg: "internal/core", CalleePkg: "internal/store", CrossPkg: true},
+			{Caller: "main", Callee: "Run", CallerPkg: "cmd/app", CalleePkg: "internal/core", CrossPkg: true, Line: 12, File: "cmd/app/main.go"},
+			{Caller: "Run", Callee: "Get", CallerPkg: "internal/core", CalleePkg: "internal/store", CrossPkg: true, Line: 30, File: "internal/core/core.go"},
 		},
 		Layer: "stub",
 	}
@@ -158,16 +158,16 @@ func SampleStateMachines() []oculus.StateMachine {
 // SampleCallChain returns a minimal call chain for sequence diagram testing.
 func SampleCallChain() []oculus.Call {
 	return []oculus.Call{
-		{Caller: "main", Callee: "HandleRequest", Package: "cmd/app", Line: 10},
-		{Caller: "HandleRequest", Callee: "GetUser", Package: "internal/api", Line: 25},
-		{Caller: "GetUser", Callee: "QueryDB", Package: "internal/store", Line: 40},
+		{Caller: "main", Callee: "HandleRequest", Package: "cmd/app", Line: 10, File: "cmd/app/main.go"},
+		{Caller: "HandleRequest", Callee: "GetUser", Package: "internal/api", Line: 25, File: "internal/api/handler.go"},
+		{Caller: "GetUser", Callee: "QueryDB", Package: "internal/store", Line: 40, File: "internal/store/store.go"},
 	}
 }
 
 // SampleEntryPoints returns sample entry points for testing.
 func SampleEntryPoints() []oculus.EntryPoint {
 	return []oculus.EntryPoint{
-		{Name: "main", Kind: "main", Package: "cmd/app", File: "main.go", Line: 1},
+		{Name: "main", Kind: "main", Package: "cmd/app", File: "main.go", Line: 1, EndLine: 15},
 	}
 }
 

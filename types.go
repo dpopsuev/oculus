@@ -12,6 +12,9 @@ type ClassInfo struct {
 	Fields   []FieldInfo  `json:"fields,omitempty"`
 	Methods  []MethodInfo `json:"methods,omitempty"`
 	Exported bool         `json:"exported"`
+	File     string       `json:"file,omitempty"`
+	Line     int          `json:"line,omitempty"`
+	EndLine  int          `json:"end_line,omitempty"`
 }
 
 // FieldInfo describes a single field within a type.
@@ -20,6 +23,7 @@ type FieldInfo struct {
 	Type     string `json:"type"`
 	Exported bool   `json:"exported"`
 	Tag      string `json:"tag,omitempty"`
+	Line     int    `json:"line,omitempty"`
 }
 
 // MethodInfo describes a method on a type.
@@ -27,6 +31,9 @@ type MethodInfo struct {
 	Name      string `json:"name"`
 	Signature string `json:"signature"`
 	Exported  bool   `json:"exported"`
+	File      string `json:"file,omitempty"`
+	Line      int    `json:"line,omitempty"`
+	EndLine   int    `json:"end_line,omitempty"`
 }
 
 // ImplEdge captures a type relationship (implements, extends, embeds).
@@ -49,6 +56,7 @@ type Call struct {
 	Callee  string `json:"callee"`
 	Package string `json:"package"`
 	Line    int    `json:"line,omitempty"`
+	File    string `json:"file,omitempty"`
 }
 
 // EntryPoint represents a structurally significant entry function.
@@ -58,6 +66,7 @@ type EntryPoint struct {
 	Package string `json:"package"`
 	File    string `json:"file"`
 	Line    int    `json:"line,omitempty"`
+	EndLine int    `json:"end_line,omitempty"`
 }
 
 // NestingResult holds the maximum nesting depth for a single function.
@@ -65,6 +74,8 @@ type NestingResult struct {
 	Function string `json:"function"`
 	Package  string `json:"package"`
 	MaxDepth int    `json:"max_depth"`
+	File     string `json:"file,omitempty"`
+	Line     int    `json:"line,omitempty"`
 }
 
 // CallGraphOpts configures call graph construction.
@@ -82,6 +93,7 @@ type CallEdge struct {
 	CallerPkg    string `json:"caller_pkg"`
 	CalleePkg    string `json:"callee_pkg"`
 	Line         int    `json:"line,omitempty"`
+	EndLine      int    `json:"end_line,omitempty"`
 	File         string `json:"file,omitempty"`
 	ReceiverType string `json:"receiver_type,omitempty"`
 	CrossPkg     bool   `json:"cross_pkg,omitempty"`
@@ -92,6 +104,8 @@ type FuncNode struct {
 	Name    string `json:"name"`
 	Package string `json:"package"`
 	Line    int    `json:"line,omitempty"`
+	File    string `json:"file,omitempty"`
+	EndLine int    `json:"end_line,omitempty"`
 }
 
 // CallGraph is the result of call graph analysis.

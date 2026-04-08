@@ -94,6 +94,24 @@ func TestSampleFactories(t *testing.T) {
 	if cg.Layer != "stub" {
 		t.Errorf("SampleCallGraph layer: got %q, want %q", cg.Layer, "stub")
 	}
+	// Verify location metadata on FuncNodes
+	for _, n := range cg.Nodes {
+		if n.File == "" {
+			t.Errorf("FuncNode %q: missing File", n.Name)
+		}
+		if n.EndLine == 0 {
+			t.Errorf("FuncNode %q: missing EndLine", n.Name)
+		}
+	}
+	// Verify location metadata on CallEdges
+	for _, e := range cg.Edges {
+		if e.File == "" {
+			t.Errorf("CallEdge %s->%s: missing File", e.Caller, e.Callee)
+		}
+		if e.Line == 0 {
+			t.Errorf("CallEdge %s->%s: missing Line", e.Caller, e.Callee)
+		}
+	}
 
 	flow := SampleDataFlow()
 	if flow.Layer != "stub" {
@@ -103,5 +121,19 @@ func TestSampleFactories(t *testing.T) {
 	machines := SampleStateMachines()
 	if machines[0].Initial != "Pending" {
 		t.Errorf("SampleStateMachines initial: got %q, want %q", machines[0].Initial, "Pending")
+	}
+
+	// Verify location on call chain
+	chain := SampleCallChain()
+	for _, c := range chain {
+		if c.File == "" {
+			t.Errorf("Call %s->%s: missing File", c.Caller, c.Callee)
+		}
+	}
+
+	// Verify location on entry points
+	eps := SampleEntryPoints()
+	if eps[0].EndLine == 0 {
+		t.Errorf("EntryPoint %q: missing EndLine", eps[0].Name)
 	}
 }

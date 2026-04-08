@@ -69,6 +69,7 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculu
 			pkg := uriToPackage(it.URI, a.root)
 			nodeSet[pkg+"."+it.Name] = oculus.FuncNode{
 				Name: it.Name, Package: pkg, Line: it.Range.Start.Line + 1,
+				File: uriToRelPath(it.URI, a.root), EndLine: it.Range.End.Line + 1,
 			}
 
 			outgoing, err := conn.Request("callHierarchy/outgoingCalls", map[string]any{"item": it})
@@ -86,6 +87,7 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculu
 				nodeSet[calleePkg+"."+out.To.Name] = oculus.FuncNode{
 					Name: out.To.Name, Package: calleePkg,
 					Line: out.To.Range.Start.Line + 1,
+					File: uriToRelPath(out.To.URI, a.root), EndLine: out.To.Range.End.Line + 1,
 				}
 				edges = append(edges, oculus.CallEdge{
 					Caller:    it.Name,
@@ -93,6 +95,7 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculu
 					CallerPkg: pkg,
 					CalleePkg: calleePkg,
 					Line:      out.To.Range.Start.Line + 1,
+					File:      uriToRelPath(it.URI, a.root),
 					CrossPkg:  pkg != calleePkg,
 				})
 				walk(&out.To, d+1)

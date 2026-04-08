@@ -148,11 +148,15 @@ func (c *lspConn) documentClasses(root string) ([]oculus.ClassInfo, error) {
 			default:
 				continue
 			}
+			relFile := filepath.ToSlash(rel)
 			ci := oculus.ClassInfo{
 				Name:     sym.Name,
 				Package:  pkg,
 				Kind:     kind,
 				Exported: isExported(sym.Name),
+				File:     relFile,
+				Line:     sym.Line + 1,
+				EndLine:  sym.EndLine,
 			}
 			for _, ch := range sym.Children {
 				switch ch.Kind {
@@ -160,12 +164,16 @@ func (c *lspConn) documentClasses(root string) ([]oculus.ClassInfo, error) {
 					ci.Fields = append(ci.Fields, oculus.FieldInfo{
 						Name:     ch.Name,
 						Exported: isExported(ch.Name),
+						Line:     ch.Line + 1,
 					})
 				case 6: // method
 					ci.Methods = append(ci.Methods, oculus.MethodInfo{
 						Name:      ch.Name,
 						Signature: ch.Name,
 						Exported:  isExported(ch.Name),
+						File:      relFile,
+						Line:      ch.Line + 1,
+						EndLine:   ch.EndLine,
 					})
 				}
 			}
@@ -279,6 +287,10 @@ type callHierarchyItem struct {
 			Line      int `json:"line"`
 			Character int `json:"character"`
 		} `json:"start"`
+		End struct {
+			Line      int `json:"line"`
+			Character int `json:"character"`
+		} `json:"end"`
 	} `json:"range"`
 }
 
@@ -332,6 +344,7 @@ type docSymbol struct {
 	Name     string      `json:"name"`
 	Kind     int         `json:"kind"`
 	Line     int         `json:"-"`
+	EndLine  int         `json:"-"`
 	Col      int         `json:"-"`
 	Children []docSymbol `json:"children,omitempty"`
 }
@@ -368,6 +381,9 @@ func (c *lspConn) documentSymbols(file, _ string) ([]docSymbol, error) {
 		Start struct {
 			Line, Character int
 		}
+		End struct {
+			Line, Character int
+		}
 	}
 	type symEntry struct {
 		Name           string   `json:"name"`
@@ -389,14 +405,16 @@ func (c *lspConn) documentSymbols(file, _ string) ([]docSymbol, error) {
 	for _, s := range symbols {
 		ds := docSymbol{
 			Name: s.Name, Kind: s.Kind,
-			Line: s.SelectionRange.Start.Line,
-			Col:  s.SelectionRange.Start.Character,
+			Line:    s.SelectionRange.Start.Line,
+			EndLine: s.Range.End.Line + 1,
+			Col:     s.SelectionRange.Start.Character,
 		}
 		for _, ch := range s.Children {
 			ds.Children = append(ds.Children, docSymbol{
 				Name: ch.Name, Kind: ch.Kind,
-				Line: ch.SelectionRange.Start.Line,
-				Col:  ch.SelectionRange.Start.Character,
+				Line:    ch.SelectionRange.Start.Line,
+				EndLine: ch.Range.End.Line + 1,
+				Col:     ch.SelectionRange.Start.Character,
 			})
 		}
 		out = append(out, ds)
@@ -478,6 +496,16 @@ func uriToPackage(uri, root string) string {
 		return path
 	}
 	return filepath.ToSlash(filepath.Dir(rel))
+}
+
+func uriToRelPath(uri, root string) string {
+	absRoot, _ := filepath.Abs(root)
+	path := strings.TrimPrefix(uri, "file://")
+	rel, err := filepath.Rel(absRoot, path)
+	if err != nil {
+		return path
+	}
+	return filepath.ToSlash(rel)
 }
 
 func resolveNameAtURI(uri string, line int) string {

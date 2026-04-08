@@ -30,11 +30,13 @@ func NewTreeSitterDeep(root string) (*TreeSitterDeepAnalyzer, error) {
 //  2. Conquer: extract function defs + call expressions per package
 //  3. Combine: merge per-package graphs, mark cross-package edges
 type cgFuncDef struct {
-	name string
-	pkg  string
-	body *sitter.Node
-	src  []byte
-	line int
+	name    string
+	pkg     string
+	file    string
+	body    *sitter.Node
+	src     []byte
+	line    int
+	endLine int
 }
 
 func (a *TreeSitterDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
@@ -81,8 +83,9 @@ func (a *TreeSitterDeepAnalyzer) extractCallGraphFuncs(opts oculus.CallGraphOpts
 			}
 			key := pkg + "." + name
 			line := int(nameNode.StartPoint().Row) + 1
-			allFuncs[key] = cgFuncDef{name: name, pkg: pkg, body: body, src: f.Source, line: line}
-			nodeSet[key] = oculus.FuncNode{Name: name, Package: pkg, Line: line}
+			endLine := int(child.EndPoint().Row) + 1
+			allFuncs[key] = cgFuncDef{name: name, pkg: pkg, file: f.RelPath, body: body, src: f.Source, line: line, endLine: endLine}
+			nodeSet[key] = oculus.FuncNode{Name: name, Package: pkg, Line: line, File: f.RelPath, EndLine: endLine}
 		}
 	}
 	return allFuncs, nodeSet
@@ -127,10 +130,11 @@ func walkCallGraph(allFuncs map[string]cgFuncDef, nodeSet map[string]oculus.Func
 				CallerPkg: fd.pkg,
 				CalleePkg: calleePkg,
 				Line:      line,
+				File:      fd.file,
 				CrossPkg:  fd.pkg != calleePkg,
 			})
-			if _, exists := allFuncs[calleeKey]; exists {
-				nodeSet[calleeKey] = oculus.FuncNode{Name: callee, Package: calleePkg}
+			if cf, exists := allFuncs[calleeKey]; exists {
+				nodeSet[calleeKey] = oculus.FuncNode{Name: callee, Package: calleePkg, Line: cf.line, File: cf.file, EndLine: cf.endLine}
 				walk(calleeKey, d+1)
 			}
 		})
@@ -181,10 +185,13 @@ func (a *TreeSitterDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*
 }
 
 type tsFuncDef struct {
-	name string
-	pkg  string
-	body *sitter.Node
-	src  []byte
+	name    string
+	pkg     string
+	file    string
+	body    *sitter.Node
+	src     []byte
+	line    int
+	endLine int
 }
 
 // buildFuncIndex extracts all function/method definitions from the parsed project.
@@ -203,7 +210,10 @@ func (a *TreeSitterDeepAnalyzer) buildFuncIndex() map[string]tsFuncDef {
 				continue
 			}
 			name := nameNode.Content(f.Source)
-			funcIndex[name] = tsFuncDef{name: name, pkg: f.Package, body: body, src: f.Source}
+			funcIndex[name] = tsFuncDef{
+				name: name, pkg: f.Package, file: f.RelPath, body: body, src: f.Source,
+				line: int(nameNode.StartPoint().Row) + 1, endLine: int(child.EndPoint().Row) + 1,
+			}
 		}
 	}
 	return funcIndex

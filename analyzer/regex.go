@@ -34,22 +34,27 @@ var (
 )
 
 func (a *RegexAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
+	absRoot, _ := filepath.Abs(root)
 	var classes []oculus.ClassInfo
 	walkSrcFiles(root, func(path, pkg string, content []byte) {
 		text := string(content)
 		ext := filepath.Ext(path)
+		relFile, _ := filepath.Rel(absRoot, path)
+		relFile = filepath.ToSlash(relFile)
 		switch ext {
 		case extGo:
 			for _, m := range reGoStruct.FindAllStringSubmatch(text, -1) {
 				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: kindStruct,
 					Exported: isExported(m[1]),
+					File: relFile,
 				})
 			}
 			for _, m := range reGoIface.FindAllStringSubmatch(text, -1) {
 				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: kindInterface,
 					Exported: isExported(m[1]),
+					File: relFile,
 				})
 			}
 		case extJava:
@@ -57,12 +62,14 @@ func (a *RegexAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
 				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: "class",
 					Exported: isExported(m[1]),
+					File: relFile,
 				})
 			}
 			for _, m := range reInterface.FindAllStringSubmatch(text, -1) {
 				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: kindInterface,
 					Exported: true,
+					File: relFile,
 				})
 			}
 		case extPy:
@@ -70,6 +77,7 @@ func (a *RegexAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
 				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: "class",
 					Exported: !strings.HasPrefix(m[1], "_"),
+					File: relFile,
 				})
 			}
 		case extRust:
@@ -77,12 +85,14 @@ func (a *RegexAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
 				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: kindStruct,
 					Exported: true,
+					File: relFile,
 				})
 			}
 			for _, m := range reRustTrait.FindAllStringSubmatch(text, -1) {
 				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: "trait",
 					Exported: true,
+					File: relFile,
 				})
 			}
 		case extTS, extJS:
@@ -90,12 +100,14 @@ func (a *RegexAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
 				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: "class",
 					Exported: true,
+					File: relFile,
 				})
 			}
 			for _, m := range reTSInterface.FindAllStringSubmatch(text, -1) {
 				classes = append(classes, oculus.ClassInfo{
 					Name: m[1], Package: pkg, Kind: kindInterface,
 					Exported: true,
+					File: relFile,
 				})
 			}
 		}

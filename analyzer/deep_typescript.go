@@ -29,7 +29,9 @@ func NewTypeScriptDeep(root string) *TypeScriptDeepAnalyzer {
 type tsFunc struct {
 	name    string
 	pkg     string
+	file    string
 	line    int
+	endLine int
 	callees []string
 }
 
@@ -150,6 +152,7 @@ func extractTSFunctions(root *sitter.Node, src []byte, pkg string, funcs *[]tsFu
 			*funcs = append(*funcs, tsFunc{
 				name: name, pkg: pkg,
 				line:    int(child.StartPoint().Row) + 1,
+				endLine: int(child.EndPoint().Row) + 1,
 				callees: callees,
 			})
 		case "export_statement", "lexical_declaration":

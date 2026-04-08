@@ -33,7 +33,9 @@ type ParsedProject struct {
 type namedFunc struct {
 	name    string
 	pkg     string
+	file    string
 	line    int
+	endLine int
 	callees []string
 }
 
@@ -60,19 +62,20 @@ func buildSimpleCallGraph(funcs []namedFunc, roots []string, depth int, layer st
 			return
 		}
 		key := fn.pkg + "." + fn.name
-		nodeSet[key] = oculus.FuncNode{Name: fn.name, Package: fn.pkg, Line: fn.line}
+		nodeSet[key] = oculus.FuncNode{Name: fn.name, Package: fn.pkg, Line: fn.line, File: fn.file, EndLine: fn.endLine}
 		for _, callee := range fn.callees {
 			cf, ok := funcIndex[callee]
 			if !ok {
 				continue
 			}
 			ck := cf.pkg + "." + cf.name
-			nodeSet[ck] = oculus.FuncNode{Name: cf.name, Package: cf.pkg, Line: cf.line}
+			nodeSet[ck] = oculus.FuncNode{Name: cf.name, Package: cf.pkg, Line: cf.line, File: cf.file, EndLine: cf.endLine}
 			edges = append(edges, oculus.CallEdge{
 				Caller:    fn.name,
 				Callee:    cf.name,
 				CallerPkg: fn.pkg,
 				CalleePkg: cf.pkg,
+				File:      fn.file,
 				CrossPkg:  fn.pkg != cf.pkg,
 			})
 			walk(callee, d+1)

@@ -108,6 +108,9 @@ func (a *TreeSitterAnalyzer) goClasses(root string) ([]oculus.ClassInfo, error) 
 					Name:     name,
 					Package:  pkg,
 					Exported: isExported(name),
+					File:     file,
+					Line:     int(nameNode.StartPoint().Row) + 1,
+					EndLine:  int(spec.EndPoint().Row) + 1,
 				}
 				switch typeNode.Type() {
 				case nodeStructType:
@@ -150,6 +153,9 @@ func (a *TreeSitterAnalyzer) goClasses(root string) ([]oculus.ClassInfo, error) 
 						Name:      methodName,
 						Signature: sig,
 						Exported:  isExported(methodName),
+						File:      file,
+						Line:      int(nameNode.StartPoint().Row) + 1,
+						EndLine:   int(child.EndPoint().Row) + 1,
 					})
 				}
 			}
@@ -268,6 +274,7 @@ func (a *TreeSitterAnalyzer) goCallChain(root, entry string, maxDepth int) ([]oc
 
 	type funcBody struct {
 		pkg  string
+		file string
 		node *sitter.Node
 		src  []byte
 	}
@@ -292,7 +299,7 @@ func (a *TreeSitterAnalyzer) goCallChain(root, entry string, maxDepth int) ([]oc
 			name := nameNode.Content(src)
 			body := child.ChildByFieldName("body")
 			if body != nil {
-				funcBodies[name] = funcBody{pkg: pkg, node: body, src: src}
+				funcBodies[name] = funcBody{pkg: pkg, file: file, node: body, src: src}
 			}
 		}
 	})
@@ -319,6 +326,7 @@ func (a *TreeSitterAnalyzer) goCallChain(root, entry string, maxDepth int) ([]oc
 				Callee:  callee,
 				Package: fb.pkg,
 				Line:    line,
+				File:    fb.file,
 			})
 			walk(callee, depth+1)
 		})
@@ -347,22 +355,26 @@ func (a *TreeSitterAnalyzer) goEntryPoints(root string) ([]oculus.EntryPoint, er
 			case name == "main":
 				entries = append(entries, oculus.EntryPoint{
 					Name: name, Kind: "main", Package: pkg, File: file,
-					Line: int(nameNode.StartPoint().Row) + 1,
+					Line:    int(nameNode.StartPoint().Row) + 1,
+					EndLine: int(child.EndPoint().Row) + 1,
 				})
 			case name == "init":
 				entries = append(entries, oculus.EntryPoint{
 					Name: name, Kind: "init", Package: pkg, File: file,
-					Line: int(nameNode.StartPoint().Row) + 1,
+					Line:    int(nameNode.StartPoint().Row) + 1,
+					EndLine: int(child.EndPoint().Row) + 1,
 				})
 			case strings.HasPrefix(name, "Test") && params != nil && isTestParam(params, src):
 				entries = append(entries, oculus.EntryPoint{
 					Name: name, Kind: "test", Package: pkg, File: file,
-					Line: int(nameNode.StartPoint().Row) + 1,
+					Line:    int(nameNode.StartPoint().Row) + 1,
+					EndLine: int(child.EndPoint().Row) + 1,
 				})
 			case isHTTPHandlerSignature(params, src):
 				entries = append(entries, oculus.EntryPoint{
 					Name: name, Kind: "http_handler", Package: pkg, File: file,
-					Line: int(nameNode.StartPoint().Row) + 1,
+					Line:    int(nameNode.StartPoint().Row) + 1,
+					EndLine: int(child.EndPoint().Row) + 1,
 				})
 			}
 		}
@@ -397,6 +409,8 @@ func (a *TreeSitterAnalyzer) goNestingDepth(root string) ([]oculus.NestingResult
 				Function: nameNode.Content(src),
 				Package:  pkg,
 				MaxDepth: maxD,
+				File:     file,
+				Line:     int(nameNode.StartPoint().Row) + 1,
 			})
 		}
 	})
@@ -496,6 +510,7 @@ func extractGoStructFields(structNode *sitter.Node, src []byte) []oculus.FieldIn
 				Type:     typStr,
 				Exported: isExported(shortName),
 				Tag:      tag,
+				Line:     int(field.StartPoint().Row) + 1,
 			})
 			continue
 		}
@@ -505,6 +520,7 @@ func extractGoStructFields(structNode *sitter.Node, src []byte) []oculus.FieldIn
 				Type:     typStr,
 				Exported: isExported(n),
 				Tag:      tag,
+				Line:     int(field.StartPoint().Row) + 1,
 			})
 		}
 	}
@@ -530,6 +546,8 @@ func extractGoInterfaceMethods(ifaceNode *sitter.Node, src []byte) []oculus.Meth
 				Name:      name,
 				Signature: sig,
 				Exported:  isExported(name),
+				Line:      int(nameNode.StartPoint().Row) + 1,
+				EndLine:   int(child.EndPoint().Row) + 1,
 			})
 		}
 	}
