@@ -872,6 +872,56 @@ func (p *Engine) GetCallers(ctx context.Context, path, symbol string, cacheKey .
 	return &CallersReport{Symbol: symbol, Callers: callers, Summary: summary}, nil
 }
 
+// --- Data flow & state machine ---
+
+// DataFlowReport wraps DataFlow analysis results with summary.
+type DataFlowReport struct {
+	Entry   string          `json:"entry"`
+	Flow    *oculus.DataFlow `json:"flow"`
+	Summary string          `json:"summary"`
+}
+
+// GetDataFlow traces data flow from an entry function through the codebase.
+func (p *Engine) GetDataFlow(_ context.Context, path, entry string, depth int, cacheKey ...string) (*DataFlowReport, error) {
+	path = p.resolvePath(path)
+	if entry == "" {
+		entry = "main"
+	}
+	if depth <= 0 {
+		depth = 8
+	}
+	da := oculus.CachedDeepFallback(path, p.pool)
+	flow, err := da.DataFlowTrace(path, entry, depth)
+	if err != nil {
+		return nil, fmt.Errorf("data flow trace from %q: %w", entry, err)
+	}
+	summary := fmt.Sprintf("%d nodes, %d edges, %d boundaries from %q",
+		len(flow.Nodes), len(flow.Edges), len(flow.Boundaries), entry)
+	return &DataFlowReport{Entry: entry, Flow: flow, Summary: summary}, nil
+}
+
+// StateMachineReport wraps state machine detection results with summary.
+type StateMachineReport struct {
+	Machines []oculus.StateMachine `json:"machines"`
+	Summary  string               `json:"summary"`
+}
+
+// DetectStateMachines finds const/iota groups and switch-based state patterns.
+func (p *Engine) DetectStateMachines(_ context.Context, path string, cacheKey ...string) (*StateMachineReport, error) {
+	path = p.resolvePath(path)
+	da := oculus.CachedDeepFallback(path, p.pool)
+	machines, err := da.DetectStateMachines(path)
+	if err != nil {
+		return nil, fmt.Errorf("detect state machines: %w", err)
+	}
+	totalStates := 0
+	for _, m := range machines {
+		totalStates += len(m.States)
+	}
+	summary := fmt.Sprintf("%d state machine(s), %d total states", len(machines), totalStates)
+	return &StateMachineReport{Machines: machines, Summary: summary}, nil
+}
+
 // --- Cross-repo comparison ---
 
 // CrossRepoReport holds comparison results between two repos.
