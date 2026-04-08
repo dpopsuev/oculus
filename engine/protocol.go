@@ -331,9 +331,20 @@ func (p *Engine) GetViolations(ctx context.Context, path string, layers []string
 		return nil, err
 	}
 
-	// Auto-detect layers from import depth if none provided.
+	// Use explicit layers if provided.
+	// Otherwise, check for a persisted desired state.
+	// Only infer from import depth as last resort — and never report
+	// inferred-layer violations, since they are noise without intent.
+	if len(layers) == 0 && p.db != nil {
+		if ds, err := p.db.GetDesiredState(ctx, path); err == nil && ds != nil && len(ds.Layers) > 0 {
+			layers = ds.Layers
+		}
+	}
+
 	if len(layers) == 0 {
-		layers = inferLayerOrder(report)
+		return &ViolationReport{
+			Summary: "No desired architecture state defined. Use set_desired_state to enable violation detection.",
+		}, nil
 	}
 
 	violations := graph.CheckLayerPurity(report.Architecture.Edges, layers)
