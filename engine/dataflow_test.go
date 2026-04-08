@@ -82,6 +82,31 @@ func TestGetSymbolGraph_Dogfood(t *testing.T) {
 	t.Logf("  %d call edges", callEdges)
 }
 
+func TestDetectPipelines_Dogfood(t *testing.T) {
+	if testing.Short() {
+		t.Skip("dogfood: skipping in -short mode")
+	}
+	root := oculusRoot(t)
+	eng := New(nil, []string{root})
+
+	report, err := eng.DetectPipelines(context.Background(), root, 2)
+	if err != nil {
+		t.Fatalf("DetectPipelines: %v", err)
+	}
+	t.Logf("Pipelines: %s", report.Summary)
+	for i, p := range report.Pipelines {
+		if i >= 5 {
+			t.Logf("  ... and %d more", len(report.Pipelines)-5)
+			break
+		}
+		steps := make([]string, len(p.Steps))
+		for j, s := range p.Steps {
+			steps[j] = s.FQN
+		}
+		t.Logf("  [%d steps] %s (types: %v)", p.Length, steps, p.TypeChain)
+	}
+}
+
 func TestDetectStateMachines_Dogfood(t *testing.T) {
 	if testing.Short() {
 		t.Skip("dogfood: skipping in -short mode")

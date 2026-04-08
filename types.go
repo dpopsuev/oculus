@@ -88,15 +88,17 @@ type CallGraphOpts struct {
 
 // CallEdge represents a single caller->callee edge in the call graph.
 type CallEdge struct {
-	Caller       string `json:"caller"`
-	Callee       string `json:"callee"`
-	CallerPkg    string `json:"caller_pkg"`
-	CalleePkg    string `json:"callee_pkg"`
-	Line         int    `json:"line,omitempty"`
-	EndLine      int    `json:"end_line,omitempty"`
-	File         string `json:"file,omitempty"`
-	ReceiverType string `json:"receiver_type,omitempty"`
-	CrossPkg     bool   `json:"cross_pkg,omitempty"`
+	Caller       string   `json:"caller"`
+	Callee       string   `json:"callee"`
+	CallerPkg    string   `json:"caller_pkg"`
+	CalleePkg    string   `json:"callee_pkg"`
+	Line         int      `json:"line,omitempty"`
+	EndLine      int      `json:"end_line,omitempty"`
+	File         string   `json:"file,omitempty"`
+	ReceiverType string   `json:"receiver_type,omitempty"`
+	CrossPkg     bool     `json:"cross_pkg,omitempty"`
+	ParamTypes   []string `json:"param_types,omitempty"`
+	ReturnTypes  []string `json:"return_types,omitempty"`
 }
 
 // FuncNode represents a function in the call graph.
@@ -215,4 +217,26 @@ func (e SymbolEdge) Target() string { return e.TargetFQN }
 type SymbolGraph struct {
 	Nodes []SymbolNode `json:"nodes"`
 	Edges []SymbolEdge `json:"edges"`
+}
+
+// PipelineStep represents a single function in a detected pipeline.
+type PipelineStep struct {
+	FQN         string   `json:"fqn"`
+	ParamTypes  []string `json:"param_types,omitempty"`
+	ReturnTypes []string `json:"return_types,omitempty"`
+}
+
+// Pipeline represents a detected data transformation pipeline:
+// a linear call chain where each function's return types overlap
+// with the next function's parameter types.
+type Pipeline struct {
+	Steps     []PipelineStep `json:"steps"`
+	TypeChain []string       `json:"type_chain"`
+	Length    int             `json:"length"`
+}
+
+// PipelineReport holds the result of pipeline detection.
+type PipelineReport struct {
+	Pipelines []Pipeline `json:"pipelines"`
+	Summary   string     `json:"summary"`
 }

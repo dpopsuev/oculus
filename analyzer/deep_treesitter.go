@@ -30,13 +30,15 @@ func NewTreeSitterDeep(root string) (*TreeSitterDeepAnalyzer, error) {
 //  2. Conquer: extract function defs + call expressions per package
 //  3. Combine: merge per-package graphs, mark cross-package edges
 type cgFuncDef struct {
-	name    string
-	pkg     string
-	file    string
-	body    *sitter.Node
-	src     []byte
-	line    int
-	endLine int
+	name        string
+	pkg         string
+	file        string
+	body        *sitter.Node
+	src         []byte
+	line        int
+	endLine     int
+	paramTypes  []string
+	returnTypes []string
 }
 
 func (a *TreeSitterDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
@@ -84,7 +86,10 @@ func (a *TreeSitterDeepAnalyzer) extractCallGraphFuncs(opts oculus.CallGraphOpts
 			key := pkg + "." + name
 			line := int(nameNode.StartPoint().Row) + 1
 			endLine := int(child.EndPoint().Row) + 1
-			allFuncs[key] = cgFuncDef{name: name, pkg: pkg, file: f.RelPath, body: body, src: f.Source, line: line, endLine: endLine}
+			paramNode := child.ChildByFieldName("parameters")
+			paramTypes := extractGoFuncParamTypes(paramNode, f.Source)
+			returnTypes := extractGoFuncResultTypes(child, f.Source)
+			allFuncs[key] = cgFuncDef{name: name, pkg: pkg, file: f.RelPath, body: body, src: f.Source, line: line, endLine: endLine, paramTypes: paramTypes, returnTypes: returnTypes}
 			nodeSet[key] = oculus.FuncNode{Name: name, Package: pkg, Line: line, File: f.RelPath, EndLine: endLine}
 		}
 	}
@@ -124,14 +129,21 @@ func walkCallGraph(allFuncs map[string]cgFuncDef, nodeSet map[string]oculus.Func
 		}
 		extractCalls(fd.body, fd.src, func(callee string, line int) {
 			calleeKey, calleePkg := resolveCallee(callee, fd.pkg, allFuncs)
+			var calleeParamTypes, calleeReturnTypes []string
+			if cf, ok := allFuncs[calleeKey]; ok {
+				calleeParamTypes = cf.paramTypes
+				calleeReturnTypes = cf.returnTypes
+			}
 			edges = append(edges, oculus.CallEdge{
-				Caller:    fd.name,
-				Callee:    callee,
-				CallerPkg: fd.pkg,
-				CalleePkg: calleePkg,
-				Line:      line,
-				File:      fd.file,
-				CrossPkg:  fd.pkg != calleePkg,
+				Caller:      fd.name,
+				Callee:      callee,
+				CallerPkg:   fd.pkg,
+				CalleePkg:   calleePkg,
+				Line:        line,
+				File:        fd.file,
+				CrossPkg:    fd.pkg != calleePkg,
+				ParamTypes:  calleeParamTypes,
+				ReturnTypes: calleeReturnTypes,
 			})
 			if cf, exists := allFuncs[calleeKey]; exists {
 				nodeSet[calleeKey] = oculus.FuncNode{Name: callee, Package: calleePkg, Line: cf.line, File: cf.file, EndLine: cf.endLine}

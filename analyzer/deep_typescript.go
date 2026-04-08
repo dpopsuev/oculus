@@ -27,12 +27,14 @@ func NewTypeScriptDeep(root string) *TypeScriptDeepAnalyzer {
 }
 
 type tsFunc struct {
-	name    string
-	pkg     string
-	file    string
-	line    int
-	endLine int
-	callees []string
+	name        string
+	pkg         string
+	file        string
+	line        int
+	endLine     int
+	paramTypes  []string
+	returnTypes []string
+	callees     []string
 }
 
 func (a *TypeScriptDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {

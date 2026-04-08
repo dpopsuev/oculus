@@ -34,6 +34,8 @@ type goFunc struct {
 	line         int
 	endLine      int
 	receiverType string   // non-empty for methods (e.g., "*APIDriver")
+	paramTypes   []string // parameter type names
+	returnTypes  []string // return type names
 	callees      []string // function names called in the body
 	body         *ast.BlockStmt
 }
@@ -108,6 +110,8 @@ func (a *GoASTDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*ocu
 				File:         fn.file,
 				ReceiverType: fn.receiverType,
 				CrossPkg:     fn.pkg != calleeFn.pkg,
+				ParamTypes:   calleeFn.paramTypes,
+				ReturnTypes:  calleeFn.returnTypes,
 			})
 			walk(callee, d+1)
 		}
@@ -336,6 +340,8 @@ func (a *GoASTDeepAnalyzer) parseFunctions(scope string) ([]goFunc, error) {
 				line:         fset.Position(fd.Pos()).Line,
 				endLine:      fset.Position(fd.End()).Line,
 				receiverType: recvType,
+				paramTypes:   extractFieldTypes(fd.Type.Params),
+				returnTypes:  extractFieldTypes(fd.Type.Results),
 				callees:      callees,
 				body:         fd.Body,
 			})
@@ -384,4 +390,51 @@ func receiverTypeName(expr ast.Expr) string {
 		}
 	}
 	return ""
+}
+
+// exprTypeName converts a Go AST type expression to a readable string.
+func exprTypeName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.StarExpr:
+		return "*" + exprTypeName(t.X)
+	case *ast.SelectorExpr:
+		return exprTypeName(t.X) + "." + t.Sel.Name
+	case *ast.ArrayType:
+		return "[]" + exprTypeName(t.Elt)
+	case *ast.MapType:
+		return "map[" + exprTypeName(t.Key) + "]" + exprTypeName(t.Value)
+	case *ast.Ellipsis:
+		return "..." + exprTypeName(t.Elt)
+	case *ast.InterfaceType:
+		return "interface{}"
+	case *ast.FuncType:
+		return "func"
+	case *ast.ChanType:
+		return "chan " + exprTypeName(t.Value)
+	}
+	return ""
+}
+
+// extractFieldTypes returns type names from an ast.FieldList (params or results).
+func extractFieldTypes(fl *ast.FieldList) []string {
+	if fl == nil {
+		return nil
+	}
+	var types []string
+	for _, field := range fl.List {
+		typeName := exprTypeName(field.Type)
+		if typeName == "" {
+			continue
+		}
+		count := len(field.Names)
+		if count == 0 {
+			count = 1
+		}
+		for i := 0; i < count; i++ {
+			types = append(types, typeName)
+		}
+	}
+	return types
 }

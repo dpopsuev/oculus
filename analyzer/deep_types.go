@@ -31,12 +31,14 @@ type ParsedProject struct {
 
 // namedFunc is a minimal function descriptor used by the shared helpers.
 type namedFunc struct {
-	name    string
-	pkg     string
-	file    string
-	line    int
-	endLine int
-	callees []string
+	name        string
+	pkg         string
+	file        string
+	line        int
+	endLine     int
+	paramTypes  []string
+	returnTypes []string
+	callees     []string
 }
 
 // buildSimpleCallGraph constructs a call graph from a list of named functions.
@@ -71,12 +73,14 @@ func buildSimpleCallGraph(funcs []namedFunc, roots []string, depth int, layer st
 			ck := cf.pkg + "." + cf.name
 			nodeSet[ck] = oculus.FuncNode{Name: cf.name, Package: cf.pkg, Line: cf.line, File: cf.file, EndLine: cf.endLine}
 			edges = append(edges, oculus.CallEdge{
-				Caller:    fn.name,
-				Callee:    cf.name,
-				CallerPkg: fn.pkg,
-				CalleePkg: cf.pkg,
-				File:      fn.file,
-				CrossPkg:  fn.pkg != cf.pkg,
+				Caller:      fn.name,
+				Callee:      cf.name,
+				CallerPkg:   fn.pkg,
+				CalleePkg:   cf.pkg,
+				File:        fn.file,
+				CrossPkg:    fn.pkg != cf.pkg,
+				ParamTypes:  cf.paramTypes,
+				ReturnTypes: cf.returnTypes,
 			})
 			walk(callee, d+1)
 		}

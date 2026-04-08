@@ -573,6 +573,53 @@ func extractGoReceiverType(recvNode *sitter.Node, src []byte) string {
 	return ""
 }
 
+// extractGoFuncParamTypes returns parameter type names from a parameter_list node.
+func extractGoFuncParamTypes(paramList *sitter.Node, src []byte) []string {
+	if paramList == nil {
+		return nil
+	}
+	var types []string
+	for i := 0; i < int(paramList.ChildCount()); i++ {
+		child := paramList.Child(i)
+		if child.Type() != "parameter_declaration" {
+			continue
+		}
+		typeNode := child.ChildByFieldName("type")
+		if typeNode == nil {
+			continue
+		}
+		typeName := typeNode.Content(src)
+		// Count names (e.g., "a, b int" = 2 params of same type)
+		nameCount := 0
+		for j := 0; j < int(child.ChildCount()); j++ {
+			if child.Child(j).Type() == "identifier" {
+				nameCount++
+			}
+		}
+		if nameCount == 0 {
+			nameCount = 1
+		}
+		for k := 0; k < nameCount; k++ {
+			types = append(types, typeName)
+		}
+	}
+	return types
+}
+
+// extractGoFuncResultTypes returns return type names from a function declaration node.
+func extractGoFuncResultTypes(funcNode *sitter.Node, src []byte) []string {
+	resultNode := funcNode.ChildByFieldName("result")
+	if resultNode == nil {
+		return nil
+	}
+	// Single return type (e.g., "func Foo() int")
+	if resultNode.Type() != "parameter_list" {
+		return []string{resultNode.Content(src)}
+	}
+	// Multi-return (e.g., "func Foo() (int, error)")
+	return extractGoFuncParamTypes(resultNode, src)
+}
+
 func extractCalls(node *sitter.Node, src []byte, emit func(callee string, line int)) {
 	if node == nil {
 		return

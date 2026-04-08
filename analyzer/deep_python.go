@@ -27,12 +27,14 @@ func NewPythonDeep(root string) *PythonDeepAnalyzer {
 }
 
 type pyFunc struct {
-	name    string
-	pkg     string
-	file    string
-	line    int
-	endLine int
-	callees []string
+	name        string
+	pkg         string
+	file        string
+	line        int
+	endLine     int
+	paramTypes  []string
+	returnTypes []string
+	callees     []string
 }
 
 func (a *PythonDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {

@@ -950,6 +950,20 @@ func (p *Engine) GetSymbolGraph(_ context.Context, path string, cacheKey ...stri
 	return oculus.MergeSymbolGraph(cg, classes, impls, refs), nil
 }
 
+// DetectPipelines finds data transformation pipelines in the symbol graph:
+// linear call chains where each function's return types overlap with
+// the next function's parameter types.
+func (p *Engine) DetectPipelines(ctx context.Context, path string, minLength int, cacheKey ...string) (*oculus.PipelineReport, error) {
+	sg, err := p.GetSymbolGraph(ctx, path, cacheKey...)
+	if err != nil {
+		return nil, fmt.Errorf("symbol graph: %w", err)
+	}
+	if minLength <= 0 {
+		minLength = 3
+	}
+	return oculus.DetectPipelines(sg, minLength), nil
+}
+
 // --- Cross-repo comparison ---
 
 // CrossRepoReport holds comparison results between two repos.
