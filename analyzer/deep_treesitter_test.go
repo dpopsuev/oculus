@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"github.com/dpopsuev/oculus"
 	"os"
 	"path/filepath"
@@ -33,7 +34,7 @@ func Helper() {}
 	if err != nil {
 		t.Fatal(err)
 	}
-	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +66,7 @@ func Save() {}
 	if err != nil {
 		t.Fatal(err)
 	}
-	flow, err := a.DataFlowTrace(dir, "main", 5)
+	flow, err := a.DataFlowTrace(context.Background(), dir, "main", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +106,7 @@ func transition(s Status) Status {
 	if err != nil {
 		t.Fatal(err)
 	}
-	machines, err := a.DetectStateMachines(dir)
+	machines, err := a.DetectStateMachines(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +135,7 @@ func main() {
 func Hello() {}
 `)
 	fb := NewDeepFallback(dir, nil)
-	cg, err := fb.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 3})
+	cg, err := fb.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 3})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package diagram
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -230,7 +231,7 @@ func TestTypes(t *testing.T) {
 
 type mockDeepAnalyzer struct{}
 
-func (m *mockDeepAnalyzer) CallGraph(_ string, _ oculus.CallGraphOpts) (*oculus.CallGraph, error) {
+func (m *mockDeepAnalyzer) CallGraph(_ context.Context, _ string, _ oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	return &oculus.CallGraph{
 		Nodes: []oculus.FuncNode{
 			{Name: "main", Package: "cmd/app", Line: 10},
@@ -245,7 +246,7 @@ func (m *mockDeepAnalyzer) CallGraph(_ string, _ oculus.CallGraphOpts) (*oculus.
 	}, nil
 }
 
-func (m *mockDeepAnalyzer) DataFlowTrace(_, _ string, _ int) (*oculus.DataFlow, error) {
+func (m *mockDeepAnalyzer) DataFlowTrace(_ context.Context, _, _ string, _ int) (*oculus.DataFlow, error) {
 	return &oculus.DataFlow{
 		Nodes: []oculus.DataFlowNode{
 			{Name: "main", Kind: "entry"},
@@ -263,7 +264,7 @@ func (m *mockDeepAnalyzer) DataFlowTrace(_, _ string, _ int) (*oculus.DataFlow, 
 	}, nil
 }
 
-func (m *mockDeepAnalyzer) DetectStateMachines(_ string) ([]oculus.StateMachine, error) {
+func (m *mockDeepAnalyzer) DetectStateMachines(_ context.Context, _ string) ([]oculus.StateMachine, error) {
 	return []oculus.StateMachine{
 		{
 			Name:    "OrderStatus",

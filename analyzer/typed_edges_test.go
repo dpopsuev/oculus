@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -51,7 +52,7 @@ func TestGoAST_TypedEdges(t *testing.T) {
 		t.Skip("not detected as Go project")
 	}
 
-	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,7 @@ func TestTreeSitter_TypedEdges(t *testing.T) {
 		t.Skipf("tree-sitter not available: %v", err)
 	}
 
-	cg, err := ts.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	cg, err := ts.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +90,7 @@ func TestFallback_TypedEdges(t *testing.T) {
 	}
 
 	da := NewDeepFallback(dir, nil)
-	cg, err := da.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	cg, err := da.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +124,7 @@ func TestDogfood_TypedEdgeCoverage(t *testing.T) {
 
 	da := NewDeepFallback(root, nil)
 	// Oculus is a library — no main function. Use exported-only mode.
-	cg, err := da.CallGraph(root, oculus.CallGraphOpts{ExportedOnly: true, Depth: 3})
+	cg, err := da.CallGraph(context.Background(), root, oculus.CallGraphOpts{ExportedOnly: true, Depth: 3})
 	if err != nil {
 		t.Fatalf("CallGraph: %v", err)
 	}

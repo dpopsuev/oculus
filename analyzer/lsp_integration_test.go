@@ -60,7 +60,7 @@ func TestLSPIntegration_CallGraph(t *testing.T) {
 
 			// Run through the full analyzer chain with container pool
 			da := NewDeepFallback(dir, pool)
-			cg, err := da.CallGraph(dir, oculus.CallGraphOpts{Entry: fix.entry, Depth: 5})
+			cg, err := da.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: fix.entry, Depth: 5})
 			if err != nil {
 				t.Fatalf("CallGraph: %v", err)
 			}
@@ -120,7 +120,7 @@ func TestLSPIntegration_HoverEnrichment(t *testing.T) {
 			a := NewLSPDeepWithPool(dir, pool)
 
 			// Get call graph — this exercises callHierarchy + hover enrichment
-			cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: fix.entry, Depth: 5})
+			cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: fix.entry, Depth: 5})
 			if err != nil {
 				t.Fatalf("LSP CallGraph: %v", err)
 			}
@@ -157,14 +157,14 @@ func TestLSPIntegration_GoReference(t *testing.T) {
 
 	// Container LSP
 	lspDA := NewLSPDeepWithPool(dir, pool)
-	lspCG, err := lspDA.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	lspCG, err := lspDA.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatalf("LSP CallGraph: %v", err)
 	}
 
 	// Local GoAST
 	goastDA := NewGoASTDeep(dir)
-	goastCG, err := goastDA.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	goastCG, err := goastDA.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatalf("GoAST CallGraph: %v", err)
 	}

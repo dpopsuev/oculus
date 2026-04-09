@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"github.com/dpopsuev/oculus"
 	"os"
 	"path/filepath"
@@ -49,7 +50,7 @@ function sendResult(result: number[]) {
 		t.Fatal("expected TypeScriptDeepAnalyzer for TS project")
 	}
 
-	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatalf("oculus.CallGraph: %v", err)
 	}
@@ -102,7 +103,7 @@ const formatName = (name: string) => {
 		t.Fatal("expected TypeScriptDeepAnalyzer")
 	}
 
-	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "greet", Depth: 3})
+	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "greet", Depth: 3})
 	if err != nil {
 		t.Fatalf("oculus.CallGraph: %v", err)
 	}

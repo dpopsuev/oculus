@@ -7,12 +7,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dpopsuev/oculus/arch"
 	archgit "github.com/dpopsuev/oculus/arch/git"
@@ -730,13 +732,13 @@ type CalleesReport struct {
 	Summary string       `json:"summary"`
 }
 
-func (p *Engine) GetCallees(_ context.Context, path, symbol string, cacheKey ...string) (*CalleesReport, error) {
+func (p *Engine) GetCallees(ctx context.Context, path, symbol string, cacheKey ...string) (*CalleesReport, error) {
 	path = p.resolvePath(path)
 	if symbol == "" {
 		return nil, ErrComponentRequired
 	}
 	da := analyzer.CachedDeepFallback(path, p.pool)
-	cg, err := da.CallGraph(path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+	cg, err := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
 	if err != nil {
 		return nil, fmt.Errorf("call graph: %w", err)
 	}
@@ -770,10 +772,10 @@ type CallPathReport struct {
 	Summary string   `json:"summary"`
 }
 
-func (p *Engine) GetCallPath(_ context.Context, path, from, to string, cacheKey ...string) (*CallPathReport, error) {
+func (p *Engine) GetCallPath(ctx context.Context, path, from, to string, cacheKey ...string) (*CallPathReport, error) {
 	path = p.resolvePath(path)
 	da := analyzer.CachedDeepFallback(path, p.pool)
-	cg, err := da.CallGraph(path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+	cg, err := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
 	if err != nil {
 		return nil, fmt.Errorf("call graph: %w", err)
 	}
@@ -820,7 +822,7 @@ func (p *Engine) GetSymbolBlastRadius(ctx context.Context, path, symbol string, 
 		return nil, ErrComponentRequired
 	}
 	da := analyzer.CachedDeepFallback(path, p.pool)
-	cg, err := da.CallGraph(path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+	cg, err := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
 	if err != nil {
 		return nil, fmt.Errorf("call graph: %w", err)
 	}
@@ -848,7 +850,7 @@ func (p *Engine) GetDiffIntelligence(ctx context.Context, path, since string, ca
 	}
 	// Build call graph for symbol-level oculus.
 	da := analyzer.CachedDeepFallback(path, p.pool)
-	cg, err := da.CallGraph(path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+	cg, err := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
 	if err != nil {
 		return nil, fmt.Errorf("call graph: %w", err)
 	}
@@ -862,7 +864,7 @@ func (p *Engine) GetCallers(ctx context.Context, path, symbol string, cacheKey .
 	}
 
 	da := analyzer.CachedDeepFallback(path, p.pool)
-	cg, err := da.CallGraph(path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+	cg, err := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
 	if err != nil {
 		return nil, fmt.Errorf("call graph: %w", err)
 	}
@@ -894,7 +896,7 @@ type DataFlowReport struct {
 }
 
 // GetDataFlow traces data flow from an entry function through the codebase.
-func (p *Engine) GetDataFlow(_ context.Context, path, entry string, depth int, cacheKey ...string) (*DataFlowReport, error) {
+func (p *Engine) GetDataFlow(ctx context.Context, path, entry string, depth int, cacheKey ...string) (*DataFlowReport, error) {
 	path = p.resolvePath(path)
 	if entry == "" {
 		entry = "main"
@@ -903,7 +905,7 @@ func (p *Engine) GetDataFlow(_ context.Context, path, entry string, depth int, c
 		depth = 8
 	}
 	da := analyzer.CachedDeepFallback(path, p.pool)
-	flow, err := da.DataFlowTrace(path, entry, depth)
+	flow, err := da.DataFlowTrace(ctx, path, entry, depth)
 	if err != nil {
 		return nil, fmt.Errorf("data flow trace from %q: %w", entry, err)
 	}
@@ -919,10 +921,10 @@ type StateMachineReport struct {
 }
 
 // DetectStateMachines finds const/iota groups and switch-based state patterns.
-func (p *Engine) DetectStateMachines(_ context.Context, path string, cacheKey ...string) (*StateMachineReport, error) {
+func (p *Engine) DetectStateMachines(ctx context.Context, path string, cacheKey ...string) (*StateMachineReport, error) {
 	path = p.resolvePath(path)
 	da := analyzer.CachedDeepFallback(path, p.pool)
-	machines, err := da.DetectStateMachines(path)
+	machines, err := da.DetectStateMachines(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("detect state machines: %w", err)
 	}
@@ -935,19 +937,51 @@ func (p *Engine) DetectStateMachines(_ context.Context, path string, cacheKey ..
 }
 
 // GetSymbolGraph builds a unified symbol-level dependency graph by merging
+// DefaultMeshTimeout is the maximum time for GetMesh/GetSymbolGraph operations.
+const DefaultMeshTimeout = 60 * time.Second
+
 // call graph, type hierarchy, and field reference data.
-func (p *Engine) GetSymbolGraph(_ context.Context, path string, cacheKey ...string) (*oculus.SymbolGraph, error) {
+func (p *Engine) GetSymbolGraph(ctx context.Context, path string, cacheKey ...string) (*oculus.SymbolGraph, error) {
+	ctx, cancel := context.WithTimeout(ctx, DefaultMeshTimeout)
+	defer cancel()
+
 	path = p.resolvePath(path)
 	da := analyzer.CachedDeepFallback(path, p.pool)
-	cg, err := da.CallGraph(path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+
+	start := time.Now()
+	cg, err := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+	slog.LogAttrs(ctx, slog.LevelDebug, "mesh: call_graph",
+		slog.Duration("duration", time.Since(start)),
+		slog.Int("edges", len(cg.Edges)),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("call graph: %w", err)
 	}
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("symbol graph: %w", ctx.Err())
+	}
+
 	fa := analyzer.NewFallback(path, p.pool)
+
+	start = time.Now()
 	classes, _ := fa.Classes(path)
 	impls, _ := fa.Implements(path)
 	refs, _ := fa.FieldRefs(path)
-	return oculus.MergeSymbolGraph(cg, classes, impls, refs), nil
+	slog.LogAttrs(ctx, slog.LevelDebug, "mesh: type_analysis",
+		slog.Duration("duration", time.Since(start)),
+		slog.Int("classes", len(classes)),
+		slog.Int("impls", len(impls)),
+		slog.Int("refs", len(refs)),
+	)
+
+	start = time.Now()
+	sg := oculus.MergeSymbolGraph(cg, classes, impls, refs)
+	slog.LogAttrs(ctx, slog.LevelDebug, "mesh: merge",
+		slog.Duration("duration", time.Since(start)),
+		slog.Int("nodes", len(sg.Nodes)),
+		slog.Int("edges", len(sg.Edges)),
+	)
+	return sg, nil
 }
 
 // DetectPipelines finds data transformation pipelines in the symbol graph:
@@ -967,10 +1001,13 @@ func (p *Engine) DetectPipelines(ctx context.Context, path string, minLength int
 // GetMesh builds a hierarchical mesh view of the codebase:
 // symbols → files → packages → components with edge overlay.
 func (p *Engine) GetMesh(ctx context.Context, path string, cacheKey ...string) (*oculus.Mesh, error) {
+	total := time.Now()
+
 	sg, err := p.GetSymbolGraph(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, fmt.Errorf("symbol graph: %w", err)
 	}
+
 	report, err := p.getOrScan(path, cacheKey...)
 	if err != nil {
 		return nil, fmt.Errorf("scan: %w", err)
@@ -979,7 +1016,18 @@ func (p *Engine) GetMesh(ctx context.Context, path string, cacheKey ...string) (
 	for i := range report.Architecture.Services {
 		componentNames[i] = report.Architecture.Services[i].Name
 	}
-	return oculus.BuildMesh(sg, componentNames), nil
+
+	start := time.Now()
+	mesh := oculus.BuildMesh(sg, componentNames)
+	slog.LogAttrs(ctx, slog.LevelDebug, "mesh: build",
+		slog.Duration("duration", time.Since(start)),
+		slog.Int("nodes", len(mesh.Nodes)),
+		slog.Int("edges", len(mesh.Edges)),
+	)
+	slog.LogAttrs(ctx, slog.LevelDebug, "mesh: total",
+		slog.Duration("duration", time.Since(total)),
+	)
+	return mesh, nil
 }
 
 // --- Cross-repo comparison ---
@@ -1700,7 +1748,7 @@ func (p *Engine) GetPatternScan(ctx context.Context, path string, cacheKey ...st
 
 	// Enrich with call graph if available (Feature Envy move targets, God Component split suggestions).
 	da := analyzer.CachedDeepFallback(path, p.pool)
-	if cg, cgErr := da.CallGraph(path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth}); cgErr == nil && cg != nil {
+	if cg, cgErr := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth}); cgErr == nil && cg != nil {
 		clinic.EnrichWithCallGraph(patternReport, cg.Edges)
 	}
 

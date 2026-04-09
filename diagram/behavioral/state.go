@@ -1,6 +1,7 @@
 package behavioral
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -15,7 +16,7 @@ func State(in core.Input, opts core.Options) (string, error) {
 		return "", core.ErrDeepAnalyzerRequired
 	}
 
-	machines, err := in.DeepAnalyzer.DetectStateMachines(in.Root)
+	machines, err := in.DeepAnalyzer.DetectStateMachines(context.Background(), in.Root)
 	if err != nil {
 		return "", fmt.Errorf("detect state machines: %w", err)
 	}

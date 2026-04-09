@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"github.com/dpopsuev/oculus"
 	"os"
 	"path/filepath"
@@ -45,7 +46,7 @@ def send_result(result):
 		t.Fatal("expected PythonDeepAnalyzer for Python project")
 	}
 
-	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatalf("oculus.CallGraph: %v", err)
 	}

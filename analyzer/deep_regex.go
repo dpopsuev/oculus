@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"github.com/dpopsuev/oculus"
 	"os"
 	"path/filepath"
@@ -34,7 +35,7 @@ var (
 	reGoImport   = regexp.MustCompile(`"([^"]+)"`)
 )
 
-func (a *RegexDeepAnalyzer) CallGraph(root string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
+func (a *RegexDeepAnalyzer) CallGraph(ctx context.Context, root string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	depth := opts.Depth
 	if depth <= 0 {
 		depth = oculus.DefaultCallGraphDepth
@@ -121,7 +122,7 @@ func (a *RegexDeepAnalyzer) CallGraph(root string, opts oculus.CallGraphOpts) (*
 }
 
 //nolint:gocyclo // data flow tracing with import heuristics requires multiple branches
-func (a *RegexDeepAnalyzer) DataFlowTrace(root, entry string, maxDepth int) (*oculus.DataFlow, error) {
+func (a *RegexDeepAnalyzer) DataFlowTrace(ctx context.Context, root, entry string, maxDepth int) (*oculus.DataFlow, error) {
 	if maxDepth <= 0 {
 		maxDepth = oculus.DefaultDataFlowDepth
 	}
@@ -203,7 +204,7 @@ func (a *RegexDeepAnalyzer) DataFlowTrace(root, entry string, maxDepth int) (*oc
 	return &oculus.DataFlow{Nodes: nodes, Edges: edges, Layer: oculus.LayerRegex}, nil
 }
 
-func (a *RegexDeepAnalyzer) DetectStateMachines(root string) ([]oculus.StateMachine, error) {
+func (a *RegexDeepAnalyzer) DetectStateMachines(ctx context.Context, root string) ([]oculus.StateMachine, error) {
 	var machines []oculus.StateMachine
 
 	walkSourceFiles(root, func(content, pkg, _ string) {

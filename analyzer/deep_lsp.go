@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -78,7 +79,7 @@ func (a *LSPDeepAnalyzer) startConn() (*lspConn, func(), error) {
 
 // oculus.CallGraph uses callHierarchy/outgoingCalls recursively from all
 // exported functions (or a single entry if opts.Entry is set).
-func (a *LSPDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
+func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	conn, cleanup, err := a.startConn()
 	if err != nil {
 		return nil, fmt.Errorf("lsp deep call graph: %w", err)
@@ -287,7 +288,7 @@ func matchSignatureLine(line, blockLang string) string {
 
 // DataFlowTrace uses callHierarchy to trace data flow from an entry,
 // detecting data stores via workspace/symbol heuristics.
-func (a *LSPDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*oculus.DataFlow, error) {
+func (a *LSPDeepAnalyzer) DataFlowTrace(ctx context.Context, _, entry string, maxDepth int) (*oculus.DataFlow, error) {
 	conn, cleanup, err := a.startConn()
 	if err != nil {
 		return nil, fmt.Errorf("lsp deep dataflow: %w", err)
@@ -365,7 +366,7 @@ func (a *LSPDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*oculus.
 
 // DetectStateMachines uses documentSymbol to find const groups and
 // then workspace/symbol + textDocument/references to find switch contexts.
-func (a *LSPDeepAnalyzer) DetectStateMachines(_ string) ([]oculus.StateMachine, error) {
+func (a *LSPDeepAnalyzer) DetectStateMachines(ctx context.Context, _ string) ([]oculus.StateMachine, error) {
 	conn, cleanup, err := a.startConn()
 	if err != nil {
 		return nil, fmt.Errorf("lsp deep state machines: %w", err)

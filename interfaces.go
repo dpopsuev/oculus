@@ -1,5 +1,7 @@
 package oculus
 
+import "context"
+
 // --- ISP: Role-specific interfaces ---
 
 // ClassAnalyzer extracts type declarations and implementation relationships.
@@ -31,7 +33,7 @@ type TypeAnalyzer interface {
 // DeepAnalyzer extracts cross-function, cross-package structural
 // information for call graphs, data flow, and state machines.
 type DeepAnalyzer interface {
-	CallGraph(root string, opts CallGraphOpts) (*CallGraph, error)
-	DataFlowTrace(root, entry string, depth int) (*DataFlow, error)
-	DetectStateMachines(root string) ([]StateMachine, error)
+	CallGraph(ctx context.Context, root string, opts CallGraphOpts) (*CallGraph, error)
+	DataFlowTrace(ctx context.Context, root, entry string, depth int) (*DataFlow, error)
+	DetectStateMachines(ctx context.Context, root string) ([]StateMachine, error)
 }

@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -10,13 +11,13 @@ import (
 func TestStubDeepAnalyzer_Defaults(t *testing.T) {
 	stub := &StubDeepAnalyzer{}
 
-	cg, err := stub.CallGraph(".", oculus.CallGraphOpts{})
+	cg, err := stub.CallGraph(context.Background(), ".", oculus.CallGraphOpts{})
 	if err != nil {
 		t.Fatalf("CallGraph: %v", err)
 	}
 	AssertCallGraph(t, cg, 3, 2)
 
-	flow, err := stub.DataFlowTrace(".", "main", 5)
+	flow, err := stub.DataFlowTrace(context.Background(), ".", "main", 5)
 	if err != nil {
 		t.Fatalf("DataFlowTrace: %v", err)
 	}
@@ -26,7 +27,7 @@ func TestStubDeepAnalyzer_Defaults(t *testing.T) {
 	AssertDataFlowHasEdge(t, flow, "HandleRequest", "UserDB")
 	AssertDataFlowHasBoundary(t, flow, "Auth Zone")
 
-	machines, err := stub.DetectStateMachines(".")
+	machines, err := stub.DetectStateMachines(context.Background(), ".")
 	if err != nil {
 		t.Fatalf("DetectStateMachines: %v", err)
 	}
@@ -41,7 +42,7 @@ func TestStubDeepAnalyzer_CustomResults(t *testing.T) {
 	}
 	stub := &StubDeepAnalyzer{DataFlowResult: custom}
 
-	flow, err := stub.DataFlowTrace(".", "x", 1)
+	flow, err := stub.DataFlowTrace(context.Background(), ".", "x", 1)
 	if err != nil {
 		t.Fatalf("DataFlowTrace: %v", err)
 	}
@@ -58,13 +59,13 @@ func TestStubDeepAnalyzer_Errors(t *testing.T) {
 		StateMachinesErr: errTest,
 	}
 
-	if _, err := stub.CallGraph(".", oculus.CallGraphOpts{}); !errors.Is(err, errTest) {
+	if _, err := stub.CallGraph(context.Background(), ".", oculus.CallGraphOpts{}); !errors.Is(err, errTest) {
 		t.Errorf("CallGraph: got %v, want %v", err, errTest)
 	}
-	if _, err := stub.DataFlowTrace(".", "x", 1); !errors.Is(err, errTest) {
+	if _, err := stub.DataFlowTrace(context.Background(), ".", "x", 1); !errors.Is(err, errTest) {
 		t.Errorf("DataFlowTrace: got %v, want %v", err, errTest)
 	}
-	if _, err := stub.DetectStateMachines("."); !errors.Is(err, errTest) {
+	if _, err := stub.DetectStateMachines(context.Background(), "."); !errors.Is(err, errTest) {
 		t.Errorf("DetectStateMachines: got %v, want %v", err, errTest)
 	}
 }

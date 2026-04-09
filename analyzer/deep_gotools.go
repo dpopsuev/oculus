@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"github.com/dpopsuev/oculus"
 	"fmt"
 	"go/token"
@@ -44,7 +45,7 @@ func NewGoToolsDeep(root string) *GoToolsDeepAnalyzer {
 	return &GoToolsDeepAnalyzer{root: root}
 }
 
-func (a *GoToolsDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
+func (a *GoToolsDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	absRoot, err := filepath.Abs(a.root)
 	if err != nil {
 		return nil, err
@@ -124,22 +125,22 @@ func (a *GoToolsDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*o
 	return &oculus.CallGraph{Nodes: nodes, Edges: edges, Layer: LayerGoTools}, nil
 }
 
-func (a *GoToolsDeepAnalyzer) DataFlowTrace(root, entry string, maxDepth int) (*oculus.DataFlow, error) {
+func (a *GoToolsDeepAnalyzer) DataFlowTrace(ctx context.Context, root, entry string, maxDepth int) (*oculus.DataFlow, error) {
 	// Delegate to GoAST for data flow — CHA doesn't provide data flow info.
 	goast := NewGoASTDeep(a.root)
 	if goast == nil {
 		return &oculus.DataFlow{Layer: LayerGoTools}, nil
 	}
-	return goast.DataFlowTrace(root, entry, maxDepth)
+	return goast.DataFlowTrace(ctx, root, entry, maxDepth)
 }
 
-func (a *GoToolsDeepAnalyzer) DetectStateMachines(root string) ([]oculus.StateMachine, error) {
+func (a *GoToolsDeepAnalyzer) DetectStateMachines(ctx context.Context, root string) ([]oculus.StateMachine, error) {
 	// Delegate to GoAST — state machines are AST pattern matching, not call graph.
 	goast := NewGoASTDeep(a.root)
 	if goast == nil {
 		return nil, nil
 	}
-	return goast.DetectStateMachines(root)
+	return goast.DetectStateMachines(ctx, root)
 }
 
 // funcPackage derives the Locus-style relative package path for an SSA function.

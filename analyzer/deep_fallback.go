@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"github.com/dpopsuev/oculus"
 	"github.com/dpopsuev/oculus/lsp"
 )
@@ -23,9 +24,9 @@ func NewDeepFallback(root string, pool lsp.Pool) *DeepFallbackAnalyzer {
 	}
 }
 
-func (f *DeepFallbackAnalyzer) CallGraph(root string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
+func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	for _, a := range f.analyzers {
-		r, err := a.CallGraph(root, opts)
+		r, err := a.CallGraph(ctx, root, opts)
 		if err == nil && len(r.Edges) > 0 {
 			// Universal enrichment: fill in types for any edges still missing them.
 			// Individual analyzers may already populate types (GoAST, LSP hover),
@@ -37,9 +38,9 @@ func (f *DeepFallbackAnalyzer) CallGraph(root string, opts oculus.CallGraphOpts)
 	return &oculus.CallGraph{}, nil
 }
 
-func (f *DeepFallbackAnalyzer) DataFlowTrace(root, entry string, depth int) (*oculus.DataFlow, error) {
+func (f *DeepFallbackAnalyzer) DataFlowTrace(ctx context.Context, root, entry string, depth int) (*oculus.DataFlow, error) {
 	for _, a := range f.analyzers {
-		r, err := a.DataFlowTrace(root, entry, depth)
+		r, err := a.DataFlowTrace(ctx, root, entry, depth)
 		if err == nil && len(r.Edges) > 0 {
 			return r, nil
 		}
@@ -47,9 +48,9 @@ func (f *DeepFallbackAnalyzer) DataFlowTrace(root, entry string, depth int) (*oc
 	return &oculus.DataFlow{}, nil
 }
 
-func (f *DeepFallbackAnalyzer) DetectStateMachines(root string) ([]oculus.StateMachine, error) {
+func (f *DeepFallbackAnalyzer) DetectStateMachines(ctx context.Context, root string) ([]oculus.StateMachine, error) {
 	for _, a := range f.analyzers {
-		r, err := a.DetectStateMachines(root)
+		r, err := a.DetectStateMachines(ctx, root)
 		if err == nil && len(r) > 0 {
 			return r, nil
 		}

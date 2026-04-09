@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"github.com/dpopsuev/oculus"
 	"os"
 	"path/filepath"
@@ -22,7 +23,7 @@ func TestGoASTCallGraph_OnLocus(t *testing.T) {
 		t.Fatal("expected GoASTDeepAnalyzer for Go repo")
 	}
 
-	cg, err := a.CallGraph(root, oculus.CallGraphOpts{
+	cg, err := a.CallGraph(context.Background(), root, oculus.CallGraphOpts{
 		ExportedOnly: true,
 		Depth:        3,
 	})
@@ -55,7 +56,7 @@ func TestGoASTCallGraph_WithEntry(t *testing.T) {
 		t.Fatal("expected GoASTDeepAnalyzer")
 	}
 
-	cg, err := a.CallGraph(root, oculus.CallGraphOpts{
+	cg, err := a.CallGraph(context.Background(), root, oculus.CallGraphOpts{
 		Entry: "ScanAndBuild",
 		Depth: 2,
 	})
@@ -94,7 +95,7 @@ func TestGoASTDataFlowTrace(t *testing.T) {
 		t.Fatal("expected GoASTDeepAnalyzer")
 	}
 
-	df, err := a.DataFlowTrace(root, "ScanAndBuild", 3)
+	df, err := a.DataFlowTrace(context.Background(), root, "ScanAndBuild", 3)
 	if err != nil {
 		t.Fatalf("DataFlowTrace: %v", err)
 	}
@@ -127,7 +128,7 @@ func TestGoASTFallbackIntegration(t *testing.T) {
 	}
 
 	fb := NewDeepFallback(root, nil)
-	cg, err := fb.CallGraph(root, oculus.CallGraphOpts{Entry: "ScanAndBuild", Depth: 2})
+	cg, err := fb.CallGraph(context.Background(), root, oculus.CallGraphOpts{Entry: "ScanAndBuild", Depth: 2})
 	if err != nil {
 		t.Fatalf("fallback oculus.CallGraph: %v", err)
 	}

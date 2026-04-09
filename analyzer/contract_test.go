@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -63,7 +64,7 @@ func TestContract_GoAST_EdgeMetadata(t *testing.T) {
 	if a == nil {
 		t.Skip("GoAST not available")
 	}
-	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +77,7 @@ func TestContract_TreeSitter_EdgeMetadata(t *testing.T) {
 	if err != nil {
 		t.Skipf("TreeSitter not available: %v", err)
 	}
-	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +87,7 @@ func TestContract_TreeSitter_EdgeMetadata(t *testing.T) {
 func TestContract_Regex_EdgeMetadata(t *testing.T) {
 	dir := setupContractFixture(t)
 	a := &RegexDeepAnalyzer{}
-	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +108,7 @@ func TestContract_Regex_EdgeMetadata(t *testing.T) {
 func TestContract_Fallback_EdgeMetadata(t *testing.T) {
 	dir := setupContractFixture(t)
 	a := NewDeepFallback(dir, nil)
-	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +123,7 @@ func TestContract_GoAST_TypedEdges(t *testing.T) {
 	if a == nil {
 		t.Skip("GoAST not available")
 	}
-	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +137,7 @@ func TestContract_TreeSitter_TypedEdges(t *testing.T) {
 	if err != nil {
 		t.Skipf("TreeSitter not available: %v", err)
 	}
-	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +149,7 @@ func TestContract_UniversalEnrichment(t *testing.T) {
 	dir := setupContractFixture(t)
 	// Use Regex — produces edges with 0% types
 	a := &RegexDeepAnalyzer{}
-	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatal(err)
 	}

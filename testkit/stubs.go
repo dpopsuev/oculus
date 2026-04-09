@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"context"
 	"testing"
 
 	"github.com/dpopsuev/oculus"
@@ -17,7 +18,7 @@ type StubDeepAnalyzer struct {
 	StateMachinesErr       error
 }
 
-func (s *StubDeepAnalyzer) CallGraph(_ string, _ oculus.CallGraphOpts) (*oculus.CallGraph, error) {
+func (s *StubDeepAnalyzer) CallGraph(_ context.Context, _ string, _ oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	if s.CallGraphErr != nil {
 		return nil, s.CallGraphErr
 	}
@@ -27,7 +28,7 @@ func (s *StubDeepAnalyzer) CallGraph(_ string, _ oculus.CallGraphOpts) (*oculus.
 	return SampleCallGraph(), nil
 }
 
-func (s *StubDeepAnalyzer) DataFlowTrace(_, _ string, _ int) (*oculus.DataFlow, error) {
+func (s *StubDeepAnalyzer) DataFlowTrace(_ context.Context, _, _ string, _ int) (*oculus.DataFlow, error) {
 	if s.DataFlowErr != nil {
 		return nil, s.DataFlowErr
 	}
@@ -37,7 +38,7 @@ func (s *StubDeepAnalyzer) DataFlowTrace(_, _ string, _ int) (*oculus.DataFlow, 
 	return SampleDataFlow(), nil
 }
 
-func (s *StubDeepAnalyzer) DetectStateMachines(_ string) ([]oculus.StateMachine, error) {
+func (s *StubDeepAnalyzer) DetectStateMachines(_ context.Context, _ string) ([]oculus.StateMachine, error) {
 	if s.StateMachinesErr != nil {
 		return nil, s.StateMachinesErr
 	}

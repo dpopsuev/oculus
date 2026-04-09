@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"github.com/dpopsuev/oculus"
 	"go/ast"
 	"go/parser"
@@ -47,7 +48,7 @@ type goFunc struct {
 	body         *ast.BlockStmt
 }
 
-func (a *GoASTDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
+func (a *GoASTDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	depth := opts.Depth
 	if depth <= 0 {
 		depth = oculus.DefaultCallGraphDepth
@@ -88,7 +89,7 @@ func (a *GoASTDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*ocu
 
 	var walk func(name string, d int)
 	walk = func(name string, d int) {
-		if d > depth || visited[name] {
+		if ctx.Err() != nil || d > depth || visited[name] {
 			return
 		}
 		visited[name] = true
@@ -135,7 +136,7 @@ func (a *GoASTDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*ocu
 	return &oculus.CallGraph{Nodes: nodes, Edges: edges, Layer: oculus.LayerGoAST}, nil
 }
 
-func (a *GoASTDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*oculus.DataFlow, error) {
+func (a *GoASTDeepAnalyzer) DataFlowTrace(ctx context.Context, _, entry string, maxDepth int) (*oculus.DataFlow, error) {
 	if maxDepth <= 0 {
 		maxDepth = oculus.DefaultDataFlowDepth
 	}
@@ -152,7 +153,7 @@ func (a *GoASTDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*oculu
 	return dataFlowTrace(nf, entry, maxDepth, oculus.LayerGoAST), nil
 }
 
-func (a *GoASTDeepAnalyzer) DetectStateMachines(_ string) ([]oculus.StateMachine, error) {
+func (a *GoASTDeepAnalyzer) DetectStateMachines(ctx context.Context, _ string) ([]oculus.StateMachine, error) {
 	fset := token.NewFileSet()
 	absRoot, _ := filepath.Abs(a.root)
 

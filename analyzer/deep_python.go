@@ -44,7 +44,7 @@ type pyFunc struct {
 	callees     []string
 }
 
-func (a *PythonDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
+func (a *PythonDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	depth := opts.Depth
 	if depth <= 0 {
 		depth = oculus.DefaultCallGraphDepth
@@ -80,7 +80,7 @@ func (a *PythonDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oc
 	return buildSimpleCallGraph(nf, roots, depth, oculus.LayerPython), nil
 }
 
-func (a *PythonDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*oculus.DataFlow, error) {
+func (a *PythonDeepAnalyzer) DataFlowTrace(ctx context.Context, _, entry string, maxDepth int) (*oculus.DataFlow, error) {
 	if maxDepth <= 0 {
 		maxDepth = oculus.DefaultDataFlowDepth
 	}
@@ -96,7 +96,7 @@ func (a *PythonDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*ocul
 	return dataFlowTrace(nf, entry, maxDepth, oculus.LayerPython), nil
 }
 
-func (a *PythonDeepAnalyzer) DetectStateMachines(_ string) ([]oculus.StateMachine, error) {
+func (a *PythonDeepAnalyzer) DetectStateMachines(ctx context.Context, _ string) ([]oculus.StateMachine, error) {
 	return nil, nil
 }
 

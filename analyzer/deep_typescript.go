@@ -44,7 +44,7 @@ type tsFunc struct {
 	callees     []string
 }
 
-func (a *TypeScriptDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
+func (a *TypeScriptDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	depth := opts.Depth
 	if depth <= 0 {
 		depth = oculus.DefaultCallGraphDepth
@@ -75,7 +75,7 @@ func (a *TypeScriptDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) 
 	return buildSimpleCallGraph(nf, roots, depth, oculus.LayerTypeScript), nil
 }
 
-func (a *TypeScriptDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*oculus.DataFlow, error) {
+func (a *TypeScriptDeepAnalyzer) DataFlowTrace(ctx context.Context, _, entry string, maxDepth int) (*oculus.DataFlow, error) {
 	if maxDepth <= 0 {
 		maxDepth = oculus.DefaultDataFlowDepth
 	}
@@ -91,7 +91,7 @@ func (a *TypeScriptDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*
 	return dataFlowTrace(nf, entry, maxDepth, oculus.LayerTypeScript), nil
 }
 
-func (a *TypeScriptDeepAnalyzer) DetectStateMachines(_ string) ([]oculus.StateMachine, error) {
+func (a *TypeScriptDeepAnalyzer) DetectStateMachines(ctx context.Context, _ string) ([]oculus.StateMachine, error) {
 	return nil, nil
 }
 

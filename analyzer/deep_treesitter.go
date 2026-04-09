@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"github.com/dpopsuev/oculus"
 	"strings"
 	"sync"
@@ -56,7 +57,7 @@ type cgFuncDef struct {
 	returnTypes []string
 }
 
-func (a *TreeSitterDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
+func (a *TreeSitterDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	depth := opts.Depth
 	if depth <= 0 {
 		depth = 10
@@ -187,7 +188,7 @@ func walkCallGraph(allFuncs map[string]cgFuncDef, nodeSet map[string]oculus.Func
 // DataFlowTrace implements oculus.DeepAnalyzer using memoized recursive DFS.
 // It traces data flow from an entry point, detecting data stores via
 // import heuristics and trust boundaries via auth middleware patterns.
-func (a *TreeSitterDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*oculus.DataFlow, error) {
+func (a *TreeSitterDeepAnalyzer) DataFlowTrace(ctx context.Context, _, entry string, maxDepth int) (*oculus.DataFlow, error) {
 	if maxDepth <= 0 {
 		maxDepth = 8
 	}
@@ -404,7 +405,7 @@ func funcOrMethodName(child *sitter.Node) *sitter.Node {
 //  1. Extracts const blocks with iota (Go state candidates)
 //  2. Finds switch statements on those types
 //  3. Builds transitions from case arms
-func (a *TreeSitterDeepAnalyzer) DetectStateMachines(_ string) ([]oculus.StateMachine, error) {
+func (a *TreeSitterDeepAnalyzer) DetectStateMachines(ctx context.Context, _ string) ([]oculus.StateMachine, error) {
 	type perFileResult struct {
 		machines []oculus.StateMachine
 	}

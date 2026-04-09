@@ -1,6 +1,7 @@
 package behavioral
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -26,7 +27,7 @@ func Dataflow(in core.Input, opts core.Options) (string, error) {
 		depth = 8
 	}
 
-	flow, err := in.DeepAnalyzer.DataFlowTrace(in.Root, entry, depth)
+	flow, err := in.DeepAnalyzer.DataFlowTrace(context.Background(), in.Root, entry, depth)
 	if err != nil {
 		return "", fmt.Errorf("dataflow trace from %q: %w", entry, err)
 	}

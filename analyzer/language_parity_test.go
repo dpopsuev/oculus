@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -323,7 +324,7 @@ func TestLanguageParity_CallGraph(t *testing.T) {
 			dir := setupFixture(t, fix.files)
 
 			da := NewDeepFallback(dir, nil)
-			cg, err := da.CallGraph(dir, oculus.CallGraphOpts{Entry: fix.entry, Depth: 5})
+			cg, err := da.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: fix.entry, Depth: 5})
 			if err != nil {
 				t.Fatalf("CallGraph: %v", err)
 			}
@@ -364,7 +365,7 @@ func TestLanguageParity_Enrichment(t *testing.T) {
 
 	// Use Regex (produces edges with 0% types) then enrich
 	a := &RegexDeepAnalyzer{}
-	cg, err := a.CallGraph(dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
