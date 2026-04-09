@@ -964,6 +964,24 @@ func (p *Engine) DetectPipelines(ctx context.Context, path string, minLength int
 	return oculus.DetectPipelines(sg, minLength), nil
 }
 
+// GetMesh builds a hierarchical mesh view of the codebase:
+// symbols → files → packages → components with edge overlay.
+func (p *Engine) GetMesh(ctx context.Context, path string, cacheKey ...string) (*oculus.Mesh, error) {
+	sg, err := p.GetSymbolGraph(ctx, path, cacheKey...)
+	if err != nil {
+		return nil, fmt.Errorf("symbol graph: %w", err)
+	}
+	report, err := p.getOrScan(path, cacheKey...)
+	if err != nil {
+		return nil, fmt.Errorf("scan: %w", err)
+	}
+	componentNames := make([]string, len(report.Architecture.Services))
+	for i := range report.Architecture.Services {
+		componentNames[i] = report.Architecture.Services[i].Name
+	}
+	return oculus.BuildMesh(sg, componentNames), nil
+}
+
 // --- Cross-repo comparison ---
 
 // CrossRepoReport holds comparison results between two repos.

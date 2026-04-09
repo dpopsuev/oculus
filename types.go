@@ -240,3 +240,29 @@ type PipelineReport struct {
 	Pipelines []Pipeline `json:"pipelines"`
 	Summary   string     `json:"summary"`
 }
+
+// MeshLevel represents a zoom level in the hierarchical mesh.
+type MeshLevel int
+
+const (
+	MeshSymbol    MeshLevel = iota // individual function/type
+	MeshFile                       // source file
+	MeshPackage                    // Go package / module namespace
+	MeshComponent                  // architectural component (ArchService)
+)
+
+// MeshNode represents a node at a specific level in the mesh hierarchy.
+type MeshNode struct {
+	Name     string    `json:"name"`
+	Level    MeshLevel `json:"level"`
+	Parent   string    `json:"parent,omitempty"`
+	Children []string  `json:"children,omitempty"`
+}
+
+// Mesh is a hierarchical view of the codebase: symbols nested in files,
+// files in packages, packages in components. Edges overlay the hierarchy
+// at symbol level and can be aggregated upward.
+type Mesh struct {
+	Nodes map[string]MeshNode `json:"nodes"`
+	Edges []SymbolEdge        `json:"edges"`
+}
