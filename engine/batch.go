@@ -138,6 +138,12 @@ func (p *Engine) batchAnalysis(ctx context.Context, path, cacheKey string, a Bat
 	case "impact":
 		r, err := p.GetImpact(ctx, path, batchStr(a, "component"), cacheKey)
 		return r, err, true
+	case "symbol_graph":
+		r, err := p.GetSymbolGraph(ctx, path, cacheKey)
+		return r, err, true
+	case "pipelines":
+		r, err := p.DetectPipelines(ctx, path, batchInt(a, "min_length"), cacheKey)
+		return r, err, true
 	default:
 		return nil, nil, false
 	}
