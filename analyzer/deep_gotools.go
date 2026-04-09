@@ -4,6 +4,7 @@ import (
 	"github.com/dpopsuev/oculus"
 	"fmt"
 	"go/token"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -13,9 +14,19 @@ import (
 	"golang.org/x/tools/go/ssa/ssautil"
 
 	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/lsp"
 )
 
 const LayerGoTools = "gotools"
+
+func init() {
+	Register(lang.Go, 85, func(root string, pool lsp.Pool) oculus.DeepAnalyzer {
+		if os.Getenv("LOCUS_CALLGRAPH_BACKEND") != "gotools" {
+			return nil
+		}
+		return NewGoToolsDeep(root)
+	}, nil)
+}
 
 // GoToolsDeepAnalyzer uses golang.org/x/tools/go/callgraph for precise
 // call graph analysis via Class Hierarchy Analysis (CHA). More accurate

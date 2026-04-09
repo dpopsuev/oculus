@@ -6,7 +6,18 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/lsp"
 )
+
+func init() {
+	Register(lang.Unknown, 10, func(root string, pool lsp.Pool) oculus.DeepAnalyzer {
+		return &RegexDeepAnalyzer{}
+	}, func(root string, pool lsp.Pool) oculus.TypeAnalyzer {
+		return &RegexAnalyzer{}
+	})
+}
 
 // RegexDeepAnalyzer provides best-effort deep analysis using regular
 // expressions. It supports multiple languages and never returns errors,

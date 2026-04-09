@@ -11,7 +11,14 @@ import (
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
 
 	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/lsp"
 )
+
+func init() {
+	Register(lang.TypeScript, 80, func(root string, pool lsp.Pool) oculus.DeepAnalyzer {
+		return NewTypeScriptDeep(root)
+	}, nil)
+}
 
 // TypeScriptDeepAnalyzer uses tree-sitter-typescript for call graph analysis.
 type TypeScriptDeepAnalyzer struct {

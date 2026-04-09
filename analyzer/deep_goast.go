@@ -10,12 +10,19 @@ import (
 	"strings"
 
 	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/lsp"
 )
 
 // GoASTDeepAnalyzer uses go/ast for call graph, data flow, and state machine
 // analysis. More accurate than regex, no external tools required.
 type GoASTDeepAnalyzer struct {
 	root string
+}
+
+func init() {
+	Register(lang.Go, 90, func(root string, pool lsp.Pool) oculus.DeepAnalyzer {
+		return NewGoASTDeep(root)
+	}, nil)
 }
 
 // NewGoASTDeep creates a GoASTDeepAnalyzer for the given root directory.
@@ -440,25 +447,36 @@ func extractFieldTypes(fl *ast.FieldList) []string {
 }
 
 // EnrichCallEdgeTypes fills in ParamTypes/ReturnTypes on edges that lack them
-// by parsing source files at the callee's location. Shared enrichment tap
-// for any analyzer that produces edges without type info (e.g., LSP, Regex).
+// by parsing source files. Two strategies:
+// 1. For edges with File+Line: parse that file, find FuncDecl at that line
+// 2. For edges without File (e.g., Regex): scan all Go files for callee by name
 func EnrichCallEdgeTypes(root string, edges []oculus.CallEdge) {
+	// Strategy 1: edges with known callee location
 	type fileLine struct {
 		file string
 		line int
 	}
 	edgesByLoc := make(map[fileLine][]int)
+	// Strategy 2: edges needing name-based lookup
+	edgesByName := make(map[string][]int) // callee name → edge indices
+
 	for i, e := range edges {
-		if len(e.ParamTypes) > 0 || e.File == "" || e.Line == 0 {
+		if len(e.ParamTypes) > 0 {
 			continue
 		}
-		fl := fileLine{e.File, e.Line}
-		edgesByLoc[fl] = append(edgesByLoc[fl], i)
+		if e.File != "" && e.Line > 0 {
+			fl := fileLine{e.File, e.Line}
+			edgesByLoc[fl] = append(edgesByLoc[fl], i)
+		} else {
+			edgesByName[e.Callee] = append(edgesByName[e.Callee], i)
+		}
 	}
-	if len(edgesByLoc) == 0 {
+
+	if len(edgesByLoc) == 0 && len(edgesByName) == 0 {
 		return
 	}
 
+	// Parse Go files needed for location-based lookups
 	parsedFiles := make(map[string]*ast.File)
 	fileSets := make(map[string]*token.FileSet)
 	for fl := range edgesByLoc {
@@ -475,6 +493,7 @@ func EnrichCallEdgeTypes(root string, edges []oculus.CallEdge) {
 		fileSets[fl.file] = fset
 	}
 
+	// Strategy 1: match by file + line
 	for fl, indices := range edgesByLoc {
 		f, ok := parsedFiles[fl.file]
 		if !ok {
@@ -497,5 +516,50 @@ func EnrichCallEdgeTypes(root string, edges []oculus.CallEdge) {
 			}
 			break
 		}
+	}
+
+	// Strategy 2: scan all Go files for function by name
+	if len(edgesByName) > 0 {
+		absRoot, _ := filepath.Abs(root)
+		_ = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				if d != nil && d.IsDir() {
+					name := d.Name()
+					if name == "vendor" || name == "testdata" || strings.HasPrefix(name, ".") {
+						return filepath.SkipDir
+					}
+				}
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			fset := token.NewFileSet()
+			f, err := parser.ParseFile(fset, path, nil, 0)
+			if err != nil {
+				return nil
+			}
+			for _, decl := range f.Decls {
+				fd, ok := decl.(*ast.FuncDecl)
+				if !ok || fd.Type == nil || fd.Name == nil {
+					continue
+				}
+				indices, need := edgesByName[fd.Name.Name]
+				if !need {
+					continue
+				}
+				pt := extractFieldTypes(fd.Type.Params)
+				rt := extractFieldTypes(fd.Type.Results)
+				for _, idx := range indices {
+					edges[idx].ParamTypes = pt
+					edges[idx].ReturnTypes = rt
+				}
+				delete(edgesByName, fd.Name.Name)
+				if len(edgesByName) == 0 {
+					return filepath.SkipAll
+				}
+			}
+			return nil
+		})
 	}
 }

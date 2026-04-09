@@ -2,123 +2,57 @@ package analyzer
 
 import (
 	"github.com/dpopsuev/oculus"
-	"os"
-	"os/exec"
-	"strings"
-
-	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
 )
 
-// DeepFallbackAnalyzer chains LSP -> TreeSitter -> Regex for oculus.DeepAnalyzer
-// methods. Each method tries the highest-fidelity analyzer first and falls
-// through on error or empty results. The Layer field on results indicates
-// which analyzer produced the data.
+// DeepFallbackAnalyzer chains registered deep analyzers by priority.
+// Each method tries analyzers in order, stopping at the first non-empty result.
 type DeepFallbackAnalyzer struct {
-	lsp   oculus.DeepAnalyzer
-	goast oculus.DeepAnalyzer
-	ts    oculus.DeepAnalyzer
-	regex oculus.DeepAnalyzer
+	analyzers []oculus.DeepAnalyzer // ordered by priority (highest first)
+	root      string
+	pool      lsp.Pool
 }
 
-// NewDeepFallback creates a DeepFallbackAnalyzer. It checks whether
-// gopls is available; if not, the LSP layer is skipped.
-// If pool is non-nil, the LSP analyzer always uses the pool (pool handles
-// availability). Pass nil for CLI/test mode.
+// NewDeepFallback creates a DeepFallbackAnalyzer using the strategy registry.
+// Analyzers are resolved by detected language and priority order.
 func NewDeepFallback(root string, pool lsp.Pool) *DeepFallbackAnalyzer {
-	f := &DeepFallbackAnalyzer{
-		regex: &RegexDeepAnalyzer{},
+	return &DeepFallbackAnalyzer{
+		analyzers: resolveDeepAnalyzers(root, pool),
+		root:      root,
+		pool:      pool,
 	}
-	// Language-specific AST analyzers — auto-detected.
-	// LOCUS_CALLGRAPH_BACKEND=gotools uses x/tools/go/callgraph (CHA) for
-	// higher precision at the cost of speed (requires full type-checking).
-	if os.Getenv("LOCUS_CALLGRAPH_BACKEND") == "gotools" {
-		if gt := NewGoToolsDeep(root); gt != nil {
-			f.goast = gt
-		}
-	}
-	if f.goast == nil {
-		if ga := NewGoASTDeep(root); ga != nil {
-			f.goast = ga
-		} else if pa := NewPythonDeep(root); pa != nil {
-			f.goast = pa
-		} else if ta := NewTypeScriptDeep(root); ta != nil {
-			f.goast = ta
-		}
-	}
-	// Tree-sitter deep analyzer uses ParsedProject
-	if ts, err := NewTreeSitterDeep(root); err == nil {
-		f.ts = ts
-	}
-	// LSP deep analyzer
-	if pool != nil {
-		f.lsp = NewLSPDeepWithPool(root, pool)
-	} else {
-		detected := lang.DetectLanguage(root)
-		cmd := lang.DefaultLSPServer(detected)
-		if cmd != "" {
-			bin := strings.Fields(cmd)[0]
-			if _, err := exec.LookPath(bin); err == nil {
-				f.lsp = NewLSPDeep(root)
-			}
-		}
-	}
-	return f
 }
 
 func (f *DeepFallbackAnalyzer) CallGraph(root string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
-	if f.lsp != nil {
-		if r, err := f.lsp.CallGraph(root, opts); err == nil && len(r.Edges) > 0 {
+	for _, a := range f.analyzers {
+		r, err := a.CallGraph(root, opts)
+		if err == nil && len(r.Edges) > 0 {
+			// Universal enrichment: fill in types for any edges still missing them.
+			// Individual analyzers may already populate types (GoAST, LSP hover),
+			// but this catches gaps (Regex, partial TreeSitter).
+			EnrichCallEdgeTypes(f.root, r.Edges)
 			return r, nil
 		}
 	}
-	if f.goast != nil {
-		if r, err := f.goast.CallGraph(root, opts); err == nil && len(r.Edges) > 0 {
-			return r, nil
-		}
-	}
-	if f.ts != nil {
-		if r, err := f.ts.CallGraph(root, opts); err == nil && len(r.Edges) > 0 {
-			return r, nil
-		}
-	}
-	return f.regex.CallGraph(root, opts)
+	return &oculus.CallGraph{}, nil
 }
 
 func (f *DeepFallbackAnalyzer) DataFlowTrace(root, entry string, depth int) (*oculus.DataFlow, error) {
-	if f.lsp != nil {
-		if r, err := f.lsp.DataFlowTrace(root, entry, depth); err == nil && len(r.Edges) > 0 {
+	for _, a := range f.analyzers {
+		r, err := a.DataFlowTrace(root, entry, depth)
+		if err == nil && len(r.Edges) > 0 {
 			return r, nil
 		}
 	}
-	if f.goast != nil {
-		if r, err := f.goast.DataFlowTrace(root, entry, depth); err == nil && len(r.Edges) > 0 {
-			return r, nil
-		}
-	}
-	if f.ts != nil {
-		if r, err := f.ts.DataFlowTrace(root, entry, depth); err == nil && len(r.Edges) > 0 {
-			return r, nil
-		}
-	}
-	return f.regex.DataFlowTrace(root, entry, depth)
+	return &oculus.DataFlow{}, nil
 }
 
 func (f *DeepFallbackAnalyzer) DetectStateMachines(root string) ([]oculus.StateMachine, error) {
-	if f.lsp != nil {
-		if r, err := f.lsp.DetectStateMachines(root); err == nil && len(r) > 0 {
+	for _, a := range f.analyzers {
+		r, err := a.DetectStateMachines(root)
+		if err == nil && len(r) > 0 {
 			return r, nil
 		}
 	}
-	if f.goast != nil {
-		if r, err := f.goast.DetectStateMachines(root); err == nil && len(r) > 0 {
-			return r, nil
-		}
-	}
-	if f.ts != nil {
-		if r, err := f.ts.DetectStateMachines(root); err == nil && len(r) > 0 {
-			return r, nil
-		}
-	}
-	return f.regex.DetectStateMachines(root)
+	return nil, nil
 }

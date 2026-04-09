@@ -6,7 +6,22 @@ import (
 	"sync"
 
 	sitter "github.com/smacker/go-tree-sitter"
+
+	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/lsp"
 )
+
+func init() {
+	Register(lang.Unknown, 50, func(root string, pool lsp.Pool) oculus.DeepAnalyzer {
+		a, err := NewTreeSitterDeep(root)
+		if err != nil {
+			return nil
+		}
+		return a
+	}, func(root string, pool lsp.Pool) oculus.TypeAnalyzer {
+		return &TreeSitterAnalyzer{}
+	})
+}
 
 // TreeSitterDeepAnalyzer uses a pre-parsed ParsedProject (built once)
 // for all three oculus.DeepAnalyzer methods, avoiding redundant filesystem walks.

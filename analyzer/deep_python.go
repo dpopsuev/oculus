@@ -11,7 +11,14 @@ import (
 	"github.com/smacker/go-tree-sitter/python"
 
 	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/lsp"
 )
+
+func init() {
+	Register(lang.Python, 80, func(root string, pool lsp.Pool) oculus.DeepAnalyzer {
+		return NewPythonDeep(root)
+	}, nil)
+}
 
 // PythonDeepAnalyzer uses tree-sitter-python for call graph analysis.
 type PythonDeepAnalyzer struct {

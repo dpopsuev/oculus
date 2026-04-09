@@ -3,11 +3,13 @@ package analyzer
 import (
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
 )
 
@@ -15,6 +17,40 @@ import (
 func isWorkspaceURI(uri, absRoot string) bool {
 	path := strings.TrimPrefix(uri, "file://")
 	return strings.HasPrefix(path, absRoot)
+}
+
+func init() {
+	lspAvailable := func(root string, pool lsp.Pool) bool {
+		if pool != nil {
+			return true
+		}
+		detected := lang.DetectLanguage(root)
+		cmd := lang.DefaultLSPServer(detected)
+		if cmd == "" {
+			return false
+		}
+		bin := strings.Fields(cmd)[0]
+		_, err := exec.LookPath(bin)
+		return err == nil
+	}
+
+	Register(lang.Unknown, 100, func(root string, pool lsp.Pool) oculus.DeepAnalyzer {
+		if !lspAvailable(root, pool) {
+			return nil
+		}
+		if pool != nil {
+			return NewLSPDeepWithPool(root, pool)
+		}
+		return NewLSPDeep(root)
+	}, func(root string, pool lsp.Pool) oculus.TypeAnalyzer {
+		if !lspAvailable(root, pool) {
+			return nil
+		}
+		if pool != nil {
+			return &LSPAnalyzer{pool: pool}
+		}
+		return &LSPAnalyzer{}
+	})
 }
 
 // LSPDeepAnalyzer uses a single gopls connection for all oculus.DeepAnalyzer
@@ -127,8 +163,8 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculu
 		walk(item, 0)
 	}
 
-	// Fallback: go/parser enrichment for edges the hover chain missed.
-	EnrichCallEdgeTypes(a.root, edges)
+	// Note: go/parser fallback enrichment is handled by the universal hook
+	// in DeepFallbackAnalyzer.CallGraph — no need to call it here.
 
 	nodes := make([]oculus.FuncNode, 0, len(nodeSet))
 	for _, n := range nodeSet {
