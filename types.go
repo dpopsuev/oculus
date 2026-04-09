@@ -205,6 +205,7 @@ type SymbolEdge struct {
 	EndLine     int      `json:"end_line,omitempty"`
 	ParamTypes  []string `json:"param_types,omitempty"`
 	ReturnTypes []string `json:"return_types,omitempty"`
+	Weight      float64  `json:"weight,omitempty"`
 }
 
 // Source implements graph.Edge.

@@ -69,15 +69,24 @@ func BuildMesh(sg *SymbolGraph, componentNames []string) *Mesh {
 		nodes[comp] = cn
 	}
 
-	return &Mesh{Nodes: nodes, Edges: sg.Edges}
+	// Classify edge weights using component context.
+	edges := make([]SymbolEdge, len(sg.Edges))
+	for i, e := range sg.Edges {
+		edges[i] = e
+		if e.Weight == 0 {
+			edges[i].Weight = ClassifyEdgeWeight(e.SourceFQN, e.TargetFQN, componentNames)
+		}
+	}
+
+	return &Mesh{Nodes: nodes, Edges: edges}
 }
 
 // Aggregate collapses symbol-level edges to the target mesh level.
 // Returns deduplicated edges with source/target resolved to the target level.
 func (m *Mesh) Aggregate(level MeshLevel) []SymbolEdge {
 	type edgeKey struct{ src, tgt string }
-	seen := make(map[edgeKey]bool)
-	var result []SymbolEdge
+	agg := make(map[edgeKey]*SymbolEdge)
+	order := make([]edgeKey, 0)
 
 	for _, e := range m.Edges {
 		src := m.resolveToLevel(e.SourceFQN, level)
@@ -86,13 +95,19 @@ func (m *Mesh) Aggregate(level MeshLevel) []SymbolEdge {
 			continue
 		}
 		ek := edgeKey{src, tgt}
-		if seen[ek] {
-			continue
+		if existing, ok := agg[ek]; ok {
+			existing.Weight += e.Weight
+		} else {
+			agg[ek] = &SymbolEdge{
+				SourceFQN: src, TargetFQN: tgt, Kind: e.Kind, Weight: e.Weight,
+			}
+			order = append(order, ek)
 		}
-		seen[ek] = true
-		result = append(result, SymbolEdge{
-			SourceFQN: src, TargetFQN: tgt, Kind: e.Kind,
-		})
+	}
+
+	result := make([]SymbolEdge, 0, len(agg))
+	for _, ek := range order {
+		result = append(result, *agg[ek])
 	}
 	return result
 }
@@ -133,6 +148,60 @@ func (m *Mesh) Neighborhood(fqn string, hops int) []string {
 	return result
 }
 
+// WeightedNeighbor pairs an FQN with the weight of its connecting edge.
+type WeightedNeighbor struct {
+	FQN    string  `json:"fqn"`
+	Weight float64 `json:"weight"`
+}
+
+// NeighborhoodWeighted returns neighbors within hops, sorted by edge weight descending.
+func (m *Mesh) NeighborhoodWeighted(fqn string, hops int) []WeightedNeighbor {
+	if hops <= 0 {
+		return []WeightedNeighbor{{FQN: fqn}}
+	}
+
+	// Build adjacency with weights
+	type neighbor struct {
+		fqn    string
+		weight float64
+	}
+	adj := make(map[string][]neighbor)
+	for _, e := range m.Edges {
+		adj[e.SourceFQN] = append(adj[e.SourceFQN], neighbor{e.TargetFQN, e.Weight})
+		adj[e.TargetFQN] = append(adj[e.TargetFQN], neighbor{e.SourceFQN, e.Weight})
+	}
+
+	bestWeight := make(map[string]float64)
+	bestWeight[fqn] = 0
+	frontier := []string{fqn}
+	for d := 0; d < hops && len(frontier) > 0; d++ {
+		var next []string
+		for _, n := range frontier {
+			for _, nb := range adj[n] {
+				if _, seen := bestWeight[nb.fqn]; !seen {
+					bestWeight[nb.fqn] = nb.weight
+					next = append(next, nb.fqn)
+				} else if nb.weight > bestWeight[nb.fqn] {
+					bestWeight[nb.fqn] = nb.weight
+				}
+			}
+		}
+		frontier = next
+	}
+
+	result := make([]WeightedNeighbor, 0, len(bestWeight))
+	for f, w := range bestWeight {
+		if f == fqn {
+			continue
+		}
+		result = append(result, WeightedNeighbor{FQN: f, Weight: w})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Weight > result[j].Weight
+	})
+	return result
+}
+
 // Distance returns the shortest edge-hop count between two FQNs.
 // Returns -1 if no path exists.
 func (m *Mesh) Distance(from, to string) int {
@@ -169,8 +238,16 @@ func (m *Mesh) Distance(from, to string) int {
 
 // Boundaries returns edges that cross component boundaries — architectural seams.
 func (m *Mesh) Boundaries() []SymbolEdge {
+	return m.BoundariesMinWeight(0)
+}
+
+// BoundariesMinWeight returns boundary-crossing edges with weight >= minWeight.
+func (m *Mesh) BoundariesMinWeight(minWeight float64) []SymbolEdge {
 	var seams []SymbolEdge
 	for _, e := range m.Edges {
+		if e.Weight < minWeight {
+			continue
+		}
 		srcComp := m.resolveToLevel(e.SourceFQN, MeshComponent)
 		tgtComp := m.resolveToLevel(e.TargetFQN, MeshComponent)
 		if srcComp != "" && tgtComp != "" && srcComp != tgtComp {

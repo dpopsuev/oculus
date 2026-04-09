@@ -173,12 +173,6 @@ func TestMesh_Neighborhood_SortsByWeight(t *testing.T) {
 	}
 }
 
-// WeightedNeighbor is the expected return type from NeighborhoodWeighted.
-type WeightedNeighbor struct {
-	FQN    string
-	Weight float64
-}
-
 func reverseFloat64(s []float64) []float64 {
 	r := make([]float64, len(s))
 	for i, v := range s {
