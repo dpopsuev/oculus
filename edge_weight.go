@@ -17,6 +17,7 @@ var stdlibPlumbing = map[string]bool{
 	"sort": true, "bytes": true, "math": true, "unicode": true,
 	"log": true, "log/slog": true, "slices": true, "maps": true,
 	"sync": true, "context": true, "time": true,
+	"os": true, "io": true, "path": true, "path/filepath": true,
 }
 
 // stdlibMeaningful contains packages that signal real infrastructure choices.
@@ -73,9 +74,19 @@ func resolveComponent(fqn string, components []string) string {
 }
 
 // extractPackage returns the package portion of a FQN ("pkg.Func" → "pkg").
+// Normalizes GOROOT/GOPATH absolute paths to stdlib package names:
+// "../../../../root/go/pkg/mod/golang.org/toolchain@.../src/sort.Strings" → "sort"
 func extractPackage(fqn string) string {
-	if dot := strings.LastIndex(fqn, "."); dot >= 0 {
-		return fqn[:dot]
+	// Strip function/method name
+	pkg := fqn
+	if dot := strings.LastIndex(pkg, "."); dot >= 0 {
+		pkg = pkg[:dot]
 	}
-	return fqn
+
+	// Normalize external paths: find the stdlib package name after /src/
+	if idx := strings.LastIndex(pkg, "/src/"); idx >= 0 {
+		pkg = pkg[idx+5:]
+	}
+
+	return pkg
 }

@@ -68,6 +68,21 @@ func TestClassifyEdgeWeight(t *testing.T) {
 			"engine.Marshal", "encoding/json.Marshal",
 			0.3,
 		},
+		{
+			"container GOROOT path — sort (plumbing)",
+			"analyzer.Foo", "../../../../root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.8.linux-amd64/src/sort.Strings",
+			0.01,
+		},
+		{
+			"container GOROOT path — os (plumbing)",
+			"engine.Bar", "../../../../root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.8.linux-amd64/src/os.Stat",
+			0.01,
+		},
+		{
+			"container GOROOT path — net/http (meaningful)",
+			"engine.Serve", "../../../../root/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.8.linux-amd64/src/net/http.ListenAndServe",
+			0.3,
+		},
 	}
 
 	for _, tt := range tests {
