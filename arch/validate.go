@@ -14,14 +14,8 @@ var (
 	errNoMermaidContent  = errors.New("no components or edges found in mermaid input")
 )
 
-// ArchDrift reports the delta between a desired and actual architecture.
-type ArchDrift struct {
-	MissingComponents []string   `json:"missing_components,omitempty"`
-	ExtraComponents   []string   `json:"extra_components,omitempty"`
-	MissingEdges      []ArchEdge `json:"missing_edges,omitempty"`
-	ExtraEdges        []ArchEdge `json:"extra_edges,omitempty"`
-	Summary           string     `json:"summary"`
-}
+// ArchDrift — moved to root package.
+// Type alias in arch/compat.go provides backward compatibility.
 
 // ValidateArchitecture computes the drift between a desired and actual ArchModel.
 func ValidateArchitecture(desired, actual ArchModel) *ArchDrift {

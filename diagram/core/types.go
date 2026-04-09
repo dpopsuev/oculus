@@ -1,9 +1,8 @@
 package core
 
 import (
-	"github.com/dpopsuev/oculus/arch"
+	oculus "github.com/dpopsuev/oculus"
 	"github.com/dpopsuev/oculus/history"
-	"github.com/dpopsuev/oculus"
 )
 
 // Options controls which diagram is rendered and how it is scoped.
@@ -21,7 +20,7 @@ type Options struct {
 // Input bundles everything the renderers may need. Not every renderer
 // uses every field — e.g. churn needs History while dependency does not.
 type Input struct {
-	Report        *arch.ContextReport
+	Report        *oculus.ContextReport
 	History       []history.EntrySummary
 	Analyzer      oculus.TypeAnalyzer
 	DeepAnalyzer  oculus.DeepAnalyzer

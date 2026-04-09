@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dpopsuev/oculus/arch"
+	oculus "github.com/dpopsuev/oculus"
 )
 
 const summaryNoChanges = "no changes"
@@ -28,7 +28,7 @@ type ChurnDelta struct {
 }
 
 // DiffReports computes the structural difference between two codograph reports.
-func DiffReports(old, updated *arch.ContextReport) *CodographDiff {
+func DiffReports(old, updated *oculus.ContextReport) *CodographDiff {
 	d := &CodographDiff{}
 
 	oldComps := componentSet(old.Architecture.Services)
@@ -86,7 +86,7 @@ func DiffReports(old, updated *arch.ContextReport) *CodographDiff {
 	return d
 }
 
-func componentSet(svcs []arch.ArchService) map[string]bool {
+func componentSet(svcs []oculus.ArchService) map[string]bool {
 	m := make(map[string]bool, len(svcs))
 	for i := range svcs {
 		m[svcs[i].Name] = true
@@ -94,11 +94,11 @@ func componentSet(svcs []arch.ArchService) map[string]bool {
 	return m
 }
 
-func edgeKey(e arch.ArchEdge) string {
+func edgeKey(e oculus.ArchEdge) string {
 	return e.From + "->" + e.To
 }
 
-func edgeSet(edges []arch.ArchEdge) map[string]bool {
+func edgeSet(edges []oculus.ArchEdge) map[string]bool {
 	m := make(map[string]bool, len(edges))
 	for _, e := range edges {
 		m[edgeKey(e)] = true
@@ -106,7 +106,7 @@ func edgeSet(edges []arch.ArchEdge) map[string]bool {
 	return m
 }
 
-func churnMap(spots []arch.HotSpot) map[string]int {
+func churnMap(spots []oculus.HotSpot) map[string]int {
 	m := make(map[string]int, len(spots))
 	for _, s := range spots {
 		m[s.Component] = s.Churn

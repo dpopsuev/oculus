@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dpopsuev/oculus/arch"
+	oculus "github.com/dpopsuev/oculus"
 )
 
 // ErrEmptySHA is returned when Put is called with an empty SHA.
@@ -45,7 +45,7 @@ func DefaultCacheDir() string {
 }
 
 // Get returns a cached report for the given repo at the given SHA.
-func (c *ScanCache) Get(repoPath, sha string) (*arch.ContextReport, bool, error) {
+func (c *ScanCache) Get(repoPath, sha string) (*oculus.ContextReport, bool, error) {
 	if sha == "" {
 		return nil, false, nil
 	}
@@ -65,7 +65,7 @@ func (c *ScanCache) Get(repoPath, sha string) (*arch.ContextReport, bool, error)
 	}
 	defer gz.Close()
 
-	var report arch.ContextReport
+	var report oculus.ContextReport
 	if err := json.NewDecoder(gz).Decode(&report); err != nil {
 		return nil, false, nil
 	}
@@ -74,7 +74,7 @@ func (c *ScanCache) Get(repoPath, sha string) (*arch.ContextReport, bool, error)
 
 // GetCurrent resolves HEAD for the repo and returns the cached report if present.
 // Returns the resolved SHA alongside the report.
-func (c *ScanCache) GetCurrent(repoPath string) (report *arch.ContextReport, sha string, hit bool, err error) {
+func (c *ScanCache) GetCurrent(repoPath string) (report *oculus.ContextReport, sha string, hit bool, err error) {
 	sha = ResolveHEAD(repoPath)
 	if sha == "" {
 		return nil, "", false, nil
@@ -84,7 +84,7 @@ func (c *ScanCache) GetCurrent(repoPath string) (report *arch.ContextReport, sha
 }
 
 // Put stores a report keyed by (repo, sha). Writes are atomic (temp + rename).
-func (c *ScanCache) Put(repoPath, sha string, report *arch.ContextReport) error {
+func (c *ScanCache) Put(repoPath, sha string, report *oculus.ContextReport) error {
 	if sha == "" {
 		return ErrEmptySHA
 	}

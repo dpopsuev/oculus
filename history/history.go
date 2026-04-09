@@ -10,14 +10,14 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/dpopsuev/oculus/arch"
+	oculus "github.com/dpopsuev/oculus"
 )
 
 // CacheReadWriter abstracts the scan cache for dependency inversion.
 // *cache.ScanCache satisfies this interface.
 type CacheReadWriter interface {
-	Get(repoPath, sha string) (*arch.ContextReport, bool, error)
-	Put(repoPath, sha string, report *arch.ContextReport) error
+	Get(repoPath, sha string) (*oculus.ContextReport, bool, error)
+	Put(repoPath, sha string, report *oculus.ContextReport) error
 }
 
 // Sentinel errors for history operations.
@@ -66,7 +66,7 @@ func DefaultHistoryDir() string {
 
 // Record appends a history entry to the JSONL file and stores the full report
 // in the scan cache for later retrieval.
-func Record(sc CacheReadWriter, historyDir string, source Source, repoPath, headSHA string, report *arch.ContextReport) error {
+func Record(sc CacheReadWriter, historyDir string, source Source, repoPath, headSHA string, report *oculus.ContextReport) error {
 	if err := sc.Put(repoPath, headSHA, report); err != nil {
 		return fmt.Errorf("cache report: %w", err)
 	}
@@ -119,7 +119,7 @@ func List(historyDir, repoPath string, limit int) ([]EntrySummary, error) {
 
 // GetReport retrieves the full report for a specific history index.
 // Negative indices count from the end (-1 = latest, -2 = previous).
-func GetReport(sc CacheReadWriter, historyDir, repoPath string, index int) (*arch.ContextReport, error) {
+func GetReport(sc CacheReadWriter, historyDir, repoPath string, index int) (*oculus.ContextReport, error) {
 	entries, err := readEntries(historyDir, repoPath)
 	if err != nil {
 		return nil, err

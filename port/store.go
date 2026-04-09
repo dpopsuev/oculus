@@ -9,23 +9,23 @@ import (
 	"context"
 	"time"
 
-	"github.com/dpopsuev/oculus/arch"
+	oculus "github.com/dpopsuev/oculus"
 )
 
 // --- Domain-specific port interfaces ---
 
 // ReportStore handles cached scan results keyed by (project path, git SHA).
 type ReportStore interface {
-	GetReport(ctx context.Context, project, sha string) (*arch.ContextReport, bool, error)
-	PutReport(ctx context.Context, project, sha string, report *arch.ContextReport) error
+	GetReport(ctx context.Context, project, sha string) (*oculus.ContextReport, bool, error)
+	PutReport(ctx context.Context, project, sha string, report *oculus.ContextReport) error
 	Invalidate(ctx context.Context, project string) error
 }
 
 // HistoryStore handles the append-only log of scan events per project.
 type HistoryStore interface {
-	RecordScan(ctx context.Context, source, repoPath, sha string, report *arch.ContextReport) error
+	RecordScan(ctx context.Context, source, repoPath, sha string, report *oculus.ContextReport) error
 	ListHistory(ctx context.Context, repoPath string, limit int) ([]HistoryEntry, error)
-	GetHistoryReport(ctx context.Context, repoPath string, index int) (*arch.ContextReport, error)
+	GetHistoryReport(ctx context.Context, repoPath string, index int) (*oculus.ContextReport, error)
 }
 
 // GitResolver resolves git refs to SHAs.

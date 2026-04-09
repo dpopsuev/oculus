@@ -20,56 +20,8 @@ func ContainsAny(s string, subs ...string) bool {
 	return false
 }
 
-// ArchService represents a service or component node in an architecture artifact.
-type ArchService struct {
-	Name       string
-	Package    string
-	Language   model.Language `json:"language,omitempty"`
-	TrustZone  string
-	Symbols    []model.Symbol
-	Churn      int
-	LOC        int     `json:"loc,omitempty"`
-	MaxNesting int     `json:"max_nesting,omitempty"`
-	AvgNesting float64 `json:"avg_nesting,omitempty"`
-	Changed    bool    `json:"changed,omitempty"`
-}
-
-// ArchEdge represents a dependency edge in an architecture artifact.
-type ArchEdge struct {
-	Name       string
-	From       string
-	To         string
-	Protocol   string
-	Weight     int
-	CallSites  int
-	LOCSurface int
-}
-
-// Source implements graph.Edge for ArchEdge.
-func (e ArchEdge) Source() string { return e.From }
-
-// Target implements graph.Edge for ArchEdge.
-func (e ArchEdge) Target() string { return e.To }
-
-// ArchForbidden represents a forbidden dependency in an architecture artifact.
-type ArchForbidden struct {
-	Name          string
-	From          string
-	To            string
-	FromTrustZone string
-	ToTrustZone   string
-	Reason        string
-}
-
-// ArchModel is the parsed representation of an architecture artifact's structure.
-type ArchModel struct {
-	Title      string
-	Resolution string
-	Implements string
-	Services   []ArchService
-	Edges      []ArchEdge
-	Forbidden  []ArchForbidden
-}
+// ArchService, ArchEdge, ArchForbidden, ArchModel — moved to root package.
+// Type aliases in arch/compat.go provide backward compatibility.
 
 const (
 	protoImport   = "import"

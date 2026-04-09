@@ -2,19 +2,8 @@ package arch
 
 import "sort"
 
-// APISurface measures the public API size of a component.
-type APISurface struct {
-	Component     string `json:"component"`
-	ExportedCount int    `json:"exported_count"`
-}
-
-// BoundaryCrossing flags an edge that crosses trust zone boundaries.
-type BoundaryCrossing struct {
-	From     string `json:"from"`
-	To       string `json:"to"`
-	FromZone string `json:"from_zone"`
-	ToZone   string `json:"to_zone"`
-}
+// APISurface, BoundaryCrossing — moved to root package.
+// Type aliases in arch/compat.go provide backward compatibility.
 
 // ComputeAPISurface returns the exported symbol count per component.
 func ComputeAPISurface(m ArchModel) []APISurface {

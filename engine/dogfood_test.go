@@ -248,3 +248,36 @@ func TestDogfood_LeverageLeafIsLow(t *testing.T) {
 		t.Errorf("expected leverage score 0 for testkit, got %d", lev.LeverageScore)
 	}
 }
+
+// TestDogfood_NoDependencyViolations verifies that abstract/storage/utility
+// layers do not import the concrete arch package (SDP violation).
+func TestDogfood_NoDependencyViolations(t *testing.T) {
+	if testing.Short() {
+		t.Skip("dogfood: skipping expensive self-scan in -short mode")
+	}
+
+	report := scanLocus(t)
+
+	// These packages must NOT depend on arch — they are abstract (port),
+	// storage (cache, history), or shared utilities (diagram/core).
+	forbidden := map[string]bool{
+		"port":         true,
+		"cache":        true,
+		"history":      true,
+		"diagram/core": true,
+	}
+
+	var violations []string
+	for _, e := range report.Architecture.Edges {
+		if forbidden[e.From] && e.To == "arch" {
+			violations = append(violations, e.From+" → arch")
+		}
+	}
+
+	if len(violations) > 0 {
+		t.Errorf("dependency direction violations (SDP):")
+		for _, v := range violations {
+			t.Errorf("  %s", v)
+		}
+	}
+}

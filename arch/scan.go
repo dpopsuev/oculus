@@ -102,56 +102,8 @@ const (
 	logKeyNamespaces = "namespaces"
 )
 
-// HotSpot identifies a component with high fan-in, high churn, and/or deep nesting.
-type HotSpot struct {
-	Component string `json:"component"`
-	FanIn     int    `json:"fan_in"`
-	Churn     int    `json:"churn"`
-	Nesting   int    `json:"nesting,omitempty"`
-}
-
-// ScanCore holds the primary scan output — project model, architecture, and metadata.
-type ScanCore struct {
-	Project        *model.Project `json:"project"`
-	Architecture   ArchModel      `json:"architecture"`
-	ModulePath     string         `json:"module_path"`
-	Scanner        string         `json:"scanner"`
-	SuggestedDepth int            `json:"suggested_depth,omitempty"`
-}
-
-// GraphMetrics holds graph-derived analysis: hot spots, cycles, depths, and violations.
-type GraphMetrics struct {
-	HotSpots          []HotSpot              `json:"hot_spots,omitempty"`
-	Cycles            []graph.Cycle          `json:"cycles,omitempty"`
-	ImportDepth       graph.DepthMap         `json:"import_depth,omitempty"`
-	LayerViolations   []graph.LayerViolation `json:"layer_violations,omitempty"`
-	APISurfaces       []APISurface           `json:"api_surfaces,omitempty"`
-	BoundaryCrossings []BoundaryCrossing     `json:"boundary_crossings,omitempty"`
-	FanIn             graph.CountMap         `json:"fan_in,omitempty"`
-	FanOut            graph.CountMap         `json:"fan_out,omitempty"`
-}
-
-// GitContext holds git-derived data: coverage, commits, authors, file hotspots.
-type GitContext struct {
-	Coverage      []archgit.CoverageResult    `json:"coverage,omitempty"`
-	RecentCommits []archgit.PackageCommit     `json:"recent_commits,omitempty"`
-	Authors       map[string][]archgit.Author `json:"authors,omitempty"`
-	FileHotSpots  []archgit.HotFile           `json:"file_hot_spots,omitempty"`
-}
-
-// DeepContext holds deep analysis data requiring AST/LSP inspection.
-type DeepContext struct {
-	Anchors []archanchors.SemanticAnchor `json:"anchors,omitempty"`
-}
-
-// ContextReport is the full output of a ScanAndBuild invocation.
-// Embeds sub-structs for SRP; field access is unchanged via Go promotion.
-type ContextReport struct {
-	ScanCore
-	GraphMetrics
-	GitContext
-	DeepContext
-}
+// HotSpot, ScanCore, GraphMetrics, GitContext, DeepContext, ContextReport —
+// moved to root package. Type aliases in arch/compat.go provide backward compatibility.
 
 // ScanAndBuild scans any repository and produces a ContextReport.
 // It requires no config directory -- all inputs come from the source tree and git.
