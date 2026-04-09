@@ -610,6 +610,46 @@ func uriToRelPath(uri, root string) string {
 	return filepath.ToSlash(rel)
 }
 
+// hoverAt calls textDocument/hover and returns the markdown content.
+// Works with any LSP server (gopls, rust-analyzer, typescript-language-server, etc.).
+func (c *lspConn) hoverAt(file string, line, col int) (string, error) {
+	uri := pathToURI(file)
+	content, err := os.ReadFile(file)
+	if err != nil {
+		return "", err
+	}
+	lang := "go"
+	switch filepath.Ext(file) {
+	case extRust:
+		lang = "rust"
+	case extPy:
+		lang = "python"
+	case extTS, extJS:
+		lang = "typescript"
+	}
+	_ = c.Notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri": uri, "languageId": lang, "version": 1, "text": string(content),
+		},
+	})
+	result, err := c.Request("textDocument/hover", map[string]any{
+		"textDocument": map[string]string{"uri": uri},
+		"position":     map[string]int{"line": line, "character": col},
+	})
+	if err != nil {
+		return "", err
+	}
+	var hover struct {
+		Contents struct {
+			Value string `json:"value"`
+		} `json:"contents"`
+	}
+	if json.Unmarshal(result, &hover) != nil {
+		return "", nil
+	}
+	return hover.Contents.Value, nil
+}
+
 func resolveNameAtURI(uri string, line int) string {
 	path := strings.TrimPrefix(uri, "file://")
 	f, err := os.Open(path)
