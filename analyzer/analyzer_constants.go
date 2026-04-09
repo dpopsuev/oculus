@@ -22,14 +22,22 @@ const (
 )
 
 const (
-	extGo   = ".go"
-	extRust = ".rs"
-	extPy   = ".py"
-	extTS   = ".ts"
-	extJS   = ".js"
-	extJava = ".java"
-	extTSX  = ".tsx"
-	extJSX  = ".jsx"
+	extGo    = ".go"
+	extRust  = ".rs"
+	extPy    = ".py"
+	extTS    = ".ts"
+	extJS    = ".js"
+	extJava  = ".java"
+	extTSX   = ".tsx"
+	extJSX   = ".jsx"
+	extC     = ".c"
+	extH     = ".h"
+	extCpp   = ".cpp"
+	extHpp   = ".hpp"
+	extKt    = ".kt"
+	extZig   = ".zig"
+	extSwift = ".swift"
+	extCS    = ".cs"
 )
 
 const pkgRoot = "(root)"

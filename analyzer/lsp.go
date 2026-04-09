@@ -209,14 +209,7 @@ func (c *lspConn) implementations(root string) ([]oculus.ImplEdge, error) {
 			if err != nil {
 				continue
 			}
-			var locations []struct {
-				URI   string `json:"uri"`
-				Range struct {
-					Start struct {
-						Line int `json:"line"`
-					} `json:"start"`
-				} `json:"range"`
-			}
+			var locations []lspLocation
 			if json.Unmarshal(impls, &locations) != nil {
 				continue
 			}
@@ -258,9 +251,7 @@ func (c *lspConn) callChain(root, entry string, maxDepth int) ([]oculus.Call, er
 		if err != nil {
 			return
 		}
-		var outs []struct {
-			To callHierarchyItem `json:"to"`
-		}
+		var outs []outgoingCallItem
 		if json.Unmarshal(outgoing, &outs) != nil {
 			return
 		}
@@ -278,30 +269,97 @@ func (c *lspConn) callChain(root, entry string, maxDepth int) ([]oculus.Call, er
 	return calls, nil
 }
 
-type callHierarchyItem struct {
-	Name   string `json:"name"`
-	Kind   int    `json:"kind"`
-	Detail string `json:"detail"` // function signature from gopls
-	URI    string `json:"uri"`
-	Range  struct {
-		Start struct {
-			Line      int `json:"line"`
-			Character int `json:"character"`
-		} `json:"start"`
-		End struct {
-			Line      int `json:"line"`
-			Character int `json:"character"`
-		} `json:"end"`
-	} `json:"range"`
+// --- Shared LSP response types ---
+
+// lspPosition is a zero-indexed line/character position in an LSP response.
+type lspPosition struct {
+	Line      int `json:"line"`
+	Character int `json:"character"`
 }
 
-// parseSignatureTypes extracts parameter and return types from a Go function
-// signature string like "func(x int, y string) (*Result, error)".
+// lspRange is a start/end position range in an LSP response.
+type lspRange struct {
+	Start lspPosition `json:"start"`
+	End   lspPosition `json:"end"`
+}
+
+// lspLocation is a URI + range pair used by workspace/symbol responses.
+type lspLocation struct {
+	URI   string   `json:"uri"`
+	Range lspRange `json:"range"`
+}
+
+// callHierarchyItem represents a function/method in the call hierarchy protocol.
+type callHierarchyItem struct {
+	Name   string   `json:"name"`
+	Kind   int      `json:"kind"`
+	Detail string   `json:"detail"`
+	URI    string   `json:"uri"`
+	Range  lspRange `json:"range"`
+}
+
+// outgoingCallItem wraps a callHierarchyItem in callHierarchy/outgoingCalls responses.
+type outgoingCallItem struct {
+	To callHierarchyItem `json:"to"`
+}
+
+// workspaceSymbol represents a symbol returned by workspace/symbol.
+type workspaceSymbol struct {
+	Name     string      `json:"name"`
+	Kind     int         `json:"kind"`
+	Location lspLocation `json:"location"`
+}
+
+// locationOrLink handles both Location and LocationLink formats from
+// textDocument/definition responses.
+type locationOrLink struct {
+	URI         string    `json:"uri"`
+	Range       lspRange  `json:"range"`
+	TargetURI   string    `json:"targetUri"`
+	TargetRange *lspRange `json:"targetRange"`
+}
+
+// hoverResult represents the textDocument/hover response.
+type hoverResult struct {
+	Contents struct {
+		Value string `json:"value"`
+	} `json:"contents"`
+}
+
+// docSymbolEntry represents a document symbol from textDocument/documentSymbol.
+type docSymbolEntry struct {
+	Name           string           `json:"name"`
+	Kind           int              `json:"kind"`
+	Range          lspRange         `json:"range"`
+	SelectionRange lspRange         `json:"selectionRange"`
+	Children       []docSymbolEntry `json:"children,omitempty"`
+}
+
+// parseSignatureTypes extracts parameter and return types from a function signature.
+// Dispatches to language-specific parsers based on the signature prefix.
 func parseSignatureTypes(sig string) (paramTypes, returnTypes []string) {
-	if !strings.HasPrefix(sig, "func") {
+	sig = strings.TrimSpace(sig)
+	switch {
+	// "function " must precede "func" — "function" starts with "func".
+	case strings.HasPrefix(sig, "function "):
+		return parseTSSig(sig)
+	case strings.HasPrefix(sig, "func"):
+		return parseGoSig(sig)
+	case strings.HasPrefix(sig, "def "):
+		return parsePythonSig(sig)
+	case strings.HasPrefix(sig, "fn "), strings.HasPrefix(sig, "pub fn "):
+		return parseRustSig(sig)
+	default:
+		// Try C/C++ style: "ReturnType FuncName(params)"
+		if strings.Contains(sig, "(") {
+			return parseCCppSig(sig)
+		}
 		return nil, nil
 	}
-	// Find params: between first ( and matching )
+}
+
+// parseGoSig parses "func(x int, y string) (*Result, error)" or "func Name(...)".
+func parseGoSig(sig string) (paramTypes, returnTypes []string) {
 	openParen := strings.Index(sig, "(")
 	if openParen < 0 {
 		return nil, nil
@@ -313,23 +371,155 @@ func parseSignatureTypes(sig string) (paramTypes, returnTypes []string) {
 	paramStr := sig[openParen+1 : closeParen]
 	paramTypes = extractTypesFromParamList(paramStr)
 
-	// Find returns: after the closing paren
 	rest := strings.TrimSpace(sig[closeParen+1:])
 	if rest == "" {
 		return paramTypes, nil
 	}
 	if strings.HasPrefix(rest, "(") {
-		// Multi-return: (Type1, Type2)
 		closeReturn := findMatchingParen(rest, 0)
 		if closeReturn > 0 {
 			returnStr := rest[1:closeReturn]
 			returnTypes = extractTypesFromParamList(returnStr)
 		}
 	} else {
-		// Single return type
 		returnTypes = []string{strings.TrimSpace(rest)}
 	}
 	return paramTypes, returnTypes
+}
+
+// parsePythonSig parses "def load_config(path: str) -> dict".
+func parsePythonSig(sig string) ([]string, []string) {
+	openParen := strings.Index(sig, "(")
+	if openParen < 0 {
+		return nil, nil
+	}
+	closeParen := findMatchingParen(sig, openParen)
+	if closeParen < 0 {
+		return nil, nil
+	}
+	paramStr := sig[openParen+1 : closeParen]
+	var params []string
+	for _, p := range splitParams(paramStr) {
+		p = strings.TrimSpace(p)
+		if p == "" || p == "self" || p == "cls" {
+			continue
+		}
+		if colon := strings.LastIndex(p, ":"); colon >= 0 {
+			params = append(params, strings.TrimSpace(p[colon+1:]))
+		}
+	}
+	var returns []string
+	rest := sig[closeParen+1:]
+	if arrow := strings.Index(rest, "->"); arrow >= 0 {
+		ret := strings.TrimSpace(rest[arrow+2:])
+		if ret != "" && ret != "None" {
+			returns = append(returns, ret)
+		}
+	}
+	return params, returns
+}
+
+// parseTSSig parses "function loadConfig(path: string): Config".
+func parseTSSig(sig string) ([]string, []string) {
+	openParen := strings.Index(sig, "(")
+	if openParen < 0 {
+		return nil, nil
+	}
+	closeParen := findMatchingParen(sig, openParen)
+	if closeParen < 0 {
+		return nil, nil
+	}
+	paramStr := sig[openParen+1 : closeParen]
+	var params []string
+	for _, p := range splitParams(paramStr) {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if colon := strings.Index(p, ":"); colon >= 0 {
+			params = append(params, strings.TrimSpace(p[colon+1:]))
+		}
+	}
+	var returns []string
+	rest := strings.TrimSpace(sig[closeParen+1:])
+	if strings.HasPrefix(rest, ":") {
+		ret := strings.TrimSpace(rest[1:])
+		if ret != "" && ret != "void" {
+			returns = append(returns, ret)
+		}
+	}
+	return params, returns
+}
+
+// parseRustSig parses "fn load_config(path: &str) -> Config" or "pub fn ...".
+func parseRustSig(sig string) ([]string, []string) {
+	openParen := strings.Index(sig, "(")
+	if openParen < 0 {
+		return nil, nil
+	}
+	closeParen := findMatchingParen(sig, openParen)
+	if closeParen < 0 {
+		return nil, nil
+	}
+	paramStr := sig[openParen+1 : closeParen]
+	var params []string
+	for _, p := range splitParams(paramStr) {
+		p = strings.TrimSpace(p)
+		if p == "" || p == "self" || p == "&self" || p == "&mut self" {
+			continue
+		}
+		if colon := strings.Index(p, ":"); colon >= 0 {
+			params = append(params, strings.TrimSpace(p[colon+1:]))
+		}
+	}
+	var returns []string
+	rest := sig[closeParen+1:]
+	if arrow := strings.Index(rest, "->"); arrow >= 0 {
+		ret := strings.TrimSpace(rest[arrow+2:])
+		if ret != "" && ret != "()" {
+			returns = append(returns, ret)
+		}
+	}
+	return params, returns
+}
+
+// parseCCppSig parses "Config loadConfig(const std::string &path)".
+// Return type precedes the function name; params use "type name" order.
+func parseCCppSig(sig string) ([]string, []string) {
+	openParen := strings.Index(sig, "(")
+	if openParen < 0 {
+		return nil, nil
+	}
+	closeParen := findMatchingParen(sig, openParen)
+	if closeParen < 0 {
+		return nil, nil
+	}
+	// Return type: everything before function name (last word before '(')
+	prefix := strings.TrimSpace(sig[:openParen])
+	prefixParts := strings.Fields(prefix)
+	var returns []string
+	if len(prefixParts) >= 2 {
+		retType := strings.Join(prefixParts[:len(prefixParts)-1], " ")
+		if retType != "void" {
+			returns = append(returns, retType)
+		}
+	}
+	// Params: "type name" order — all but last word is the type
+	paramStr := sig[openParen+1 : closeParen]
+	var params []string
+	for _, p := range splitParams(paramStr) {
+		p = strings.TrimSpace(p)
+		if p == "" || p == "void" {
+			continue
+		}
+		parts := strings.Fields(p)
+		if len(parts) >= 2 {
+			params = append(params, strings.Join(parts[:len(parts)-1], " "))
+		} else if len(parts) == 1 {
+			params = append(params, parts[0])
+		}
+	}
+	return params, returns
 }
 
 // findMatchingParen finds the index of the closing paren matching the open paren at pos.
@@ -396,50 +586,58 @@ func splitParams(s string) []string {
 	return parts
 }
 
-func (c *lspConn) findCallHierarchyItem(_, name string) (*callHierarchyItem, error) {
-	// Use workspace/symbol to find the function, then prepare callHierarchy
+func (c *lspConn) findCallHierarchyItem(root, name string) (*callHierarchyItem, error) {
+	// Strategy 1: workspace/symbol — fast, supported by gopls and most servers.
 	wsResult, err := c.Request("workspace/symbol", map[string]any{"query": name})
-	if err != nil {
-		return nil, err
+	if err == nil {
+		var symbols []workspaceSymbol
+		if json.Unmarshal(wsResult, &symbols) == nil {
+			for _, s := range symbols {
+				if s.Name != name || (s.Kind != 12 && s.Kind != 6) {
+					continue
+				}
+				if item := c.prepareCallHierarchyAt(s.Location.URI, s.Location.Range.Start.Line, s.Location.Range.Start.Character); item != nil {
+					return item, nil
+				}
+			}
+		}
 	}
-	var symbols []struct {
-		Name     string `json:"name"`
-		Kind     int    `json:"kind"`
-		Location struct {
-			URI   string `json:"uri"`
-			Range struct {
-				Start struct {
-					Line      int `json:"line"`
-					Character int `json:"character"`
-				} `json:"start"`
-			} `json:"range"`
-		} `json:"location"`
-	}
-	if json.Unmarshal(wsResult, &symbols) != nil || len(symbols) == 0 {
-		return nil, fmt.Errorf("%w: %q", ErrSymbolNotFound, name)
-	}
-	// Find exact match
-	for _, s := range symbols {
-		if s.Name != name || (s.Kind != 12 && s.Kind != 6) { // 12=function, 6=method
+
+	// Strategy 2: documentSymbol fallback — needed for servers like pyright
+	// that return empty workspace/symbol but support documentSymbol.
+	for _, f := range findSrcFiles(root) {
+		syms, err := c.documentSymbols(f, root)
+		if err != nil {
 			continue
 		}
-		prepResult, err := c.Request("textDocument/prepareCallHierarchy", map[string]any{
-			"textDocument": map[string]string{"uri": s.Location.URI},
-			"position": map[string]int{
-				"line":      s.Location.Range.Start.Line,
-				"character": s.Location.Range.Start.Character,
-			},
-		})
-		if err != nil {
-			return nil, err
+		for _, sym := range syms {
+			if sym.Name != name || (sym.Kind != 12 && sym.Kind != 6) {
+				continue
+			}
+			uri := pathToURI(f)
+			if item := c.prepareCallHierarchyAt(uri, sym.Line, sym.Col); item != nil {
+				return item, nil
+			}
 		}
-		var items []callHierarchyItem
-		if json.Unmarshal(prepResult, &items) != nil || len(items) == 0 {
-			return nil, fmt.Errorf("%w: %q", ErrCallHierarchyNotFound, name)
-		}
-		return &items[0], nil
 	}
+
 	return nil, fmt.Errorf("%w: %q", ErrSymbolNotFound, name)
+}
+
+// prepareCallHierarchyAt sends prepareCallHierarchy at a specific position.
+func (c *lspConn) prepareCallHierarchyAt(uri string, line, col int) *callHierarchyItem {
+	result, err := c.Request("textDocument/prepareCallHierarchy", map[string]any{
+		"textDocument": map[string]string{"uri": uri},
+		"position":     map[string]int{"line": line, "character": col},
+	})
+	if err != nil {
+		return nil
+	}
+	var items []callHierarchyItem
+	if json.Unmarshal(result, &items) != nil || len(items) == 0 {
+		return nil
+	}
+	return &items[0]
 }
 
 type docSymbol struct {
@@ -457,20 +655,10 @@ func (c *lspConn) documentSymbols(file, _ string) ([]docSymbol, error) {
 	if err != nil {
 		return nil, err
 	}
-	lang := "go"
-	switch filepath.Ext(file) {
-	case extRust:
-		lang = "rust"
-	case extPy:
-		lang = "python"
-	case extTS, extJS:
-		lang = "typescript"
-	case extJava:
-		lang = "java"
-	}
+	langID := extToLanguageID(filepath.Ext(file))
 	_ = c.Notify("textDocument/didOpen", map[string]any{
 		"textDocument": map[string]any{
-			"uri": uri, "languageId": lang, "version": 1, "text": string(content),
+			"uri": uri, "languageId": langID, "version": 1, "text": string(content),
 		},
 	})
 	result, err := c.Request("textDocument/documentSymbol", map[string]any{
@@ -479,27 +667,7 @@ func (c *lspConn) documentSymbols(file, _ string) ([]docSymbol, error) {
 	if err != nil {
 		return nil, err
 	}
-	type posRange struct {
-		Start struct {
-			Line, Character int
-		}
-		End struct {
-			Line, Character int
-		}
-	}
-	type symEntry struct {
-		Name           string   `json:"name"`
-		Kind           int      `json:"kind"`
-		Range          posRange `json:"range"`
-		SelectionRange posRange `json:"selectionRange"`
-		Children       []struct {
-			Name           string   `json:"name"`
-			Kind           int      `json:"kind"`
-			Range          posRange `json:"range"`
-			SelectionRange posRange `json:"selectionRange"`
-		} `json:"children,omitempty"`
-	}
-	var symbols []symEntry
+	var symbols []docSymbolEntry
 	if json.Unmarshal(result, &symbols) != nil {
 		return nil, nil
 	}
@@ -622,11 +790,7 @@ func (c *lspConn) hoverAt(file string, line, col int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var hover struct {
-		Contents struct {
-			Value string `json:"value"`
-		} `json:"contents"`
-	}
+	var hover hoverResult
 	if json.Unmarshal(result, &hover) != nil {
 		return "", nil
 	}
@@ -652,22 +816,7 @@ func (c *lspConn) definitionAt(file string, line, col int) (*definitionLocation,
 		return nil, err
 	}
 	// Response can be Location | Location[] | LocationLink[]
-	var locs []struct {
-		URI   string `json:"uri"`
-		Range struct {
-			Start struct {
-				Line      int `json:"line"`
-				Character int `json:"character"`
-			} `json:"start"`
-		} `json:"range"`
-		TargetURI   string `json:"targetUri"`
-		TargetRange *struct {
-			Start struct {
-				Line      int `json:"line"`
-				Character int `json:"character"`
-			} `json:"start"`
-		} `json:"targetRange"`
-	}
+	var locs []locationOrLink
 	if json.Unmarshal(result, &locs) != nil || len(locs) == 0 {
 		return nil, nil
 	}
@@ -693,20 +842,42 @@ func (c *lspConn) ensureOpen(file string) {
 	if err != nil {
 		return
 	}
-	lang := "go"
-	switch filepath.Ext(file) {
-	case extRust:
-		lang = "rust"
-	case extPy:
-		lang = "python"
-	case extTS, extJS:
-		lang = "typescript"
-	}
+	langID := extToLanguageID(filepath.Ext(file))
 	_ = c.Notify("textDocument/didOpen", map[string]any{
 		"textDocument": map[string]any{
-			"uri": uri, "languageId": lang, "version": 1, "text": string(content),
+			"uri": uri, "languageId": langID, "version": 1, "text": string(content),
 		},
 	})
+}
+
+// extToLanguageID maps file extensions to LSP language identifiers.
+func extToLanguageID(ext string) string {
+	switch ext {
+	case extRust:
+		return "rust"
+	case extPy:
+		return "python"
+	case extTS, extTSX:
+		return "typescript"
+	case extJS, extJSX:
+		return "javascript"
+	case extJava:
+		return "java"
+	case extC, extH:
+		return "c"
+	case extCpp, extHpp:
+		return "cpp"
+	case extKt:
+		return "kotlin"
+	case extZig:
+		return "zig"
+	case extSwift:
+		return "swift"
+	case extCS:
+		return "csharp"
+	default:
+		return "go"
+	}
 }
 
 func resolveNameAtURI(uri string, line int) string {
@@ -751,7 +922,8 @@ func findSrcFiles(root string) []string {
 		}
 		ext := filepath.Ext(d.Name())
 		switch ext {
-		case extGo, extRust, extPy, extTS, extJS, extJava:
+		case extGo, extRust, extPy, extTS, extJS, extJava,
+			extC, extCpp, extKt, extZig, extSwift, extCS:
 			if !strings.HasSuffix(d.Name(), "_test.go") {
 				files = append(files, path)
 			}

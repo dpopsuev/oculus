@@ -91,6 +91,17 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculu
 	}
 
 	absRoot, _ := filepath.Abs(a.root)
+
+	// When entry is specified, the non-entry path (lspCallGraphRoots) that
+	// normally opens files via documentSymbols is skipped. We must open files
+	// explicitly so the LSP server indexes them before workspace/symbol queries.
+	// documentSymbols is synchronous — it blocks until parsing is done.
+	if opts.Entry != "" {
+		for _, f := range findSrcFiles(a.root) {
+			conn.documentSymbols(f, a.root)
+		}
+	}
+
 	roots := lspCallGraphRoots(opts, conn, a.root)
 
 	nodeSet := make(map[string]oculus.FuncNode)
@@ -121,9 +132,7 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculu
 			if err != nil {
 				return
 			}
-			var outs []struct {
-				To callHierarchyItem `json:"to"`
-			}
+			var outs []outgoingCallItem
 			if json.Unmarshal(outgoing, &outs) != nil {
 				return
 			}
@@ -211,13 +220,67 @@ func resolveCalleeTypes(
 }
 
 // extractSignatureFromHover pulls a function signature from LSP hover markdown.
-// Handles: "```go\nfunc Foo(x int) string\n```" and plain "func ..." text.
+// Language-agnostic: handles Go (func), Python (def), TypeScript (function),
+// Rust (fn/pub fn), and C/C++ (return_type name(...)).
 func extractSignatureFromHover(hover string) string {
-	for _, line := range strings.Split(hover, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "func ") || strings.HasPrefix(line, "func(") {
-			return line
+	lines := strings.Split(hover, "\n")
+	inBlock := false
+	blockLang := ""
+	// First pass: look inside code blocks (most LSP servers use markdown fences).
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			if inBlock {
+				inBlock = false
+				blockLang = ""
+				continue
+			}
+			inBlock = true
+			blockLang = strings.TrimPrefix(trimmed, "```")
+			continue
 		}
+		if !inBlock {
+			continue
+		}
+		if sig := matchSignatureLine(trimmed, blockLang); sig != "" {
+			return sig
+		}
+	}
+	// Second pass: scan non-fenced lines (some servers return plain text).
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			continue
+		}
+		if sig := matchSignatureLine(trimmed, ""); sig != "" {
+			return sig
+		}
+	}
+	return ""
+}
+
+// matchSignatureLine detects a function signature in a single hover line.
+func matchSignatureLine(line, blockLang string) string {
+	switch {
+	// Go
+	case strings.HasPrefix(line, "func "), strings.HasPrefix(line, "func("):
+		return line
+	// Python: "def foo(...)" or pyright "(function) def foo(...)"
+	case strings.HasPrefix(line, "def "):
+		return line
+	case strings.Contains(line, ") def "):
+		if idx := strings.Index(line, "def "); idx >= 0 {
+			return line[idx:]
+		}
+	// TypeScript/JavaScript
+	case strings.HasPrefix(line, "function "):
+		return line
+	// Rust
+	case strings.HasPrefix(line, "fn "), strings.HasPrefix(line, "pub fn "):
+		return line
+	// C/C++: detected by code fence language since there's no keyword prefix
+	case (blockLang == "c" || blockLang == "cpp" || blockLang == "c++") && strings.Contains(line, "("):
+		return line
 	}
 	return ""
 }
@@ -265,9 +328,7 @@ func (a *LSPDeepAnalyzer) DataFlowTrace(_, entry string, maxDepth int) (*oculus.
 		if err != nil {
 			return
 		}
-		var outs []struct {
-			To callHierarchyItem `json:"to"`
-		}
+		var outs []outgoingCallItem
 		if json.Unmarshal(outgoing, &outs) != nil {
 			return
 		}

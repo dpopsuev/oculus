@@ -6,6 +6,7 @@ var DefaultLSPServers = map[Language]string{
 	Rust:       "rust-analyzer",
 	Python:     "pyright-langserver --stdio",
 	TypeScript: "typescript-language-server --stdio",
+	JavaScript: "typescript-language-server --stdio",
 	C:          "clangd",
 	Cpp:        "clangd",
 	Java:       "jdtls",

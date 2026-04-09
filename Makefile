@@ -1,4 +1,4 @@
-.PHONY: test cover lint vet
+.PHONY: test cover lint vet docker-lsp test-integration
 
 # Run all tests
 test:
@@ -21,3 +21,11 @@ lint: vet
 	else \
 		echo "golangci-lint not installed, skipping"; \
 	fi
+
+# Build Docker image with LSP servers for integration testing
+docker-lsp:
+	docker build -t oculus-lsp-test lsp/testcontainer/
+
+# Run integration tests (requires docker-lsp image)
+test-integration: docker-lsp
+	go test -tags integration -timeout 300s -v ./analyzer/... -run TestLSPIntegration

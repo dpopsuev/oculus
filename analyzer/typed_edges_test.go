@@ -122,7 +122,8 @@ func TestDogfood_TypedEdgeCoverage(t *testing.T) {
 	}
 
 	da := NewDeepFallback(root, nil)
-	cg, err := da.CallGraph(root, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	// Oculus is a library — no main function. Use exported-only mode.
+	cg, err := da.CallGraph(root, oculus.CallGraphOpts{ExportedOnly: true, Depth: 3})
 	if err != nil {
 		t.Fatalf("CallGraph: %v", err)
 	}
