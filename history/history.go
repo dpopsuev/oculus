@@ -55,10 +55,13 @@ type EntrySummary struct {
 	Edges      int       `json:"edges"`
 }
 
-// DefaultHistoryDir returns ~/.locus/history.
+// DefaultHistoryDir returns $XDG_DATA_HOME/locus/history (falls back to ~/.local/share/locus/history).
 func DefaultHistoryDir() string {
+	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
+		return filepath.Join(xdg, "locus", "history")
+	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".locus", "history")
+	return filepath.Join(home, ".local", "share", "locus", "history")
 }
 
 // Record appends a history entry to the JSONL file and stores the full report
