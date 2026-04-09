@@ -1,4 +1,4 @@
-.PHONY: test cover lint vet docker-lsp test-integration
+.PHONY: test cover lint vet docker-lsp test-integration bench bench-mesh
 
 # Run all tests
 test:
@@ -21,6 +21,15 @@ lint: vet
 	else \
 		echo "golangci-lint not installed, skipping"; \
 	fi
+
+# Run all benchmarks
+bench:
+	go test -bench=. -benchmem -timeout 600s ./...
+
+# Run mesh-specific benchmarks
+bench-mesh:
+	go test -bench=BenchmarkBuildMesh -benchmem -timeout 300s .
+	go test -bench=BenchmarkMergeSymbolGraph -benchmem -timeout 300s .
 
 # Build Docker image with LSP servers for integration testing
 docker-lsp:
