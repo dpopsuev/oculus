@@ -614,24 +614,7 @@ func uriToRelPath(uri, root string) string {
 // Works with any LSP server (gopls, rust-analyzer, typescript-language-server, etc.).
 func (c *lspConn) hoverAt(file string, line, col int) (string, error) {
 	uri := pathToURI(file)
-	content, err := os.ReadFile(file)
-	if err != nil {
-		return "", err
-	}
-	lang := "go"
-	switch filepath.Ext(file) {
-	case extRust:
-		lang = "rust"
-	case extPy:
-		lang = "python"
-	case extTS, extJS:
-		lang = "typescript"
-	}
-	_ = c.Notify("textDocument/didOpen", map[string]any{
-		"textDocument": map[string]any{
-			"uri": uri, "languageId": lang, "version": 1, "text": string(content),
-		},
-	})
+	c.ensureOpen(file)
 	result, err := c.Request("textDocument/hover", map[string]any{
 		"textDocument": map[string]string{"uri": uri},
 		"position":     map[string]int{"line": line, "character": col},
@@ -648,6 +631,82 @@ func (c *lspConn) hoverAt(file string, line, col int) (string, error) {
 		return "", nil
 	}
 	return hover.Contents.Value, nil
+}
+
+// definitionLocation holds the result of textDocument/definition.
+type definitionLocation struct {
+	URI  string
+	Line int
+	Col  int
+}
+
+// definitionAt calls textDocument/definition and returns the first result.
+func (c *lspConn) definitionAt(file string, line, col int) (*definitionLocation, error) {
+	uri := pathToURI(file)
+	c.ensureOpen(file)
+	result, err := c.Request("textDocument/definition", map[string]any{
+		"textDocument": map[string]string{"uri": uri},
+		"position":     map[string]int{"line": line, "character": col},
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Response can be Location | Location[] | LocationLink[]
+	var locs []struct {
+		URI   string `json:"uri"`
+		Range struct {
+			Start struct {
+				Line      int `json:"line"`
+				Character int `json:"character"`
+			} `json:"start"`
+		} `json:"range"`
+		TargetURI   string `json:"targetUri"`
+		TargetRange *struct {
+			Start struct {
+				Line      int `json:"line"`
+				Character int `json:"character"`
+			} `json:"start"`
+		} `json:"targetRange"`
+	}
+	if json.Unmarshal(result, &locs) != nil || len(locs) == 0 {
+		return nil, nil
+	}
+	loc := locs[0]
+	defURI := loc.URI
+	defLine := loc.Range.Start.Line
+	defCol := loc.Range.Start.Character
+	// Handle LocationLink format (targetUri/targetRange)
+	if loc.TargetURI != "" {
+		defURI = loc.TargetURI
+		if loc.TargetRange != nil {
+			defLine = loc.TargetRange.Start.Line
+			defCol = loc.TargetRange.Start.Character
+		}
+	}
+	return &definitionLocation{URI: defURI, Line: defLine, Col: defCol}, nil
+}
+
+// ensureOpen sends textDocument/didOpen if not already tracked.
+func (c *lspConn) ensureOpen(file string) {
+	uri := pathToURI(file)
+	content, err := os.ReadFile(file)
+	if err != nil {
+		return
+	}
+	lang := "go"
+	switch filepath.Ext(file) {
+	case extRust:
+		lang = "rust"
+	case extPy:
+		lang = "python"
+	case extTS, extJS:
+		lang = "typescript"
+	}
+	_ = c.Notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri": uri, "languageId": lang, "version": 1, "text": string(content),
+		},
+	})
 }
 
 func resolveNameAtURI(uri string, line int) string {

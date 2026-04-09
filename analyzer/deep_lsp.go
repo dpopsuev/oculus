@@ -60,6 +60,7 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculu
 	nodeSet := make(map[string]oculus.FuncNode)
 	var edges []oculus.CallEdge
 	visited := make(map[string]bool)
+	sigCache := make(map[string]*[2][]string) // callee FQN → [paramTypes, returnTypes]
 
 	for _, entry := range roots {
 		item, err := conn.findCallHierarchyItem(a.root, entry)
@@ -100,7 +101,11 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculu
 						File: uriToRelPath(out.To.URI, a.root), EndLine: out.To.Range.End.Line + 1,
 					}
 				}
-				calleeParams, calleeReturns := parseSignatureTypes(out.To.Detail)
+				// Extract callee signature via hover at callee's definition.
+				calleeParams, calleeReturns := resolveCalleeTypes(
+					conn, sigCache, out.To.Name, calleePkg,
+					out.To.URI, out.To.Range.Start.Line, out.To.Range.Start.Character,
+				)
 				edges = append(edges, oculus.CallEdge{
 					Caller:      it.Name,
 					Callee:      out.To.Name,
@@ -122,8 +127,7 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculu
 		walk(item, 0)
 	}
 
-	// Enrich edges with param/return types by parsing source files.
-	// Uses the shared enrichment tap from deep_goast.go.
+	// Fallback: go/parser enrichment for edges the hover chain missed.
 	EnrichCallEdgeTypes(a.root, edges)
 
 	nodes := make([]oculus.FuncNode, 0, len(nodeSet))
@@ -134,6 +138,53 @@ func (a *LSPDeepAnalyzer) CallGraph(_ string, opts oculus.CallGraphOpts) (*oculu
 }
 
 
+
+// resolveCalleeTypes extracts callee param/return types via textDocument/hover
+// at the callee's definition position. Cached by callee FQN.
+func resolveCalleeTypes(
+	conn *lspConn, cache map[string]*[2][]string,
+	calleeName, calleePkg, calleeURI string, defLine, defCol int,
+) (paramTypes, returnTypes []string) {
+	fqn := calleePkg + "." + calleeName
+	if cached, ok := cache[fqn]; ok {
+		if cached != nil {
+			return cached[0], cached[1]
+		}
+		return nil, nil
+	}
+
+	defPath := strings.TrimPrefix(calleeURI, "file://")
+	hover, err := conn.hoverAt(defPath, defLine, defCol)
+	if err != nil || hover == "" {
+		cache[fqn] = nil
+		return nil, nil
+	}
+
+	sig := extractSignatureFromHover(hover)
+	if sig == "" {
+		cache[fqn] = nil
+		return nil, nil
+	}
+	params, returns := parseSignatureTypes(sig)
+	if len(params) == 0 && len(returns) == 0 {
+		cache[fqn] = nil
+		return nil, nil
+	}
+	cache[fqn] = &[2][]string{params, returns}
+	return params, returns
+}
+
+// extractSignatureFromHover pulls a function signature from LSP hover markdown.
+// Handles: "```go\nfunc Foo(x int) string\n```" and plain "func ..." text.
+func extractSignatureFromHover(hover string) string {
+	for _, line := range strings.Split(hover, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "func ") || strings.HasPrefix(line, "func(") {
+			return line
+		}
+	}
+	return ""
+}
 
 // DataFlowTrace uses callHierarchy to trace data flow from an entry,
 // detecting data stores via workspace/symbol heuristics.
