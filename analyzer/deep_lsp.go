@@ -72,15 +72,20 @@ func NewLSPDeepWithPool(root string, pool lsp.Pool) *LSPDeepAnalyzer {
 	return &LSPDeepAnalyzer{root: root, timeout: 30 * time.Second, pool: pool}
 }
 
-func (a *LSPDeepAnalyzer) startConn() (*lspConn, func(), error) {
+func (a *LSPDeepAnalyzer) startConn(ctx context.Context) (*lspConn, func(), error) {
 	analyzer := &LSPAnalyzer{Timeout: a.timeout, pool: a.pool}
-	return analyzer.startServer(a.root)
+	conn, cleanup, err := analyzer.startServer(a.root)
+	if err != nil {
+		return nil, nil, err
+	}
+	conn.ctx = ctx
+	return conn, cleanup, nil
 }
 
 // oculus.CallGraph uses callHierarchy/outgoingCalls recursively from all
 // exported functions (or a single entry if opts.Entry is set).
 func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
-	conn, cleanup, err := a.startConn()
+	conn, cleanup, err := a.startConn(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("lsp deep call graph: %w", err)
 	}
@@ -289,7 +294,7 @@ func matchSignatureLine(line, blockLang string) string {
 // DataFlowTrace uses callHierarchy to trace data flow from an entry,
 // detecting data stores via workspace/symbol heuristics.
 func (a *LSPDeepAnalyzer) DataFlowTrace(ctx context.Context, _, entry string, maxDepth int) (*oculus.DataFlow, error) {
-	conn, cleanup, err := a.startConn()
+	conn, cleanup, err := a.startConn(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("lsp deep dataflow: %w", err)
 	}
@@ -367,7 +372,7 @@ func (a *LSPDeepAnalyzer) DataFlowTrace(ctx context.Context, _, entry string, ma
 // DetectStateMachines uses documentSymbol to find const groups and
 // then workspace/symbol + textDocument/references to find switch contexts.
 func (a *LSPDeepAnalyzer) DetectStateMachines(ctx context.Context, _ string) ([]oculus.StateMachine, error) {
-	conn, cleanup, err := a.startConn()
+	conn, cleanup, err := a.startConn(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("lsp deep state machines: %w", err)
 	}

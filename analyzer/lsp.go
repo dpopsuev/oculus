@@ -3,6 +3,7 @@ package analyzer
 import (
 	"github.com/dpopsuev/oculus"
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -87,8 +88,18 @@ func (a *LSPAnalyzer) NestingDepth(root string) ([]oculus.NestingResult, error) 
 // --- LSP connection wrapper ---
 
 // lspConn wraps oculus/lsp.Client with LSP protocol lifecycle methods.
+// Stores a context for timeout propagation to LSP requests.
 type lspConn struct {
 	*lsp.Client
+	ctx context.Context
+}
+
+// request sends an LSP request with context timeout support.
+func (c *lspConn) request(method string, params any) (json.RawMessage, error) {
+	if c.ctx != nil {
+		return c.Client.RequestContext(c.ctx, method, params)
+	}
+	return c.Client.Request(method, params)
 }
 
 func newLSPConn(r interface{ Read([]byte) (int, error) }, w interface{ Write([]byte) (int, error) }) *lspConn {
@@ -109,14 +120,14 @@ func (c *lspConn) initialize(root string) error {
 			},
 		},
 	}
-	if _, err := c.Request("initialize", params); err != nil {
+	if _, err := c.Client.Request("initialize", params); err != nil {
 		return err
 	}
 	return c.Notify("initialized", struct{}{})
 }
 
 func (c *lspConn) shutdown() {
-	_, _ = c.Request("shutdown", nil)
+	_, _ = c.Client.Request("shutdown", nil)
 	_ = c.Notify("exit", nil)
 }
 
@@ -205,7 +216,7 @@ func (c *lspConn) implementations(root string) ([]oculus.ImplEdge, error) {
 				"textDocument": map[string]string{"uri": pathToURI(f)},
 				"position":     map[string]int{"line": sym.Line, "character": sym.Col},
 			}
-			impls, err := c.Request("textDocument/implementation", implParams)
+			impls, err := c.request("textDocument/implementation", implParams)
 			if err != nil {
 				continue
 			}
@@ -247,7 +258,7 @@ func (c *lspConn) callChain(root, entry string, maxDepth int) ([]oculus.Call, er
 			return
 		}
 		visited[it.Name] = true
-		outgoing, err := c.Request("callHierarchy/outgoingCalls", map[string]any{"item": it})
+		outgoing, err := c.request("callHierarchy/outgoingCalls", map[string]any{"item": it})
 		if err != nil {
 			return
 		}
@@ -588,7 +599,7 @@ func splitParams(s string) []string {
 
 func (c *lspConn) findCallHierarchyItem(root, name string) (*callHierarchyItem, error) {
 	// Strategy 1: workspace/symbol — fast, supported by gopls and most servers.
-	wsResult, err := c.Request("workspace/symbol", map[string]any{"query": name})
+	wsResult, err := c.request("workspace/symbol", map[string]any{"query": name})
 	if err == nil {
 		var symbols []workspaceSymbol
 		if json.Unmarshal(wsResult, &symbols) == nil {
@@ -626,7 +637,7 @@ func (c *lspConn) findCallHierarchyItem(root, name string) (*callHierarchyItem, 
 
 // prepareCallHierarchyAt sends prepareCallHierarchy at a specific position.
 func (c *lspConn) prepareCallHierarchyAt(uri string, line, col int) *callHierarchyItem {
-	result, err := c.Request("textDocument/prepareCallHierarchy", map[string]any{
+	result, err := c.request("textDocument/prepareCallHierarchy", map[string]any{
 		"textDocument": map[string]string{"uri": uri},
 		"position":     map[string]int{"line": line, "character": col},
 	})
@@ -661,7 +672,7 @@ func (c *lspConn) documentSymbols(file, _ string) ([]docSymbol, error) {
 			"uri": uri, "languageId": langID, "version": 1, "text": string(content),
 		},
 	})
-	result, err := c.Request("textDocument/documentSymbol", map[string]any{
+	result, err := c.request("textDocument/documentSymbol", map[string]any{
 		"textDocument": map[string]string{"uri": uri},
 	})
 	if err != nil {
@@ -783,7 +794,7 @@ func uriToRelPath(uri, root string) string {
 func (c *lspConn) hoverAt(file string, line, col int) (string, error) {
 	uri := pathToURI(file)
 	c.ensureOpen(file)
-	result, err := c.Request("textDocument/hover", map[string]any{
+	result, err := c.request("textDocument/hover", map[string]any{
 		"textDocument": map[string]string{"uri": uri},
 		"position":     map[string]int{"line": line, "character": col},
 	})
@@ -808,7 +819,7 @@ type definitionLocation struct {
 func (c *lspConn) definitionAt(file string, line, col int) (*definitionLocation, error) {
 	uri := pathToURI(file)
 	c.ensureOpen(file)
-	result, err := c.Request("textDocument/definition", map[string]any{
+	result, err := c.request("textDocument/definition", map[string]any{
 		"textDocument": map[string]string{"uri": uri},
 		"position":     map[string]int{"line": line, "character": col},
 	})

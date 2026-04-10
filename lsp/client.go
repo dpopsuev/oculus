@@ -4,6 +4,7 @@ package lsp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,6 +66,13 @@ func (e *JSONRPCError) Error() string {
 // Request sends a JSON-RPC request and reads the response, skipping
 // any interleaved notifications from the server.
 func (c *Client) Request(method string, params any) (json.RawMessage, error) {
+	return c.RequestContext(context.Background(), method, params)
+}
+
+// RequestContext sends a JSON-RPC request with context support.
+// Returns context.DeadlineExceeded if the context expires before the
+// server responds. This prevents indefinite hangs on slow LSP servers.
+func (c *Client) RequestContext(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	c.mu.Lock()
 	id := c.nextID
 	c.nextID++
@@ -81,24 +89,42 @@ func (c *Client) Request(method string, params any) (json.RawMessage, error) {
 		return nil, fmt.Errorf("lsp request %s: %w", method, err)
 	}
 
-	for {
-		resp, err := c.readMessage()
-		if err != nil {
-			return nil, fmt.Errorf("lsp response %s: %w", method, err)
-		}
-
-		// Skip server-initiated notifications and requests (they have no id
-		// or have a method field indicating a server->client request).
-		if resp.ID == nil || resp.Method != "" {
-			continue
-		}
-
-		if *resp.ID == id {
-			if resp.Error != nil {
-				return nil, resp.Error
+	type result struct {
+		data json.RawMessage
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- result{nil, fmt.Errorf("lsp request %s: reader panic: %v", method, r)}
 			}
-			return resp.Result, nil
+		}()
+		for {
+			resp, err := c.readMessage()
+			if err != nil {
+				ch <- result{nil, fmt.Errorf("lsp response %s: %w", method, err)}
+				return
+			}
+			if resp.ID == nil || resp.Method != "" {
+				continue
+			}
+			if *resp.ID == id {
+				if resp.Error != nil {
+					ch <- result{nil, resp.Error}
+				} else {
+					ch <- result{resp.Result, nil}
+				}
+				return
+			}
 		}
+	}()
+
+	select {
+	case r := <-ch:
+		return r.data, r.err
+	case <-ctx.Done():
+		return nil, fmt.Errorf("lsp request %s: %w", method, ctx.Err())
 	}
 }
 
