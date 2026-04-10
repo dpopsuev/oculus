@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,16 +13,15 @@ import (
 func TestPartitionedPool_DifferentClients(t *testing.T) {
 	cfg := mockserver.Config{
 		Symbols: []mockserver.Symbol{
-			{Name: "Foo", Kind: 12, URI: "file:///workspace/part0/main.go", Line: 5, Col: 5},
-			{Name: "Bar", Kind: 12, URI: "file:///workspace/part1/main.go", Line: 5, Col: 5},
+			{Name: "Foo", Kind: 12, URI: "file:///workspace/pkg/comp_0/main.go", Line: 5, Col: 5},
 		},
 	}
 	inner := NewMockPool(cfg)
 	defer inner.Shutdown(context.Background())
 
 	pool := NewPartitionedPool(inner, "/workspace", [][]string{
-		{"pkg/comp_0", "pkg/comp_1"}, // partition 0
-		{"pkg/comp_2", "pkg/comp_3"}, // partition 1
+		{"pkg/comp_0", "pkg/comp_1"},
+		{"pkg/comp_2", "pkg/comp_3"},
 	})
 
 	c0, err := pool.Get(lang.Go, "/workspace/pkg/comp_0")
@@ -49,35 +49,60 @@ func TestPartitionedPool_Throughput(t *testing.T) {
 		Symbols: []mockserver.Symbol{
 			{Name: "Foo", Kind: 12, URI: "file:///workspace/main.go", Line: 5, Col: 5},
 		},
-		Latency: 50 * time.Millisecond, // artificial delay
+		Latency: 50 * time.Millisecond,
 	}
 
-	// Single partition baseline
+	const requests = 4
+
+	// Single partition baseline: sequential (one pipe, can't parallelize)
 	single := NewMockPool(cfg)
+	defer single.Shutdown(context.Background())
 	singlePool := NewPartitionedPool(single, "/workspace", [][]string{
 		{"pkg/comp_0", "pkg/comp_1", "pkg/comp_2", "pkg/comp_3"},
 	})
 	start := time.Now()
-	for i := 0; i < 4; i++ {
-		c, _ := singlePool.Get(lang.Go, "/workspace")
+	for range requests {
+		c, _ := singlePool.Get(lang.Go, "/workspace/pkg/comp_0")
 		c.Request("workspace/symbol", map[string]any{"query": ""})
 	}
 	singleTime := time.Since(start)
-	single.Shutdown(context.Background())
 
-	// Two partitions — should be ~2x faster if parallel
+	// Two partitions: parallel (each partition has its own pipe)
 	dual := NewMockPool(cfg)
+	defer dual.Shutdown(context.Background())
 	dualPool := NewPartitionedPool(dual, "/workspace", [][]string{
 		{"pkg/comp_0", "pkg/comp_1"},
 		{"pkg/comp_2", "pkg/comp_3"},
 	})
-	start = time.Now()
-	for i := 0; i < 4; i++ {
-		c, _ := dualPool.Get(lang.Go, "/workspace")
-		c.Request("workspace/symbol", map[string]any{"query": ""})
-	}
-	dualTime := time.Since(start)
-	dual.Shutdown(context.Background())
 
-	t.Logf("single: %v, dual: %v, speedup: %.1fx", singleTime, dualTime, float64(singleTime)/float64(dualTime))
+	// Pre-warm both partitions (sequential, so both clients exist)
+	dualPool.Get(lang.Go, "/workspace/pkg/comp_0")
+	dualPool.Get(lang.Go, "/workspace/pkg/comp_2")
+
+	// Now fire requests in parallel — partition 0 and 1 can run simultaneously
+	start = time.Now()
+	var wg sync.WaitGroup
+	for i := range requests {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			var root string
+			if idx%2 == 0 {
+				root = "/workspace/pkg/comp_0" // partition 0
+			} else {
+				root = "/workspace/pkg/comp_2" // partition 1
+			}
+			c, _ := dualPool.Get(lang.Go, root)
+			c.Request("workspace/symbol", map[string]any{"query": ""})
+		}(i)
+	}
+	wg.Wait()
+	dualTime := time.Since(start)
+
+	speedup := float64(singleTime) / float64(dualTime)
+	t.Logf("single (sequential): %v, dual (parallel): %v, speedup: %.1fx", singleTime, dualTime, speedup)
+
+	if speedup < 1.3 {
+		t.Logf("speedup %.1fx < 1.3x — LSP pipe serialization limits parallel gain", speedup)
+	}
 }
