@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -106,3 +107,72 @@ func TestPartitionedPool_Throughput(t *testing.T) {
 		t.Logf("speedup %.1fx < 1.3x — LSP pipe serialization limits parallel gain", speedup)
 	}
 }
+
+func TestPartitionedPool_DiminishingReturns(t *testing.T) {
+	const totalRequests = 16
+	latency := 30 * time.Millisecond
+
+	cfg := mockserver.Config{
+		Symbols: []mockserver.Symbol{
+			{Name: "Foo", Kind: 12, URI: "file:///workspace/main.go", Line: 5, Col: 5},
+		},
+		Latency: latency,
+	}
+
+	partitionCounts := []int{1, 2, 4, 8, 16}
+
+	// Baseline: sequential through 1 partition (no contention)
+	basePool := NewMockPool(cfg)
+	basePP := NewPartitionedPool(basePool, "/workspace", [][]string{{"pkg/comp_0"}})
+	basePP.Get(lang.Go, "/workspace/pkg/comp_0") // warm
+	start := time.Now()
+	for range totalRequests {
+		c, _ := basePP.Get(lang.Go, "/workspace/pkg/comp_0")
+		c.Request("workspace/symbol", map[string]any{"query": ""})
+	}
+	baselineTime := time.Since(start)
+	basePool.Shutdown(context.Background())
+
+	t.Logf("%-12s %-12s %-12s", "partitions", "duration", "speedup")
+	t.Logf("%-12d %-12v %-12s", 1, baselineTime, "1.0x (baseline)")
+
+	for _, n := range partitionCounts[1:] {
+		pool := NewMockPool(cfg)
+		groups := make([][]string, n)
+		for i := range n {
+			groups[i] = []string{fmt.Sprintf("pkg/comp_%d", i)}
+		}
+		pp := NewPartitionedPool(pool, "/workspace", groups)
+
+		// Pre-warm all partitions
+		for i := range n {
+			pp.Get(lang.Go, fmt.Sprintf("/workspace/pkg/comp_%d", i))
+		}
+
+		// Parallel: each goroutine uses its own partition (no pipe contention)
+		start := time.Now()
+		var wg sync.WaitGroup
+		reqsPerPartition := totalRequests / n
+		if reqsPerPartition < 1 {
+			reqsPerPartition = 1
+		}
+		for p := range n {
+			wg.Add(1)
+			go func(partIdx int) {
+				defer wg.Done()
+				root := fmt.Sprintf("/workspace/pkg/comp_%d", partIdx)
+				c, _ := pp.Get(lang.Go, root)
+				for range reqsPerPartition {
+					c.Request("workspace/symbol", map[string]any{"query": ""})
+				}
+			}(p)
+		}
+		wg.Wait()
+		elapsed := time.Since(start)
+		pool.Shutdown(context.Background())
+
+		speedup := float64(baselineTime) / float64(elapsed)
+		t.Logf("%-12d %-12v %-12.1fx", n, elapsed, speedup)
+	}
+}
+
