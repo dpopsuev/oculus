@@ -2,7 +2,9 @@ package oculus
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -140,12 +142,27 @@ func (p *SymbolPipeline) CallGraph(ctx context.Context, _ string, opts CallGraph
 		}
 	}
 
+	var rootsDone atomic.Int32
+	total := len(roots)
+
 	for _, root := range roots {
 		if gCtx.Err() != nil {
 			break
 		}
 		g.Go(func() error {
 			walk(root, 0)
+			done := int(rootsDone.Add(1))
+			if opts.OnProgress != nil {
+				mu.Lock()
+				opts.OnProgress(ProgressUpdate{
+					RootsResolved: done,
+					RootsTotal:    total,
+					NodesFound:    len(nodeSet),
+					EdgesFound:    len(edges),
+					Message:       fmt.Sprintf("%d/%d roots resolved", done, total),
+				})
+				mu.Unlock()
+			}
 			return nil
 		})
 	}

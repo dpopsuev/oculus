@@ -2,6 +2,7 @@ package oculus
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -402,4 +403,65 @@ func TestSymbolPipeline_DataFlowTrace_Basic(t *testing.T) {
 	if !hasStore {
 		t.Error("expected at least one data_store node")
 	}
+}
+
+// TestSymbolPipeline_CallGraph_Progress tests that OnProgress fires after each root.
+func TestSymbolPipeline_CallGraph_Progress(t *testing.T) {
+	src := &mockSymbolSource{
+		roots: []SourceSymbol{
+			{Name: "Alpha", Package: "pkg", File: "a.go", Line: 1},
+			{Name: "Beta", Package: "pkg", File: "b.go", Line: 1},
+			{Name: "Gamma", Package: "pkg", File: "c.go", Line: 1},
+			{Name: "Delta", Package: "pkg", File: "d.go", Line: 1},
+		},
+		children: map[string][]SourceRelation{
+			"Alpha": {{Target: SourceSymbol{Name: "A1", Package: "pkg"}, Kind: "call", InWorkspace: true}},
+			"Beta":  {{Target: SourceSymbol{Name: "B1", Package: "pkg"}, Kind: "call", InWorkspace: true}},
+			"Gamma": {{Target: SourceSymbol{Name: "C1", Package: "pkg"}, Kind: "call", InWorkspace: true}},
+			"Delta": {{Target: SourceSymbol{Name: "D1", Package: "pkg"}, Kind: "call", InWorkspace: true}},
+		},
+		latency: 10 * time.Millisecond,
+	}
+
+	var updates []ProgressUpdate
+	var mu sync.Mutex
+
+	p := &SymbolPipeline{Source: src, Root: "/workspace", Concurrency: 2}
+	cg, err := p.CallGraph(context.Background(), "/workspace", CallGraphOpts{
+		Depth: 5,
+		OnProgress: func(u ProgressUpdate) {
+			mu.Lock()
+			updates = append(updates, u)
+			mu.Unlock()
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallGraph: %v", err)
+	}
+
+	if len(cg.Edges) == 0 {
+		t.Fatal("expected edges")
+	}
+
+	// Must receive at least 4 progress updates (one per root).
+	if len(updates) < 4 {
+		t.Fatalf("progress updates = %d, want >= 4", len(updates))
+	}
+
+	// Last update should have RootsResolved == RootsTotal.
+	last := updates[len(updates)-1]
+	if last.RootsResolved != last.RootsTotal {
+		t.Errorf("last update: resolved=%d total=%d, want equal", last.RootsResolved, last.RootsTotal)
+	}
+	if last.RootsTotal != 4 {
+		t.Errorf("total = %d, want 4", last.RootsTotal)
+	}
+
+	// EdgesFound should be > 0 in the last update.
+	if last.EdgesFound == 0 {
+		t.Error("last update EdgesFound = 0, want > 0")
+	}
+
+	t.Logf("received %d progress updates, last: resolved=%d/%d edges=%d nodes=%d",
+		len(updates), last.RootsResolved, last.RootsTotal, last.EdgesFound, last.NodesFound)
 }

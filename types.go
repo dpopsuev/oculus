@@ -84,6 +84,19 @@ type CallGraphOpts struct {
 	Depth        int    // max recursion depth; 0 = default (10)
 	ExportedOnly bool   // only include exported functions as roots
 	Scope        string // limit to this package prefix
+
+	// OnProgress is called after each root function is resolved.
+	// Optional — nil means no progress notifications.
+	OnProgress func(ProgressUpdate)
+}
+
+// ProgressUpdate reports incremental progress during call graph construction.
+type ProgressUpdate struct {
+	RootsResolved int    // roots walked so far
+	RootsTotal    int    // total roots to walk
+	NodesFound    int    // nodes discovered so far
+	EdgesFound    int    // edges discovered so far
+	Message       string // human-readable status
 }
 
 // CallEdge represents a single caller->callee edge in the call graph.

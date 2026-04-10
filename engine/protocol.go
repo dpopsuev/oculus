@@ -940,16 +940,26 @@ func (p *Engine) DetectStateMachines(ctx context.Context, path string, cacheKey 
 // DefaultMeshTimeout is the maximum time for GetMesh/GetSymbolGraph operations.
 const DefaultMeshTimeout = 60 * time.Second
 
+// SymbolGraphOpts configures GetSymbolGraph behavior.
+type SymbolGraphOpts struct {
+	OnProgress func(oculus.ProgressUpdate) // optional progress callback
+}
+
 // call graph, type hierarchy, and field reference data.
-func (p *Engine) GetSymbolGraph(ctx context.Context, path string, cacheKey ...string) (*oculus.SymbolGraph, error) {
+func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...SymbolGraphOpts) (*oculus.SymbolGraph, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultMeshTimeout)
 	defer cancel()
 
 	path = p.resolvePath(path)
 	da := analyzer.CachedDeepFallback(path, p.pool)
 
+	cgOpts := oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth}
+	if len(opts) > 0 && opts[0].OnProgress != nil {
+		cgOpts.OnProgress = opts[0].OnProgress
+	}
+
 	start := time.Now()
-	cg, err := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+	cg, err := da.CallGraph(ctx, path, cgOpts)
 	slog.LogAttrs(ctx, slog.LevelDebug, "mesh: call_graph",
 		slog.Duration("duration", time.Since(start)),
 		slog.Int("edges", len(cg.Edges)),
@@ -988,7 +998,7 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, cacheKey ...st
 // linear call chains where each function's return types overlap with
 // the next function's parameter types.
 func (p *Engine) DetectPipelines(ctx context.Context, path string, minLength int, cacheKey ...string) (*oculus.PipelineReport, error) {
-	sg, err := p.GetSymbolGraph(ctx, path, cacheKey...)
+	sg, err := p.GetSymbolGraph(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("symbol graph: %w", err)
 	}
@@ -1003,7 +1013,7 @@ func (p *Engine) DetectPipelines(ctx context.Context, path string, minLength int
 func (p *Engine) GetMesh(ctx context.Context, path string, cacheKey ...string) (*oculus.Mesh, error) {
 	total := time.Now()
 
-	sg, err := p.GetSymbolGraph(ctx, path, cacheKey...)
+	sg, err := p.GetSymbolGraph(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("symbol graph: %w", err)
 	}
