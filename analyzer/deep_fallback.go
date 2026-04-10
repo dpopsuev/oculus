@@ -43,8 +43,9 @@ func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts 
 }
 
 // perAnalyzerTimeout is the max time each analyzer gets before the fallback
-// chain moves to the next one. Prevents a slow LSP from starving GoAST.
-const perAnalyzerTimeout = 30 * time.Second
+// chain moves to the next one. 5 minutes gives gopls time to index large
+// repos with many external dependencies.
+const perAnalyzerTimeout = 5 * time.Minute
 
 func (f *DeepFallbackAnalyzer) DataFlowTrace(ctx context.Context, root, entry string, depth int) (*oculus.DataFlow, error) {
 	for _, a := range f.analyzers {
