@@ -1,7 +1,6 @@
 package analyzer
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +9,7 @@ import (
 	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/rust"
+	"github.com/dpopsuev/oculus/ts"
 )
 
 func init() {
@@ -29,8 +27,8 @@ func init() {
 
 // ParseRustFunctions parses .rs files via tree-sitter and returns SourceFuncs.
 func ParseRustFunctions(root string) []oculus.SourceFunc {
-	parser := sitter.NewParser()
-	parser.SetLanguage(rust.GetLanguage())
+	parser := ts.NewParser()
+	parser.SetLanguage(ts.Rust())
 
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -57,7 +55,7 @@ func ParseRustFunctions(root string) []oculus.SourceFunc {
 		if err != nil {
 			return nil
 		}
-		tree, err := parser.ParseCtx(context.Background(), nil, src)
+		tree, err := parser.Parse(src)
 		if err != nil {
 			return nil
 		}
@@ -74,7 +72,7 @@ func ParseRustFunctions(root string) []oculus.SourceFunc {
 	return funcs
 }
 
-func extractRustFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
+func extractRustFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		switch child.Type() {
@@ -122,7 +120,7 @@ func extractRustFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *[]
 	}
 }
 
-func extractRustParamTypes(params *sitter.Node, src []byte) []string {
+func extractRustParamTypes(params ts.Node, src []byte) []string {
 	var types []string
 	for i := 0; i < int(params.ChildCount()); i++ {
 		param := params.Child(i)
@@ -140,14 +138,14 @@ func extractRustParamTypes(params *sitter.Node, src []byte) []string {
 
 // extractCallExpressions is a generic tree-sitter call extractor that works
 // for languages using call_expression nodes (Rust, Java, C, C++, etc.).
-func extractCallExpressions(node *sitter.Node, src []byte) []string {
+func extractCallExpressions(node ts.Node, src []byte) []string {
 	seen := make(map[string]bool)
 	var callees []string
 	walkCallExpressions(node, src, seen, &callees)
 	return callees
 }
 
-func walkCallExpressions(node *sitter.Node, src []byte, seen map[string]bool, callees *[]string) {
+func walkCallExpressions(node ts.Node, src []byte, seen map[string]bool, callees *[]string) {
 	if node.Type() == "call_expression" {
 		if fn := node.ChildByFieldName("function"); fn != nil {
 			name := extractSimpleName(fn, src)
@@ -163,7 +161,7 @@ func walkCallExpressions(node *sitter.Node, src []byte, seen map[string]bool, ca
 }
 
 // extractSimpleName gets the last identifier from a possibly qualified name.
-func extractSimpleName(node *sitter.Node, src []byte) string {
+func extractSimpleName(node ts.Node, src []byte) string {
 	content := node.Content(src)
 	// Handle qualified names: foo::bar::baz → baz, foo.bar → bar
 	if idx := strings.LastIndexAny(content, ".:"); idx >= 0 {

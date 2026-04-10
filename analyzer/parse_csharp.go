@@ -1,7 +1,6 @@
 package analyzer
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +9,7 @@ import (
 	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/csharp"
+	"github.com/dpopsuev/oculus/ts"
 )
 
 func init() {
@@ -29,8 +27,8 @@ func init() {
 
 // ParseCSharpFunctions parses .cs files via tree-sitter.
 func ParseCSharpFunctions(root string) []oculus.SourceFunc {
-	parser := sitter.NewParser()
-	parser.SetLanguage(csharp.GetLanguage())
+	parser := ts.NewParser()
+	parser.SetLanguage(ts.CSharp())
 
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -57,7 +55,7 @@ func ParseCSharpFunctions(root string) []oculus.SourceFunc {
 		if err != nil {
 			return nil
 		}
-		tree, err := parser.ParseCtx(context.Background(), nil, src)
+		tree, err := parser.Parse(src)
 		if err != nil {
 			return nil
 		}
@@ -74,7 +72,7 @@ func ParseCSharpFunctions(root string) []oculus.SourceFunc {
 	return funcs
 }
 
-func extractCSharpFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
+func extractCSharpFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		switch child.Type() {
@@ -126,7 +124,7 @@ func extractCSharpFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *
 	}
 }
 
-func extractCSharpParamTypes(params *sitter.Node, src []byte) []string {
+func extractCSharpParamTypes(params ts.Node, src []byte) []string {
 	var types []string
 	for i := 0; i < int(params.ChildCount()); i++ {
 		param := params.Child(i)
@@ -139,14 +137,14 @@ func extractCSharpParamTypes(params *sitter.Node, src []byte) []string {
 	return types
 }
 
-func extractCSharpCallees(node *sitter.Node, src []byte) []string {
+func extractCSharpCallees(node ts.Node, src []byte) []string {
 	seen := make(map[string]bool)
 	var callees []string
 	walkCSharpCalls(node, src, seen, &callees)
 	return callees
 }
 
-func walkCSharpCalls(node *sitter.Node, src []byte, seen map[string]bool, callees *[]string) {
+func walkCSharpCalls(node ts.Node, src []byte, seen map[string]bool, callees *[]string) {
 	if node.Type() == "invocation_expression" {
 		if fn := node.ChildByFieldName("function"); fn != nil {
 			name := extractSimpleName(fn, src)

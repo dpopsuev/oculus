@@ -2,15 +2,13 @@ package analyzer
 
 import (
 	"github.com/dpopsuev/oculus"
-	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/golang"
+	"github.com/dpopsuev/oculus/ts"
 
 	olang "github.com/dpopsuev/oculus/lang"
 )
@@ -86,7 +84,7 @@ func (a *TreeSitterAnalyzer) NestingDepth(root string) ([]oculus.NestingResult, 
 
 func (a *TreeSitterAnalyzer) goClasses(root string) ([]oculus.ClassInfo, error) {
 	var classes []oculus.ClassInfo
-	err := a.walkGoFiles(root, func(tree *sitter.Tree, src []byte, pkg, file string) {
+	err := a.walkGoFiles(root, func(tree ts.Tree, src []byte, pkg, file string) {
 		root := tree.RootNode()
 		for i := 0; i < int(root.ChildCount()); i++ {
 			child := root.Child(i)
@@ -167,7 +165,7 @@ func (a *TreeSitterAnalyzer) goClasses(root string) ([]oculus.ClassInfo, error) 
 //nolint:gocyclo // struct embedding detection requires iterating nested AST nodes
 func (a *TreeSitterAnalyzer) goImplements(root string) ([]oculus.ImplEdge, error) {
 	var edges []oculus.ImplEdge
-	err := a.walkGoFiles(root, func(tree *sitter.Tree, src []byte, pkg, file string) {
+	err := a.walkGoFiles(root, func(tree ts.Tree, src []byte, pkg, file string) {
 		rootNode := tree.RootNode()
 		for i := 0; i < int(rootNode.ChildCount()); i++ {
 			child := rootNode.Child(i)
@@ -275,16 +273,16 @@ func (a *TreeSitterAnalyzer) goCallChain(root, entry string, maxDepth int) ([]oc
 	type funcBody struct {
 		pkg  string
 		file string
-		node *sitter.Node
+		node ts.Node
 		src  []byte
 	}
 	funcBodies := make(map[string]funcBody)
 
-	err := a.walkGoFiles(root, func(tree *sitter.Tree, src []byte, pkg, file string) {
+	err := a.walkGoFiles(root, func(tree ts.Tree, src []byte, pkg, file string) {
 		rootNode := tree.RootNode()
 		for i := 0; i < int(rootNode.ChildCount()); i++ {
 			child := rootNode.Child(i)
-			var nameNode *sitter.Node
+			var nameNode ts.Node
 			switch child.Type() {
 			case nodeFuncDecl:
 				nameNode = child.ChildByFieldName("name")
@@ -337,7 +335,7 @@ func (a *TreeSitterAnalyzer) goCallChain(root, entry string, maxDepth int) ([]oc
 
 func (a *TreeSitterAnalyzer) goEntryPoints(root string) ([]oculus.EntryPoint, error) {
 	var entries []oculus.EntryPoint
-	err := a.walkGoFiles(root, func(tree *sitter.Tree, src []byte, pkg, file string) {
+	err := a.walkGoFiles(root, func(tree ts.Tree, src []byte, pkg, file string) {
 		rootNode := tree.RootNode()
 		for i := 0; i < int(rootNode.ChildCount()); i++ {
 			child := rootNode.Child(i)
@@ -384,11 +382,11 @@ func (a *TreeSitterAnalyzer) goEntryPoints(root string) ([]oculus.EntryPoint, er
 
 func (a *TreeSitterAnalyzer) goNestingDepth(root string) ([]oculus.NestingResult, error) {
 	var results []oculus.NestingResult
-	err := a.walkGoFiles(root, func(tree *sitter.Tree, src []byte, pkg, file string) {
+	err := a.walkGoFiles(root, func(tree ts.Tree, src []byte, pkg, file string) {
 		rootNode := tree.RootNode()
 		for i := 0; i < int(rootNode.ChildCount()); i++ {
 			child := rootNode.Child(i)
-			var nameNode *sitter.Node
+			var nameNode ts.Node
 			switch child.Type() {
 			case nodeFuncDecl:
 				nameNode = child.ChildByFieldName("name")
@@ -419,9 +417,9 @@ func (a *TreeSitterAnalyzer) goNestingDepth(root string) ([]oculus.NestingResult
 
 // --- helpers ---
 
-func (a *TreeSitterAnalyzer) walkGoFiles(root string, fn func(*sitter.Tree, []byte, string, string)) error {
-	parser := sitter.NewParser()
-	parser.SetLanguage(golang.GetLanguage())
+func (a *TreeSitterAnalyzer) walkGoFiles(root string, fn func(ts.Tree, []byte, string, string)) error {
+	parser := ts.NewParser()
+	parser.SetLanguage(ts.Go())
 
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -448,7 +446,7 @@ func (a *TreeSitterAnalyzer) walkGoFiles(root string, fn func(*sitter.Tree, []by
 		if err != nil {
 			return nil
 		}
-		tree, err := parser.ParseCtx(context.Background(), nil, src)
+		tree, err := parser.Parse(src)
 		if err != nil {
 			return nil
 		}
@@ -463,9 +461,9 @@ func (a *TreeSitterAnalyzer) walkGoFiles(root string, fn func(*sitter.Tree, []by
 	})
 }
 
-func extractGoStructFields(structNode *sitter.Node, src []byte) []oculus.FieldInfo {
+func extractGoStructFields(structNode ts.Node, src []byte) []oculus.FieldInfo {
 	var fields []oculus.FieldInfo
-	var fieldList *sitter.Node
+	var fieldList ts.Node
 	for i := 0; i < int(structNode.ChildCount()); i++ {
 		c := structNode.Child(i)
 		if c.Type() == "field_declaration_list" {
@@ -527,7 +525,7 @@ func extractGoStructFields(structNode *sitter.Node, src []byte) []oculus.FieldIn
 	return fields
 }
 
-func extractGoInterfaceMethods(ifaceNode *sitter.Node, src []byte) []oculus.MethodInfo {
+func extractGoInterfaceMethods(ifaceNode ts.Node, src []byte) []oculus.MethodInfo {
 	var methods []oculus.MethodInfo
 	for i := 0; i < int(ifaceNode.ChildCount()); i++ {
 		child := ifaceNode.Child(i)
@@ -554,7 +552,7 @@ func extractGoInterfaceMethods(ifaceNode *sitter.Node, src []byte) []oculus.Meth
 	return methods
 }
 
-func extractGoReceiverType(recvNode *sitter.Node, src []byte) string {
+func extractGoReceiverType(recvNode ts.Node, src []byte) string {
 	for i := 0; i < int(recvNode.ChildCount()); i++ {
 		child := recvNode.Child(i)
 		if child.Type() == "parameter_declaration" {
@@ -574,7 +572,7 @@ func extractGoReceiverType(recvNode *sitter.Node, src []byte) string {
 }
 
 // extractGoFuncParamTypes returns parameter type names from a parameter_list node.
-func extractGoFuncParamTypes(paramList *sitter.Node, src []byte) []string {
+func extractGoFuncParamTypes(paramList ts.Node, src []byte) []string {
 	if paramList == nil {
 		return nil
 	}
@@ -607,7 +605,7 @@ func extractGoFuncParamTypes(paramList *sitter.Node, src []byte) []string {
 }
 
 // extractGoFuncResultTypes returns return type names from a function declaration node.
-func extractGoFuncResultTypes(funcNode *sitter.Node, src []byte) []string {
+func extractGoFuncResultTypes(funcNode ts.Node, src []byte) []string {
 	resultNode := funcNode.ChildByFieldName("result")
 	if resultNode == nil {
 		return nil
@@ -620,7 +618,7 @@ func extractGoFuncResultTypes(funcNode *sitter.Node, src []byte) []string {
 	return extractGoFuncParamTypes(resultNode, src)
 }
 
-func extractCalls(node *sitter.Node, src []byte, emit func(callee string, line int)) {
+func extractCalls(node ts.Node, src []byte, emit func(callee string, line int)) {
 	if node == nil {
 		return
 	}
@@ -647,7 +645,7 @@ var nestingTypes = map[string]bool{
 	"type_switch_statement": true,
 }
 
-func computeNesting(node *sitter.Node, depth int) int {
+func computeNesting(node ts.Node, depth int) int {
 	maxD := depth
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -662,13 +660,13 @@ func computeNesting(node *sitter.Node, depth int) int {
 	return maxD
 }
 
-func isTestParam(params *sitter.Node, src []byte) bool {
+func isTestParam(params ts.Node, src []byte) bool {
 	content := params.Content(src)
 	return strings.Contains(content, "*testing.T") || strings.Contains(content, "*testing.B") ||
 		strings.Contains(content, "*testing.F") || strings.Contains(content, "*testing.M")
 }
 
-func isHTTPHandlerSignature(params *sitter.Node, src []byte) bool {
+func isHTTPHandlerSignature(params ts.Node, src []byte) bool {
 	if params == nil {
 		return false
 	}

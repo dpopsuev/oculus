@@ -1,22 +1,20 @@
 package analyzer
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/dpopsuev/oculus"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/golang"
+	"github.com/dpopsuev/oculus/ts"
 )
 
 // ParsedFile holds a pre-parsed source file with its AST, source bytes,
 // package name, and relative path. Created once by BuildParsedProject
 // and reused by all oculus.DeepAnalyzer queries without redundant I/O.
 type ParsedFile struct {
-	Tree    *sitter.Tree
+	Tree    ts.Tree
 	Source  []byte
 	Package string
 	RelPath string
@@ -75,8 +73,8 @@ func dataFlowTrace(funcs []oculus.Symbol, entry string, maxDepth int, layer stri
 
 // collectTreeSitterCalls walks a tree-sitter node tree collecting function call names.
 // Shared between Python and TypeScript deep analyzers.
-func collectTreeSitterCalls(node *sitter.Node, src []byte, callType, funcField string,
-	nameExtractor func(fn *sitter.Node, src []byte) string,
+func collectTreeSitterCalls(node ts.Node, src []byte, callType, funcField string,
+	nameExtractor func(fn ts.Node, src []byte) string,
 	seen map[string]bool, callees *[]string,
 ) {
 	if node.Type() == callType {
@@ -98,8 +96,8 @@ func collectTreeSitterCalls(node *sitter.Node, src []byte, callType, funcField s
 // file, and returns a ParsedProject. This is the "Divide" step in D&C:
 // one filesystem walk, N parallel parses.
 func BuildParsedProject(root string) (*ParsedProject, error) {
-	parser := sitter.NewParser()
-	parser.SetLanguage(golang.GetLanguage())
+	parser := ts.NewParser()
+	parser.SetLanguage(ts.Go())
 
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -125,7 +123,7 @@ func BuildParsedProject(root string) (*ParsedProject, error) {
 		if err != nil {
 			return nil
 		}
-		tree, err := parser.ParseCtx(context.Background(), nil, src)
+		tree, err := parser.Parse(src)
 		if err != nil {
 			return nil
 		}

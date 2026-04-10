@@ -1,7 +1,6 @@
 package analyzer
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +9,7 @@ import (
 	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/swift"
+	"github.com/dpopsuev/oculus/ts"
 )
 
 func init() {
@@ -29,8 +27,8 @@ func init() {
 
 // ParseSwiftFunctions parses .swift files via tree-sitter.
 func ParseSwiftFunctions(root string) []oculus.SourceFunc {
-	parser := sitter.NewParser()
-	parser.SetLanguage(swift.GetLanguage())
+	parser := ts.NewParser()
+	parser.SetLanguage(ts.Swift())
 
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -57,7 +55,7 @@ func ParseSwiftFunctions(root string) []oculus.SourceFunc {
 		if err != nil {
 			return nil
 		}
-		tree, err := parser.ParseCtx(context.Background(), nil, src)
+		tree, err := parser.Parse(src)
 		if err != nil {
 			return nil
 		}
@@ -74,7 +72,7 @@ func ParseSwiftFunctions(root string) []oculus.SourceFunc {
 	return funcs
 }
 
-func extractSwiftFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
+func extractSwiftFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		switch child.Type() {
@@ -121,14 +119,14 @@ func extractSwiftFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *[
 	}
 }
 
-func extractSwiftCallees(node *sitter.Node, src []byte) []string {
+func extractSwiftCallees(node ts.Node, src []byte) []string {
 	seen := make(map[string]bool)
 	var callees []string
 	walkSwiftCalls(node, src, seen, &callees)
 	return callees
 }
 
-func walkSwiftCalls(node *sitter.Node, src []byte, seen map[string]bool, callees *[]string) {
+func walkSwiftCalls(node ts.Node, src []byte, seen map[string]bool, callees *[]string) {
 	if node.Type() == "call_expression" {
 		// Swift call: simple_identifier or navigation_expression
 		if nameNode := findChildByType(node, "simple_identifier"); nameNode != nil {
@@ -146,7 +144,7 @@ func walkSwiftCalls(node *sitter.Node, src []byte, seen map[string]bool, callees
 
 // extractSwiftDirectParams finds parameter nodes that are direct children
 // of the function_declaration (Swift doesn't wrap them in a parameters node).
-func extractSwiftDirectParams(funcNode *sitter.Node, src []byte) []string {
+func extractSwiftDirectParams(funcNode ts.Node, src []byte) []string {
 	var types []string
 	for i := 0; i < int(funcNode.ChildCount()); i++ {
 		param := funcNode.Child(i)

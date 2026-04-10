@@ -1,7 +1,6 @@
 package analyzer
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +9,7 @@ import (
 	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/java"
+	"github.com/dpopsuev/oculus/ts"
 )
 
 func init() {
@@ -29,8 +27,8 @@ func init() {
 
 // ParseJavaFunctions parses .java files via tree-sitter.
 func ParseJavaFunctions(root string) []oculus.SourceFunc {
-	parser := sitter.NewParser()
-	parser.SetLanguage(java.GetLanguage())
+	parser := ts.NewParser()
+	parser.SetLanguage(ts.Java())
 
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -57,7 +55,7 @@ func ParseJavaFunctions(root string) []oculus.SourceFunc {
 		if err != nil {
 			return nil
 		}
-		tree, err := parser.ParseCtx(context.Background(), nil, src)
+		tree, err := parser.Parse(src)
 		if err != nil {
 			return nil
 		}
@@ -74,7 +72,7 @@ func ParseJavaFunctions(root string) []oculus.SourceFunc {
 	return funcs
 }
 
-func extractJavaFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
+func extractJavaFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		switch child.Type() {
@@ -129,7 +127,7 @@ func extractJavaFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *[]
 	}
 }
 
-func extractJavaParamTypes(params *sitter.Node, src []byte) []string {
+func extractJavaParamTypes(params ts.Node, src []byte) []string {
 	var types []string
 	for i := 0; i < int(params.ChildCount()); i++ {
 		param := params.Child(i)
@@ -142,14 +140,14 @@ func extractJavaParamTypes(params *sitter.Node, src []byte) []string {
 	return types
 }
 
-func extractJavaCallees(node *sitter.Node, src []byte) []string {
+func extractJavaCallees(node ts.Node, src []byte) []string {
 	seen := make(map[string]bool)
 	var callees []string
 	walkJavaCalls(node, src, seen, &callees)
 	return callees
 }
 
-func walkJavaCalls(node *sitter.Node, src []byte, seen map[string]bool, callees *[]string) {
+func walkJavaCalls(node ts.Node, src []byte, seen map[string]bool, callees *[]string) {
 	if node.Type() == "method_invocation" {
 		if nameNode := node.ChildByFieldName("name"); nameNode != nil {
 			name := nameNode.Content(src)

@@ -1,7 +1,6 @@
 package analyzer
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +9,7 @@ import (
 	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	clang "github.com/smacker/go-tree-sitter/c"
+	"github.com/dpopsuev/oculus/ts"
 )
 
 func init() {
@@ -29,8 +27,8 @@ func init() {
 
 // ParseCFunctions parses .c/.h files via tree-sitter.
 func ParseCFunctions(root string) []oculus.SourceFunc {
-	parser := sitter.NewParser()
-	parser.SetLanguage(clang.GetLanguage())
+	parser := ts.NewParser()
+	parser.SetLanguage(ts.C())
 
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -57,7 +55,7 @@ func ParseCFunctions(root string) []oculus.SourceFunc {
 		if err != nil {
 			return nil
 		}
-		tree, err := parser.ParseCtx(context.Background(), nil, src)
+		tree, err := parser.Parse(src)
 		if err != nil {
 			return nil
 		}
@@ -74,7 +72,7 @@ func ParseCFunctions(root string) []oculus.SourceFunc {
 	return funcs
 }
 
-func extractCLangFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
+func extractCLangFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		if child.Type() != "function_definition" {
@@ -117,7 +115,7 @@ func extractCLangFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *[
 	}
 }
 
-func extractCFuncName(declarator *sitter.Node, src []byte) string {
+func extractCFuncName(declarator ts.Node, src []byte) string {
 	// function_declarator → declarator (identifier) + parameters
 	if declarator.Type() == "function_declarator" {
 		if nameNode := declarator.ChildByFieldName("declarator"); nameNode != nil {
@@ -132,7 +130,7 @@ func extractCFuncName(declarator *sitter.Node, src []byte) string {
 	return ""
 }
 
-func extractCParamTypes(declarator *sitter.Node, src []byte) []string {
+func extractCParamTypes(declarator ts.Node, src []byte) []string {
 	var types []string
 	// Find the parameter_list inside the function_declarator
 	if declarator.Type() != "function_declarator" {

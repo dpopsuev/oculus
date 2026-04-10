@@ -1,7 +1,6 @@
 package analyzer
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +9,7 @@ import (
 	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/kotlin"
+	"github.com/dpopsuev/oculus/ts"
 )
 
 func init() {
@@ -29,8 +27,8 @@ func init() {
 
 // ParseKotlinFunctions parses .kt files via tree-sitter.
 func ParseKotlinFunctions(root string) []oculus.SourceFunc {
-	parser := sitter.NewParser()
-	parser.SetLanguage(kotlin.GetLanguage())
+	parser := ts.NewParser()
+	parser.SetLanguage(ts.Kotlin())
 
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -57,7 +55,7 @@ func ParseKotlinFunctions(root string) []oculus.SourceFunc {
 		if err != nil {
 			return nil
 		}
-		tree, err := parser.ParseCtx(context.Background(), nil, src)
+		tree, err := parser.Parse(src)
 		if err != nil {
 			return nil
 		}
@@ -74,7 +72,7 @@ func ParseKotlinFunctions(root string) []oculus.SourceFunc {
 	return funcs
 }
 
-func extractKotlinFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
+func extractKotlinFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		switch child.Type() {
@@ -108,7 +106,7 @@ func extractKotlinFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *
 	}
 }
 
-func extractKotlinParamTypes(funcNode *sitter.Node, src []byte) []string {
+func extractKotlinParamTypes(funcNode ts.Node, src []byte) []string {
 	params := funcNode.ChildByFieldName("parameters")
 	if params == nil {
 		params = findChildByType(funcNode, "function_value_parameters")
@@ -130,7 +128,7 @@ func extractKotlinParamTypes(funcNode *sitter.Node, src []byte) []string {
 	return types
 }
 
-func extractKotlinReturnType(funcNode *sitter.Node, src []byte) []string {
+func extractKotlinReturnType(funcNode ts.Node, src []byte) []string {
 	if retType := funcNode.ChildByFieldName("return_type"); retType != nil {
 		rt := retType.Content(src)
 		if rt != "" && rt != "Unit" {
@@ -150,14 +148,14 @@ func extractKotlinReturnType(funcNode *sitter.Node, src []byte) []string {
 	return nil
 }
 
-func extractKotlinCallees(node *sitter.Node, src []byte) []string {
+func extractKotlinCallees(node ts.Node, src []byte) []string {
 	seen := make(map[string]bool)
 	var callees []string
 	walkKotlinCalls(node, src, seen, &callees)
 	return callees
 }
 
-func walkKotlinCalls(node *sitter.Node, src []byte, seen map[string]bool, callees *[]string) {
+func walkKotlinCalls(node ts.Node, src []byte, seen map[string]bool, callees *[]string) {
 	if node.Type() == "call_expression" {
 		// Kotlin call: simple_identifier followed by call_suffix
 		if nameNode := findChildByType(node, "simple_identifier"); nameNode != nil {
@@ -173,7 +171,7 @@ func walkKotlinCalls(node *sitter.Node, src []byte, seen map[string]bool, callee
 	}
 }
 
-func findChildByType(node *sitter.Node, nodeType string) *sitter.Node {
+func findChildByType(node ts.Node, nodeType string) ts.Node {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		if node.Child(i).Type() == nodeType {
 			return node.Child(i)

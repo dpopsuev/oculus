@@ -1,7 +1,6 @@
 package analyzer
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +9,7 @@ import (
 	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/typescript/typescript"
+	"github.com/dpopsuev/oculus/ts"
 )
 
 func init() {
@@ -30,8 +28,8 @@ func init() {
 // ParseTypeScriptFunctions parses all TS/JS files and returns SourceFuncs
 // with type annotations extracted from tree-sitter AST.
 func ParseTypeScriptFunctions(root string) []oculus.SourceFunc {
-	parser := sitter.NewParser()
-	parser.SetLanguage(typescript.GetLanguage())
+	parser := ts.NewParser()
+	parser.SetLanguage(ts.TypeScript())
 
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -58,7 +56,7 @@ func ParseTypeScriptFunctions(root string) []oculus.SourceFunc {
 		if readErr != nil {
 			return nil
 		}
-		tree, parseErr := parser.ParseCtx(context.Background(), nil, src)
+		tree, parseErr := parser.Parse(src)
 		if parseErr != nil {
 			return nil
 		}
@@ -75,7 +73,7 @@ func ParseTypeScriptFunctions(root string) []oculus.SourceFunc {
 	return funcs
 }
 
-func extractTSSourceFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
+func extractTSSourceFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		switch child.Type() {
@@ -149,7 +147,7 @@ func extractTSSourceFuncs(root *sitter.Node, src []byte, pkg, file string, funcs
 
 // extractTSParamTypes extracts type annotations from TS function parameters.
 // Handles: function foo(x: string, y: number): ...
-func extractTSParamTypes(funcNode *sitter.Node, src []byte) []string {
+func extractTSParamTypes(funcNode ts.Node, src []byte) []string {
 	params := funcNode.ChildByFieldName("parameters")
 	if params == nil {
 		return nil
@@ -173,7 +171,7 @@ func extractTSParamTypes(funcNode *sitter.Node, src []byte) []string {
 
 // extractTSReturnType extracts the return type annotation.
 // Handles: function foo(): string { ... }
-func extractTSReturnType(funcNode *sitter.Node, src []byte) []string {
+func extractTSReturnType(funcNode ts.Node, src []byte) []string {
 	retType := funcNode.ChildByFieldName("return_type")
 	if retType == nil {
 		return nil
@@ -187,23 +185,23 @@ func extractTSReturnType(funcNode *sitter.Node, src []byte) []string {
 	return []string{t}
 }
 
-func isArrowOrFunction(node *sitter.Node) bool {
+func isArrowOrFunction(node ts.Node) bool {
 	t := node.Type()
 	return t == "arrow_function" || t == "function" || t == "function_expression"
 }
 
-func extractTSCallees(node *sitter.Node, src []byte) []string {
+func extractTSCallees(node ts.Node, src []byte) []string {
 	seen := make(map[string]bool)
 	var callees []string
 	collectTSCalls(node, src, seen, &callees)
 	return callees
 }
 
-func collectTSCalls(node *sitter.Node, src []byte, seen map[string]bool, callees *[]string) {
+func collectTSCalls(node ts.Node, src []byte, seen map[string]bool, callees *[]string) {
 	collectTreeSitterCalls(node, src, "call_expression", "function", tsNameExtractor, seen, callees)
 }
 
-func tsNameExtractor(fn *sitter.Node, src []byte) string {
+func tsNameExtractor(fn ts.Node, src []byte) string {
 	switch fn.Type() {
 	case "identifier":
 		return fn.Content(src)

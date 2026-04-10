@@ -1,7 +1,6 @@
 package analyzer
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,8 +10,7 @@ import (
 	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/python"
+	"github.com/dpopsuev/oculus/ts"
 )
 
 func init() {
@@ -31,8 +29,8 @@ func init() {
 // ParsePythonFunctions parses all .py files and returns SourceFuncs
 // with type annotations extracted from tree-sitter AST.
 func ParsePythonFunctions(root string) []oculus.SourceFunc {
-	parser := sitter.NewParser()
-	parser.SetLanguage(python.GetLanguage())
+	parser := ts.NewParser()
+	parser.SetLanguage(ts.Python())
 
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -58,7 +56,7 @@ func ParsePythonFunctions(root string) []oculus.SourceFunc {
 		if readErr != nil {
 			return nil
 		}
-		tree, parseErr := parser.ParseCtx(context.Background(), nil, src)
+		tree, parseErr := parser.Parse(src)
 		if parseErr != nil {
 			return nil
 		}
@@ -75,7 +73,7 @@ func ParsePythonFunctions(root string) []oculus.SourceFunc {
 	return funcs
 }
 
-func extractPySourceFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
+func extractPySourceFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		if child.Type() == "function_definition" || child.Type() == "async_function_definition" {
@@ -134,7 +132,7 @@ func extractPySourceFuncs(root *sitter.Node, src []byte, pkg, file string, funcs
 
 // extractPyParamTypes extracts type annotations from Python function parameters.
 // Handles: def foo(x: int, y: str, z: list[str]) -> ...
-func extractPyParamTypes(params *sitter.Node, src []byte) []string {
+func extractPyParamTypes(params ts.Node, src []byte) []string {
 	var types []string
 	for i := 0; i < int(params.ChildCount()); i++ {
 		param := params.Child(i)
@@ -175,18 +173,18 @@ func isPyExported(name string) bool {
 	return unicode.IsLetter(r) && r != '_'
 }
 
-func extractPyCallees(node *sitter.Node, src []byte) []string {
+func extractPyCallees(node ts.Node, src []byte) []string {
 	seen := make(map[string]bool)
 	var callees []string
 	collectPyCalls(node, src, seen, &callees)
 	return callees
 }
 
-func collectPyCalls(node *sitter.Node, src []byte, seen map[string]bool, callees *[]string) {
+func collectPyCalls(node ts.Node, src []byte, seen map[string]bool, callees *[]string) {
 	collectTreeSitterCalls(node, src, "call", "function", pyNameExtractor, seen, callees)
 }
 
-func pyNameExtractor(fn *sitter.Node, src []byte) string {
+func pyNameExtractor(fn ts.Node, src []byte) string {
 	switch fn.Type() {
 	case "identifier":
 		return fn.Content(src)

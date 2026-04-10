@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/dpopsuev/oculus/ts"
 
 	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
@@ -49,7 +49,7 @@ type cgFuncDef struct {
 	name        string
 	pkg         string
 	file        string
-	body        *sitter.Node
+	body        ts.Node
 	src         []byte
 	line        int
 	endLine     int
@@ -216,7 +216,7 @@ type tsFuncDef struct {
 	name    string
 	pkg     string
 	file    string
-	body    *sitter.Node
+	body    ts.Node
 	src     []byte
 	line    int
 	endLine int
@@ -391,7 +391,7 @@ func isPublicFunc(name string, _ tsFuncDef) bool {
 }
 
 // funcOrMethodName returns the name node for a function or method declaration.
-func funcOrMethodName(child *sitter.Node) *sitter.Node {
+func funcOrMethodName(child ts.Node) ts.Node {
 	switch child.Type() {
 	case nodeFuncDecl, nodeMethodDecl:
 		return child.ChildByFieldName("name")
@@ -516,7 +516,7 @@ func extractStateMachines(pf ParsedFile) []oculus.StateMachine {
 
 // findSwitchTransitions searches for switch statements that reference
 // the given type's values and extracts transitions between states.
-func findSwitchTransitions(root *sitter.Node, src []byte, _ string, values []string) []oculus.StateTransition {
+func findSwitchTransitions(root ts.Node, src []byte, _ string, values []string) []oculus.StateTransition {
 	valueSet := make(map[string]bool)
 	for _, v := range values {
 		valueSet[v] = true
@@ -527,7 +527,7 @@ func findSwitchTransitions(root *sitter.Node, src []byte, _ string, values []str
 	return transitions
 }
 
-func walkForSwitches(node *sitter.Node, src []byte, valueSet map[string]bool, transitions *[]oculus.StateTransition) {
+func walkForSwitches(node ts.Node, src []byte, valueSet map[string]bool, transitions *[]oculus.StateTransition) {
 	if node == nil {
 		return
 	}
@@ -545,7 +545,7 @@ func walkForSwitches(node *sitter.Node, src []byte, valueSet map[string]bool, tr
 }
 
 // extractCaseValues collects state values referenced in switch case clauses.
-func extractCaseValues(node *sitter.Node, src []byte, valueSet map[string]bool) []string {
+func extractCaseValues(node ts.Node, src []byte, valueSet map[string]bool) []string {
 	var caseValues []string
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
