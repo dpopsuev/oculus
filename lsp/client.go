@@ -70,8 +70,8 @@ func (c *Client) Request(method string, params any) (json.RawMessage, error) {
 }
 
 // RequestContext sends a JSON-RPC request with context support.
-// Returns context.DeadlineExceeded if the context expires before the
-// server responds. This prevents indefinite hangs on slow LSP servers.
+// Both write and read are async — if context expires, returns immediately.
+// The caller should close the connection to unblock any kernel-level I/O.
 func (c *Client) RequestContext(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	c.mu.Lock()
 	id := c.nextID
@@ -85,10 +85,21 @@ func (c *Client) RequestContext(ctx context.Context, method string, params any) 
 		Params:  params,
 	}
 
-	if err := c.writeMessage(req); err != nil {
-		return nil, fmt.Errorf("lsp request %s: %w", method, err)
+	// Async write — unblocks if ctx expires even when pipe buffer is full.
+	writeDone := make(chan error, 1)
+	go func() {
+		writeDone <- c.writeMessage(req)
+	}()
+	select {
+	case err := <-writeDone:
+		if err != nil {
+			return nil, fmt.Errorf("lsp request %s: %w", method, err)
+		}
+	case <-ctx.Done():
+		return nil, fmt.Errorf("lsp write %s: %w", method, ctx.Err())
 	}
 
+	// Async read — unblocks if ctx expires even when server is slow.
 	type result struct {
 		data json.RawMessage
 		err  error
@@ -124,7 +135,7 @@ func (c *Client) RequestContext(ctx context.Context, method string, params any) 
 	case r := <-ch:
 		return r.data, r.err
 	case <-ctx.Done():
-		return nil, fmt.Errorf("lsp request %s: %w", method, ctx.Err())
+		return nil, fmt.Errorf("lsp read %s: %w", method, ctx.Err())
 	}
 }
 

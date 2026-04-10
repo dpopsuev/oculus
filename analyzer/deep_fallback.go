@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"time"
 	"github.com/dpopsuev/oculus"
 	"github.com/dpopsuev/oculus/lsp"
 )
@@ -26,7 +27,10 @@ func NewDeepFallback(root string, pool lsp.Pool) *DeepFallbackAnalyzer {
 
 func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	for _, a := range f.analyzers {
-		r, err := a.CallGraph(ctx, root, opts)
+		// Each analyzer gets its own timeout so a slow LSP doesn't starve GoAST.
+		aCtx, cancel := context.WithTimeout(context.Background(), perAnalyzerTimeout)
+		r, err := a.CallGraph(aCtx, root, opts)
+		cancel()
 		if err == nil && len(r.Edges) > 0 {
 			// Universal enrichment: fill in types for any edges still missing them.
 			// Individual analyzers may already populate types (GoAST, LSP hover),
@@ -37,6 +41,10 @@ func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts 
 	}
 	return &oculus.CallGraph{}, nil
 }
+
+// perAnalyzerTimeout is the max time each analyzer gets before the fallback
+// chain moves to the next one. Prevents a slow LSP from starving GoAST.
+const perAnalyzerTimeout = 30 * time.Second
 
 func (f *DeepFallbackAnalyzer) DataFlowTrace(ctx context.Context, root, entry string, depth int) (*oculus.DataFlow, error) {
 	for _, a := range f.analyzers {

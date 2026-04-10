@@ -617,6 +617,9 @@ func (c *lspConn) findCallHierarchyItem(root, name string) (*callHierarchyItem, 
 	// Strategy 2: documentSymbol fallback — needed for servers like pyright
 	// that return empty workspace/symbol but support documentSymbol.
 	for _, f := range findSrcFiles(root) {
+		if c.ctx != nil && c.ctx.Err() != nil {
+			break
+		}
 		syms, err := c.documentSymbols(f, root)
 		if err != nil {
 			continue
@@ -750,9 +753,15 @@ func (a *LSPAnalyzer) startServer(root string) (*lspConn, func(), error) {
 		return nil, nil, err
 	}
 	cleanup := func() {
-		conn.shutdown()
+		// If context expired, the server is unresponsive — kill it.
+		// Otherwise, attempt graceful shutdown.
+		if conn.ctx != nil && conn.ctx.Err() != nil {
+			_ = cmd.Process.Kill()
+		} else {
+			conn.shutdown()
+		}
 		stdin.Close()
-		_ = cmd.Wait() // best-effort cleanup
+		_ = cmd.Wait()
 	}
 	return conn, cleanup, nil
 }

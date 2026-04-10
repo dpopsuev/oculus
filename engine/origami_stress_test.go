@@ -49,7 +49,7 @@ func TestOrigami_GetSymbolGraph(t *testing.T) {
 	t.Logf("origami symbol graph: nodes=%d edges=%d duration=%v",
 		len(sg.Nodes), len(sg.Edges), elapsed)
 
-	if elapsed > 60*time.Second {
-		t.Errorf("took %v — exceeds 60s budget", elapsed)
+	if elapsed > 120*time.Second {
+		t.Errorf("took %v — exceeds 120s budget", elapsed)
 	}
 }

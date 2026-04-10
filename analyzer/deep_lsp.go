@@ -104,6 +104,9 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 	// documentSymbols is synchronous — it blocks until parsing is done.
 	if opts.Entry != "" {
 		for _, f := range findSrcFiles(a.root) {
+			if ctx.Err() != nil {
+				break
+			}
 			conn.documentSymbols(f, a.root)
 		}
 	}
@@ -116,6 +119,9 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 	sigCache := make(map[string]*[2][]string) // callee FQN → [paramTypes, returnTypes]
 
 	for _, entry := range roots {
+		if ctx.Err() != nil {
+			break
+		}
 		item, err := conn.findCallHierarchyItem(a.root, entry)
 		if err != nil || item == nil {
 			continue
@@ -439,6 +445,9 @@ func lspCallGraphRoots(opts oculus.CallGraphOpts, conn *lspConn, root string) []
 	seen := make(map[string]bool)
 	var roots []string
 	for _, f := range files {
+		if conn.ctx != nil && conn.ctx.Err() != nil {
+			break
+		}
 		syms, err := conn.documentSymbols(f, root)
 		if err != nil {
 			continue
