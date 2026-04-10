@@ -191,7 +191,12 @@ func TestOverlayMesh_Stability(t *testing.T) {
 	if run.Instability == 0 {
 		t.Error("Run instability should be > 0")
 	}
-	t.Logf("Run: fan_in=%d fan_out=%d instability=%.2f", run.FanIn, run.FanOut, run.Instability)
+	t.Logf("Run: fan_in=%d fan_out=%d instability=%.2f choke=%.3f", run.FanIn, run.FanOut, run.Instability, run.ChokeScore)
+
+	// Run is on the path main→Run→Get — should have non-zero choke score.
+	if run.ChokeScore == 0 {
+		t.Error("Run choke score should be > 0 (it's on the main→Get path)")
+	}
 }
 
 func TestMesh_Circuits(t *testing.T) {

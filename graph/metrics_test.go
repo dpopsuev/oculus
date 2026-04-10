@@ -52,3 +52,38 @@ func TestBFSGroup_Basic(t *testing.T) {
 		t.Error("d should not be visited")
 	}
 }
+
+func TestBetweennessCentrality_Star(t *testing.T) {
+	// Star topology: center connects to 4 leaves. Center should have highest centrality.
+	edges := []testEdge{
+		{"center", "a"}, {"center", "b"}, {"center", "c"}, {"center", "d"},
+	}
+	bc := BetweennessCentrality(edges)
+
+	if bc["center"] == 0 {
+		t.Error("center should have highest centrality")
+	}
+	for _, leaf := range []string{"a", "b", "c", "d"} {
+		if bc[leaf] >= bc["center"] {
+			t.Errorf("leaf %s centrality %.3f >= center %.3f", leaf, bc[leaf], bc["center"])
+		}
+	}
+	t.Logf("centrality: center=%.3f a=%.3f b=%.3f c=%.3f d=%.3f",
+		bc["center"], bc["a"], bc["b"], bc["c"], bc["d"])
+}
+
+func TestBetweennessCentrality_Chain(t *testing.T) {
+	// Chain: A → B → C → D. B and C are on all shortest paths — highest centrality.
+	edges := []testEdge{
+		{"A", "B"}, {"B", "C"}, {"C", "D"},
+	}
+	bc := BetweennessCentrality(edges)
+
+	if bc["B"] == 0 || bc["C"] == 0 {
+		t.Error("B and C should have non-zero centrality")
+	}
+	if bc["A"] > bc["B"] {
+		t.Errorf("A (%.3f) should have lower centrality than B (%.3f)", bc["A"], bc["B"])
+	}
+	t.Logf("centrality: A=%.3f B=%.3f C=%.3f D=%.3f", bc["A"], bc["B"], bc["C"], bc["D"])
+}

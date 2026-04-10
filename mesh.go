@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/dpopsuev/oculus/graph"
 )
 
 // BuildMesh constructs a hierarchical mesh from a SymbolGraph.
@@ -283,7 +285,7 @@ func (m *Mesh) resolveToLevel(fqn string, level MeshLevel) string {
 
 // OverlayMesh enriches MeshNodes with data from existing analysis passes.
 // roles: component name → HEXA role string (from clinic/hexa classification).
-// Stability (fan-in/fan-out/instability) is computed from mesh edges.
+// Stability, choke points, and trust zones are computed from mesh edges.
 func (m *Mesh) OverlayMesh(roles map[string]string) {
 	// Compute fan-in / fan-out per node from edges.
 	fanIn := make(map[string]int)
@@ -292,6 +294,9 @@ func (m *Mesh) OverlayMesh(roles map[string]string) {
 		fanOut[e.SourceFQN]++
 		fanIn[e.TargetFQN]++
 	}
+
+	// Choke point overlay (betweenness centrality).
+	centrality := graph.BetweennessCentrality(m.Edges)
 
 	for key, node := range m.Nodes {
 		// HEXA role overlay (component level).
@@ -308,6 +313,11 @@ func (m *Mesh) OverlayMesh(roles map[string]string) {
 			node.FanIn = fi
 			node.FanOut = fo
 			node.Instability = float64(fo) / float64(fi+fo)
+		}
+
+		// Choke score overlay.
+		if score, ok := centrality[key]; ok && score > 0 {
+			node.ChokeScore = score
 		}
 
 		m.Nodes[key] = node
