@@ -14,15 +14,18 @@ import (
 )
 
 // Language accessors — one function per grammar.
-// When switching backends, only this file changes.
+// Backend: smacker/go-tree-sitter (bundled grammars).
+// To swap to official tree-sitter/go-tree-sitter: change this file only.
+// BLOCKED: can't mix official + smacker in one binary (C linker collision).
+// Will swap when Swift + C# get official Go bindings, or when we drop smacker entirely.
 
-func Go() Language       { return golang.GetLanguage() }
-func Python() Language   { return python.GetLanguage() }
+func Go() Language         { return golang.GetLanguage() }
+func Python() Language     { return python.GetLanguage() }
 func TypeScript() Language { return typescript.GetLanguage() }
-func Rust() Language     { return rust.GetLanguage() }
-func Java() Language     { return java.GetLanguage() }
-func C() Language        { return c.GetLanguage() }
-func Cpp() Language      { return cpp.GetLanguage() }
-func Kotlin() Language   { return kotlin.GetLanguage() }
-func Swift() Language    { return swift.GetLanguage() }
-func CSharp() Language   { return csharp.GetLanguage() }
+func Rust() Language       { return rust.GetLanguage() }
+func Java() Language       { return java.GetLanguage() }
+func C() Language          { return c.GetLanguage() }
+func Cpp() Language        { return cpp.GetLanguage() }
+func Kotlin() Language     { return kotlin.GetLanguage() }
+func Swift() Language      { return swift.GetLanguage() }
+func CSharp() Language     { return csharp.GetLanguage() }
