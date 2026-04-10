@@ -35,18 +35,9 @@ func NewGoASTDeep(root string) *GoASTDeepAnalyzer {
 	return &GoASTDeepAnalyzer{root: root}
 }
 
-type goFunc struct {
-	name         string
-	pkg          string
-	file         string
-	line         int
-	endLine      int
-	receiverType string   // non-empty for methods (e.g., "*APIDriver")
-	paramTypes   []string // parameter type names
-	returnTypes  []string // return type names
-	callees      []string // function names called in the body
-	body         *ast.BlockStmt
-}
+// goFunc is an alias for Symbol — Go AST enriches Name, Package, File,
+// Line, EndLine, ReceiverType, ParamTypes, ReturnTypes, Callees.
+type goFunc = oculus.Symbol
 
 func (a *GoASTDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	depth := opts.Depth
@@ -62,7 +53,7 @@ func (a *GoASTDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus
 	// Build index by function name.
 	funcIndex := make(map[string]*goFunc)
 	for i := range funcs {
-		funcIndex[funcs[i].name] = &funcs[i]
+		funcIndex[funcs[i].Name] = &funcs[i]
 	}
 
 	// Determine root functions.
@@ -71,14 +62,14 @@ func (a *GoASTDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus
 		roots = []string{opts.Entry}
 	} else {
 		for _, f := range funcs {
-			if opts.Scope != "" && !strings.HasPrefix(f.pkg, opts.Scope) {
+			if opts.Scope != "" && !strings.HasPrefix(f.Package, opts.Scope) {
 				continue
 			}
-			if opts.ExportedOnly && !ast.IsExported(f.name) {
+			if opts.ExportedOnly && !ast.IsExported(f.Name) {
 				continue
 			}
-			if ast.IsExported(f.name) {
-				roots = append(roots, f.name)
+			if ast.IsExported(f.Name) {
+				roots = append(roots, f.Name)
 			}
 		}
 	}
@@ -99,27 +90,27 @@ func (a *GoASTDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus
 			return
 		}
 
-		key := fn.pkg + "." + fn.name
-		nodeSet[key] = oculus.FuncNode{Name: fn.name, Package: fn.pkg, Line: fn.line, File: fn.file, EndLine: fn.endLine}
+		key := fn.Package + "." + fn.Name
+		nodeSet[key] = oculus.FuncNode{Name: fn.Name, Package: fn.Package, Line: fn.Line, File: fn.File, EndLine: fn.EndLine}
 
-		for _, callee := range fn.callees {
+		for _, callee := range fn.Callees {
 			calleeFn, ok := funcIndex[callee]
 			if !ok {
 				continue
 			}
-			calleeKey := calleeFn.pkg + "." + calleeFn.name
-			nodeSet[calleeKey] = oculus.FuncNode{Name: calleeFn.name, Package: calleeFn.pkg, Line: calleeFn.line, File: calleeFn.file, EndLine: calleeFn.endLine}
+			calleeKey := calleeFn.Package + "." + calleeFn.Name
+			nodeSet[calleeKey] = oculus.FuncNode{Name: calleeFn.Name, Package: calleeFn.Package, Line: calleeFn.Line, File: calleeFn.File, EndLine: calleeFn.EndLine}
 			edges = append(edges, oculus.CallEdge{
-				Caller:       fn.name,
-				Callee:       calleeFn.name,
-				CallerPkg:    fn.pkg,
-				CalleePkg:    calleeFn.pkg,
-				Line:         fn.line,
-				File:         fn.file,
-				ReceiverType: fn.receiverType,
-				CrossPkg:     fn.pkg != calleeFn.pkg,
-				ParamTypes:   calleeFn.paramTypes,
-				ReturnTypes:  calleeFn.returnTypes,
+				Caller:       fn.Name,
+				Callee:       calleeFn.Name,
+				CallerPkg:    fn.Package,
+				CalleePkg:    calleeFn.Package,
+				Line:         fn.Line,
+				File:         fn.File,
+				ReceiverType: fn.ReceiverType,
+				CrossPkg:     fn.Package != calleeFn.Package,
+				ParamTypes:   calleeFn.ParamTypes,
+				ReturnTypes:  calleeFn.ReturnTypes,
 			})
 			walk(callee, d+1)
 		}
@@ -146,11 +137,7 @@ func (a *GoASTDeepAnalyzer) DataFlowTrace(ctx context.Context, _, entry string, 
 		return nil, err
 	}
 
-	syms := make([]oculus.Symbol, len(funcs))
-	for i, f := range funcs {
-		syms[i] = oculus.Symbol{Name: f.name, Package: f.pkg, Line: f.line, Callees: f.callees}
-	}
-	return dataFlowTrace(syms, entry, maxDepth, oculus.LayerGoAST), nil
+	return dataFlowTrace(funcs, entry, maxDepth, oculus.LayerGoAST), nil
 }
 
 func (a *GoASTDeepAnalyzer) DetectStateMachines(ctx context.Context, _ string) ([]oculus.StateMachine, error) {
@@ -342,16 +329,15 @@ func (a *GoASTDeepAnalyzer) parseFunctions(scope string) ([]goFunc, error) {
 			}
 			callees := extractCallees(fd.Body)
 			funcs = append(funcs, goFunc{
-				name:         name,
-				pkg:          pkg,
-				file:         relFile,
-				line:         fset.Position(fd.Pos()).Line,
-				endLine:      fset.Position(fd.End()).Line,
-				receiverType: recvType,
-				paramTypes:   extractFieldTypes(fd.Type.Params),
-				returnTypes:  extractFieldTypes(fd.Type.Results),
-				callees:      callees,
-				body:         fd.Body,
+				Name:         name,
+				Package:      pkg,
+				File:         relFile,
+				Line:         fset.Position(fd.Pos()).Line,
+				EndLine:      fset.Position(fd.End()).Line,
+				ReceiverType: recvType,
+				ParamTypes:   extractFieldTypes(fd.Type.Params),
+				ReturnTypes:  extractFieldTypes(fd.Type.Results),
+				Callees:      callees,
 			})
 		}
 		return nil

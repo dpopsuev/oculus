@@ -18,30 +18,19 @@ func init() {
 	})
 }
 
-// ParseGoASTFunctions parses Go source via go/ast and returns SourceFuncs.
-func ParseGoASTFunctions(root string) []oculus.SourceFunc {
+// ParseGoASTFunctions parses Go source via go/ast and returns Symbols.
+func ParseGoASTFunctions(root string) []oculus.Symbol {
 	if lang.DetectLanguage(root) != lang.Go {
 		return nil
 	}
 	a := &GoASTDeepAnalyzer{root: root}
-	goFuncs, err := a.parseFunctions("")
-	if err != nil || len(goFuncs) == 0 {
+	funcs, err := a.parseFunctions("")
+	if err != nil || len(funcs) == 0 {
 		return nil
 	}
-
-	funcs := make([]oculus.SourceFunc, len(goFuncs))
-	for i, f := range goFuncs {
-		funcs[i] = oculus.SourceFunc{
-			Name:        f.name,
-			Package:     f.pkg,
-			File:        f.file,
-			Line:        f.line,
-			EndLine:     f.endLine,
-			ParamTypes:  f.paramTypes,
-			ReturnTypes: f.returnTypes,
-			Callees:     f.callees,
-			Exported:    ast.IsExported(f.name),
-		}
+	// Set Exported field (parseFunctions doesn't set it).
+	for i := range funcs {
+		funcs[i].Exported = ast.IsExported(funcs[i].Name)
 	}
 	return funcs
 }
