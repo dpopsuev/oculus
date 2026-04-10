@@ -1,11 +1,12 @@
 package analyzer
 
 import (
-	"github.com/dpopsuev/oculus"
 	"context"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/dpopsuev/oculus"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/golang"
@@ -29,79 +30,12 @@ type ParsedProject struct {
 	Files []ParsedFile
 }
 
-// namedFunc is a minimal function descriptor used by the shared helpers.
-type namedFunc struct {
-	name        string
-	pkg         string
-	file        string
-	line        int
-	endLine     int
-	paramTypes  []string
-	returnTypes []string
-	callees     []string
-}
-
-// buildSimpleCallGraph constructs a call graph from a list of named functions.
-// Shared between Python and TypeScript deep analyzers to avoid duplication.
-func buildSimpleCallGraph(funcs []namedFunc, roots []string, depth int, layer string) *oculus.CallGraph {
-	funcIndex := make(map[string]*namedFunc, len(funcs))
+// dataFlowTrace is a shared implementation for DataFlowTrace.
+// Uses Symbol directly — no intermediate conversion types.
+func dataFlowTrace(funcs []oculus.Symbol, entry string, maxDepth int, layer string) *oculus.DataFlow {
+	funcIndex := make(map[string]*oculus.Symbol, len(funcs))
 	for i := range funcs {
-		funcIndex[funcs[i].name] = &funcs[i]
-	}
-
-	nodeSet := make(map[string]oculus.FuncNode)
-	var edges []oculus.CallEdge
-	visited := make(map[string]bool)
-
-	var walk func(name string, d int)
-	walk = func(name string, d int) {
-		if d > depth || visited[name] {
-			return
-		}
-		visited[name] = true
-		fn, ok := funcIndex[name]
-		if !ok {
-			return
-		}
-		key := fn.pkg + "." + fn.name
-		nodeSet[key] = oculus.FuncNode{Name: fn.name, Package: fn.pkg, Line: fn.line, File: fn.file, EndLine: fn.endLine}
-		for _, callee := range fn.callees {
-			cf, ok := funcIndex[callee]
-			if !ok {
-				continue
-			}
-			ck := cf.pkg + "." + cf.name
-			nodeSet[ck] = oculus.FuncNode{Name: cf.name, Package: cf.pkg, Line: cf.line, File: cf.file, EndLine: cf.endLine}
-			edges = append(edges, oculus.CallEdge{
-				Caller:      fn.name,
-				Callee:      cf.name,
-				CallerPkg:   fn.pkg,
-				CalleePkg:   cf.pkg,
-				File:        fn.file,
-				CrossPkg:    fn.pkg != cf.pkg,
-				ParamTypes:  cf.paramTypes,
-				ReturnTypes: cf.returnTypes,
-			})
-			walk(callee, d+1)
-		}
-	}
-	for _, r := range roots {
-		walk(r, 0)
-	}
-
-	nodes := make([]oculus.FuncNode, 0, len(nodeSet))
-	for _, n := range nodeSet {
-		nodes = append(nodes, n)
-	}
-	return &oculus.CallGraph{Nodes: nodes, Edges: edges, Layer: layer}
-}
-
-// dataFlowTrace is a shared implementation for DataFlowTrace across deep analyzers.
-// It avoids duplication between GoAST, Python, and TypeScript deep analyzers.
-func dataFlowTrace(funcs []namedFunc, entry string, maxDepth int, layer string) *oculus.DataFlow {
-	funcIndex := make(map[string]*namedFunc, len(funcs))
-	for i := range funcs {
-		funcIndex[funcs[i].name] = &funcs[i]
+		funcIndex[funcs[i].Name] = &funcs[i]
 	}
 
 	nodeMap := make(map[string]oculus.DataFlowNode)
@@ -119,12 +53,12 @@ func dataFlowTrace(funcs []namedFunc, entry string, maxDepth int, layer string) 
 		if !ok {
 			return
 		}
-		for _, callee := range fn.callees {
+		for _, callee := range fn.Callees {
 			if _, ok := funcIndex[callee]; !ok {
 				continue
 			}
 			if _, exists := nodeMap[callee]; !exists {
-				nodeMap[callee] = oculus.DataFlowNode{Name: callee, Kind: "process", Pkg: funcIndex[callee].pkg}
+				nodeMap[callee] = oculus.DataFlowNode{Name: callee, Kind: "process", Pkg: funcIndex[callee].Package}
 			}
 			edges = append(edges, oculus.DataFlowEdge{From: name, To: callee})
 			trace(callee, d+1)
@@ -214,6 +148,3 @@ func BuildParsedProject(root string) (*ParsedProject, error) {
 	}
 	return &ParsedProject{Root: absRoot, Files: files}, nil
 }
-
-// Type definitions moved to internal/oculus/types.go.
-// Re-exported via deep.go type aliases for backward compatibility.

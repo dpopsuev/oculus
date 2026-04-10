@@ -146,11 +146,11 @@ func (a *GoASTDeepAnalyzer) DataFlowTrace(ctx context.Context, _, entry string, 
 		return nil, err
 	}
 
-	nf := make([]namedFunc, len(funcs))
+	syms := make([]oculus.Symbol, len(funcs))
 	for i, f := range funcs {
-		nf[i] = namedFunc{name: f.name, pkg: f.pkg, line: f.line, callees: f.callees}
+		syms[i] = oculus.Symbol{Name: f.name, Package: f.pkg, Line: f.line, Callees: f.callees}
 	}
-	return dataFlowTrace(nf, entry, maxDepth, oculus.LayerGoAST), nil
+	return dataFlowTrace(syms, entry, maxDepth, oculus.LayerGoAST), nil
 }
 
 func (a *GoASTDeepAnalyzer) DetectStateMachines(ctx context.Context, _ string) ([]oculus.StateMachine, error) {
