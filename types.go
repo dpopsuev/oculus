@@ -278,11 +278,29 @@ const (
 )
 
 // MeshNode represents a node at a specific level in the mesh hierarchy.
+// Overlay fields are enriched by OverlayMesh from existing analysis passes.
 type MeshNode struct {
 	Name     string    `json:"name"`
 	Level    MeshLevel `json:"level"`
 	Parent   string    `json:"parent,omitempty"`
 	Children []string  `json:"children,omitempty"`
+
+	// Overlay: HEXA role (from clinic/hexa classification)
+	Role string `json:"role,omitempty"` // "domain", "adapter", "port", "infra", "entrypoint", "app"
+
+	// Overlay: stability metrics (from graph.FanIn/FanOut)
+	FanIn       int     `json:"fan_in,omitempty"`
+	FanOut      int     `json:"fan_out,omitempty"`
+	Instability float64 `json:"instability,omitempty"` // Ce/(Ca+Ce), 0=stable, 1=unstable
+
+	// Overlay: trust zone (from HEXA violation boundaries)
+	TrustZone string `json:"trust_zone,omitempty"`
+
+	// Overlay: choke point score (betweenness centrality)
+	ChokeScore float64 `json:"choke_score,omitempty"`
+
+	// Overlay: circuit membership (bidirectional coupling group)
+	CircuitID int `json:"circuit_id,omitempty"` // 0 = not in a circuit
 }
 
 // Mesh is a hierarchical view of the codebase: symbols nested in files,

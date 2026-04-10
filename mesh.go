@@ -60,12 +60,17 @@ func BuildMesh(sg *SymbolGraph, componentNames []string) *Mesh {
 		pn.Children = appendUnique(pn.Children, fileKey)
 		nodes[sym.Package] = pn
 
-		// Component node
-		if _, exists := nodes[comp]; !exists {
+		// Component node — upgrade to MeshComponent if package node already exists at same key.
+		if existing, exists := nodes[comp]; !exists {
 			nodes[comp] = MeshNode{Name: comp, Level: MeshComponent}
+		} else if existing.Level < MeshComponent {
+			existing.Level = MeshComponent
+			nodes[comp] = existing
 		}
 		cn := nodes[comp]
-		cn.Children = appendUnique(cn.Children, sym.Package)
+		if sym.Package != comp {
+			cn.Children = appendUnique(cn.Children, sym.Package)
+		}
 		nodes[comp] = cn
 	}
 
@@ -274,6 +279,87 @@ func (m *Mesh) resolveToLevel(fqn string, level MeshLevel) string {
 		current = node.Parent
 	}
 	return current
+}
+
+// OverlayMesh enriches MeshNodes with data from existing analysis passes.
+// roles: component name → HEXA role string (from clinic/hexa classification).
+// Stability (fan-in/fan-out/instability) is computed from mesh edges.
+func (m *Mesh) OverlayMesh(roles map[string]string) {
+	// Compute fan-in / fan-out per node from edges.
+	fanIn := make(map[string]int)
+	fanOut := make(map[string]int)
+	for _, e := range m.Edges {
+		fanOut[e.SourceFQN]++
+		fanIn[e.TargetFQN]++
+	}
+
+	for key, node := range m.Nodes {
+		// HEXA role overlay (component level).
+		if node.Level == MeshComponent {
+			if role, ok := roles[key]; ok {
+				node.Role = role
+			}
+		}
+
+		// Stability overlay.
+		fi := fanIn[key]
+		fo := fanOut[key]
+		if fi > 0 || fo > 0 {
+			node.FanIn = fi
+			node.FanOut = fo
+			node.Instability = float64(fo) / float64(fi+fo)
+		}
+
+		m.Nodes[key] = node
+	}
+}
+
+// Circuits returns groups of symbols with bidirectional edges (A→B and B→A).
+// minWeight filters out low-weight edges. Returns circuit groups as [][]string.
+func (m *Mesh) Circuits(minWeight float64) [][]string {
+	// Build directed adjacency with weight filter.
+	edges := make(map[string]map[string]bool)
+	for _, e := range m.Edges {
+		if e.Weight < minWeight {
+			continue
+		}
+		if edges[e.SourceFQN] == nil {
+			edges[e.SourceFQN] = make(map[string]bool)
+		}
+		edges[e.SourceFQN][e.TargetFQN] = true
+	}
+
+	// Find bidirectional pairs.
+	seen := make(map[string]bool)
+	var circuits [][]string
+	circuitID := 1
+	for a, targets := range edges {
+		for b := range targets {
+			if a >= b { // avoid duplicate pairs
+				continue
+			}
+			if edges[b] != nil && edges[b][a] {
+				key := a + "|" + b
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				circuits = append(circuits, []string{a, b})
+
+				// Tag nodes with circuit ID.
+				if na, ok := m.Nodes[a]; ok {
+					na.CircuitID = circuitID
+					m.Nodes[a] = na
+				}
+				if nb, ok := m.Nodes[b]; ok {
+					nb.CircuitID = circuitID
+					m.Nodes[b] = nb
+				}
+				circuitID++
+			}
+		}
+	}
+	return circuits
 }
 
 func appendUnique(slice []string, s string) []string {

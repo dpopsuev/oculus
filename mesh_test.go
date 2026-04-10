@@ -152,3 +152,75 @@ func TestBoundaries(t *testing.T) {
 		t.Errorf("expected >= 2 boundary edges, got %d", len(seams))
 	}
 }
+
+func TestOverlayMesh_Roles(t *testing.T) {
+	sg := testSymbolGraph()
+	mesh := BuildMesh(sg, []string{"cmd/app", "internal/core", "internal/store"})
+
+	roles := map[string]string{
+		"cmd/app":        "entrypoint",
+		"internal/core":  "domain",
+		"internal/store": "adapter",
+	}
+	mesh.OverlayMesh(roles)
+
+	if n := mesh.Nodes["cmd/app"]; n.Role != "entrypoint" {
+		t.Errorf("cmd/app role = %q, want entrypoint", n.Role)
+	}
+	if n := mesh.Nodes["internal/core"]; n.Role != "domain" {
+		t.Errorf("internal/core role = %q, want domain", n.Role)
+	}
+	if n := mesh.Nodes["internal/store"]; n.Role != "adapter" {
+		t.Errorf("internal/store role = %q, want adapter", n.Role)
+	}
+}
+
+func TestOverlayMesh_Stability(t *testing.T) {
+	sg := testSymbolGraph()
+	mesh := BuildMesh(sg, []string{"cmd/app", "internal/core", "internal/store"})
+	mesh.OverlayMesh(nil)
+
+	// "Run" is called by main (fan-in=1) and calls Get (fan-out=1) → instability=0.5
+	run := mesh.Nodes["internal/core.Run"]
+	if run.FanIn == 0 {
+		t.Error("Run fan-in should be > 0")
+	}
+	if run.FanOut == 0 {
+		t.Error("Run fan-out should be > 0")
+	}
+	if run.Instability == 0 {
+		t.Error("Run instability should be > 0")
+	}
+	t.Logf("Run: fan_in=%d fan_out=%d instability=%.2f", run.FanIn, run.FanOut, run.Instability)
+}
+
+func TestMesh_Circuits(t *testing.T) {
+	// Build a mesh with bidirectional edges: A→B and B→A.
+	mesh := &Mesh{
+		Nodes: map[string]MeshNode{
+			"pkg.Alpha": {Name: "pkg.Alpha", Level: MeshSymbol},
+			"pkg.Beta":  {Name: "pkg.Beta", Level: MeshSymbol},
+			"pkg.Gamma": {Name: "pkg.Gamma", Level: MeshSymbol},
+		},
+		Edges: []SymbolEdge{
+			{SourceFQN: "pkg.Alpha", TargetFQN: "pkg.Beta", Weight: 1.0},
+			{SourceFQN: "pkg.Beta", TargetFQN: "pkg.Alpha", Weight: 1.0}, // circuit!
+			{SourceFQN: "pkg.Beta", TargetFQN: "pkg.Gamma", Weight: 1.0}, // one-way, no circuit
+		},
+	}
+
+	circuits := mesh.Circuits(0.1)
+	if len(circuits) != 1 {
+		t.Fatalf("circuits = %d, want 1", len(circuits))
+	}
+	if mesh.Nodes["pkg.Alpha"].CircuitID == 0 {
+		t.Error("Alpha should be in a circuit")
+	}
+	if mesh.Nodes["pkg.Beta"].CircuitID == 0 {
+		t.Error("Beta should be in a circuit")
+	}
+	if mesh.Nodes["pkg.Gamma"].CircuitID != 0 {
+		t.Error("Gamma should NOT be in a circuit")
+	}
+	t.Logf("circuits: %v", circuits)
+}
