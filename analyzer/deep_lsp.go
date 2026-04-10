@@ -13,11 +13,12 @@ import (
 	"github.com/dpopsuev/oculus"
 	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
+	"golang.org/x/sync/errgroup"
 )
 
-// lspConcurrency is the max number of concurrent call tree walks.
-// Bounded to avoid overwhelming the LSP server with parallel requests.
-const lspConcurrency = 4
+// LSPConcurrency is the max number of concurrent call tree walks.
+// Tunable via benchmark. Default 8 balances throughput vs LSP server load.
+var LSPConcurrency = 8
 
 // isWorkspaceURI checks if a file:// URI falls within the workspace root.
 func isWorkspaceURI(uri, absRoot string) bool {
@@ -116,12 +117,12 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 	visited := make(map[string]bool)
 	sigCache := make(map[string]*[2][]string)
 
-	sem := make(chan struct{}, lspConcurrency)
-	var wg sync.WaitGroup
+	g, gCtx := errgroup.WithContext(ctx)
+	g.SetLimit(LSPConcurrency)
 
 	var walk func(it *callHierarchyItem, d int)
 	walk = func(it *callHierarchyItem, d int) {
-		if ctx.Err() != nil {
+		if gCtx.Err() != nil {
 			return
 		}
 
@@ -187,22 +188,19 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 	}
 
 	for _, entry := range roots {
-		if ctx.Err() != nil {
+		if gCtx.Err() != nil {
 			break
 		}
 		item, err := conn.findCallHierarchyItem(a.root, entry)
 		if err != nil || item == nil {
 			continue
 		}
-		wg.Add(1)
-		sem <- struct{}{} // acquire semaphore
-		go func(it *callHierarchyItem) {
-			defer wg.Done()
-			defer func() { <-sem }() // release semaphore
-			walk(it, 0)
-		}(item)
+		g.Go(func() error {
+			walk(item, 0)
+			return nil
+		})
 	}
-	wg.Wait()
+	_ = g.Wait()
 
 	// Note: go/parser fallback enrichment is handled by the universal hook
 	// in DeepFallbackAnalyzer.CallGraph — no need to call it here.
