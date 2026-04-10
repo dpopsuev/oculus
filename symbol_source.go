@@ -23,21 +23,8 @@ type SymbolSource interface {
 	Hover(ctx context.Context, sym SourceSymbol) (*SourceTypeInfo, error)
 }
 
-// SourceSymbol identifies a symbol discovered by a SymbolSource.
-type SourceSymbol struct {
-	Name    string `json:"name"`
-	Package string `json:"package"`
-	File    string `json:"file,omitempty"`
-	Line    int    `json:"line,omitempty"`
-	Col     int    `json:"col,omitempty"`
-	EndLine int    `json:"end_line,omitempty"`
-	Kind    int    `json:"kind,omitempty"` // LSP-compatible kind (12=function, 6=method)
-
-	// Handle carries source-specific opaque data (e.g., callHierarchyItem
-	// for LSP, *ast.FuncDecl for GoAST). The Pipeline passes it through
-	// without inspecting it.
-	Handle any `json:"-"`
-}
+// SourceSymbol is an alias for Symbol — backward compatibility for SymbolSource interface.
+type SourceSymbol = Symbol
 
 // SourceRelation represents a directed relationship between two symbols.
 type SourceRelation struct {
@@ -53,17 +40,5 @@ type SourceTypeInfo struct {
 	Signature   string   `json:"signature,omitempty"`
 }
 
-// SourceFunc is the universal function descriptor that any language parser
-// produces. FuncIndexSource wraps []SourceFunc into a SymbolSource —
-// adding a language is just a parser function that returns []SourceFunc.
-type SourceFunc struct {
-	Name        string   `json:"name"`
-	Package     string   `json:"package"`
-	File        string   `json:"file"`
-	Line        int      `json:"line"`
-	EndLine     int      `json:"end_line"`
-	ParamTypes  []string `json:"param_types,omitempty"`
-	ReturnTypes []string `json:"return_types,omitempty"`
-	Callees     []string `json:"callees,omitempty"`
-	Exported    bool     `json:"exported"`
-}
+// SourceFunc is an alias for Symbol — backward compatibility for language parsers.
+type SourceFunc = Symbol

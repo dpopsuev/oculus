@@ -71,7 +71,7 @@ func (s *LSPSymbolSource) Roots(ctx context.Context, query string) ([]oculus.Sou
 			Package: uriToPackage(sym.Location.URI, s.root),
 			File:    uriToRelPath(sym.Location.URI, s.root),
 			Line:    sym.Location.Range.Start.Line + 1,
-			Kind:    sym.Kind,
+			Kind:    lspKindToString(sym.Kind),
 			Handle:  item, // may be nil if prepareCallHierarchy fails
 		})
 	}
@@ -155,7 +155,27 @@ func (s *LSPSymbolSource) itemToSymbol(item *callHierarchyItem) oculus.SourceSym
 		Line:    item.Range.Start.Line + 1,
 		Col:     item.Range.Start.Character,
 		EndLine: item.Range.End.Line + 1,
-		Kind:    item.Kind,
+		Kind:    lspKindToString(item.Kind),
 		Handle:  item,
+	}
+}
+
+// lspKindToString converts LSP SymbolKind int to domain string.
+func lspKindToString(kind int) string {
+	switch kind {
+	case 5:
+		return "class"
+	case 6:
+		return "method"
+	case 11:
+		return "interface"
+	case 12:
+		return "function"
+	case 13:
+		return "variable"
+	case 23:
+		return "struct"
+	default:
+		return "function"
 	}
 }

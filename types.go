@@ -114,14 +114,42 @@ type CallEdge struct {
 	ReturnTypes  []string `json:"return_types,omitempty"`
 }
 
-// FuncNode represents a function in the call graph.
-type FuncNode struct {
-	Name    string `json:"name"`
-	Package string `json:"package"`
-	Line    int    `json:"line,omitempty"`
-	File    string `json:"file,omitempty"`
-	EndLine int    `json:"end_line,omitempty"`
+// Symbol is the canonical representation of any code symbol.
+// Each scanner enriches the fields it knows about — no conversions at boundaries.
+type Symbol struct {
+	// Identity (set by any scanner)
+	Name     string `json:"name"`
+	Package  string `json:"package"`
+	Kind     string `json:"kind,omitempty"` // "function", "struct", "interface", "method", "field"
+	File     string `json:"file,omitempty"`
+	Line     int    `json:"line,omitempty"`
+	Col      int    `json:"col,omitempty"`
+	EndLine  int    `json:"end_line,omitempty"`
+	Exported bool   `json:"exported,omitempty"`
+
+	// Type enrichment (GoAST, TreeSitter, LSP hover)
+	ParamTypes   []string `json:"param_types,omitempty"`
+	ReturnTypes  []string `json:"return_types,omitempty"`
+	Signature    string   `json:"signature,omitempty"`
+	ReceiverType string   `json:"receiver_type,omitempty"`
+
+	// Structure enrichment (GoAST, TreeSitter, LSP callHierarchy)
+	Callees []string `json:"callees,omitempty"`
+
+	// Handle for source-specific opaque data (LSP callHierarchyItem, GoAST *ast.FuncDecl)
+	Handle any `json:"-"`
 }
+
+// FQN returns the fully-qualified name: "package.Name".
+func (s Symbol) FQN() string {
+	if s.Package == "" {
+		return s.Name
+	}
+	return s.Package + "." + s.Name
+}
+
+// FuncNode is an alias for Symbol — backward compatibility for call graph results.
+type FuncNode = Symbol
 
 // CallGraph is the result of call graph analysis.
 type CallGraph struct {
@@ -188,24 +216,8 @@ type ConventionReport struct {
 	Total       int          `json:"total"`
 }
 
-// SymbolNode represents a symbol in the unified symbol graph.
-type SymbolNode struct {
-	Name     string `json:"name"`
-	Package  string `json:"package"`
-	Kind     string `json:"kind"` // "function", "struct", "interface", "method", "field"
-	File     string `json:"file,omitempty"`
-	Line     int    `json:"line,omitempty"`
-	EndLine  int    `json:"end_line,omitempty"`
-	Exported bool   `json:"exported"`
-}
-
-// FQN returns the fully-qualified name: "package.Name".
-func (n SymbolNode) FQN() string {
-	if n.Package == "" {
-		return n.Name
-	}
-	return n.Package + "." + n.Name
-}
+// SymbolNode is an alias for Symbol — backward compatibility for symbol graph results.
+type SymbolNode = Symbol
 
 // SymbolEdge represents a typed, directed relationship between two symbols.
 // Satisfies graph.Edge via Source()/Target().

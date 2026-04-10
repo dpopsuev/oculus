@@ -95,7 +95,7 @@ func (s *FuncIndexSource) toSymbol(fn *SourceFunc) SourceSymbol {
 		File:    fn.File,
 		Line:    fn.Line,
 		EndLine: fn.EndLine,
-		Kind:    12, // function
+		Kind:    "function",
 		Handle:  fn,
 	}
 }
