@@ -2,14 +2,14 @@ package analyzer
 
 import (
 	"context"
-	"github.com/dpopsuev/oculus"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/dpopsuev/oculus"
 )
 
-func TestPythonDeepCallGraph(t *testing.T) {
+func TestPython_CallGraph_ViaFuncIndex(t *testing.T) {
 	dir := t.TempDir()
 
 	files := map[string]string{
@@ -41,17 +41,17 @@ def send_result(result):
 		os.WriteFile(p, []byte(content), 0o644)
 	}
 
-	a := NewPythonDeep(dir)
-	if a == nil {
-		t.Fatal("expected PythonDeepAnalyzer for Python project")
+	funcs := ParsePythonFunctions(dir)
+	if len(funcs) == 0 {
+		t.Fatal("expected parsed functions")
 	}
 
-	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	src := oculus.NewFuncIndexSource(funcs)
+	p := &oculus.SymbolPipeline{Source: src, Root: dir}
+
+	cg, err := p.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
-		t.Fatalf("oculus.CallGraph: %v", err)
-	}
-	if cg.Layer != oculus.LayerPython {
-		t.Errorf("layer = %q, want python", cg.Layer)
+		t.Fatalf("CallGraph: %v", err)
 	}
 	if len(cg.Nodes) == 0 {
 		t.Error("expected nodes")
@@ -60,25 +60,69 @@ def send_result(result):
 		t.Error("expected edges")
 	}
 
-	// Verify the call chain: main -> process_data -> fetch_data, transform
+	// Verify the call chain: main -> process_data, send_result
 	callees := make(map[string][]string)
 	for _, e := range cg.Edges {
 		callees[e.Caller] = append(callees[e.Caller], e.Callee)
 	}
-
 	if _, ok := callees["main"]; !ok {
 		t.Error("expected main in call graph")
 	}
 
-	t.Logf("Python oculus.CallGraph: %d nodes, %d edges", len(cg.Nodes), len(cg.Edges))
+	t.Logf("Python CallGraph: %d nodes, %d edges", len(cg.Nodes), len(cg.Edges))
 }
 
-func TestPythonDeep_NonPythonRepo(t *testing.T) {
+func TestPython_TypedEdges(t *testing.T) {
+	dir := t.TempDir()
+
+	files := map[string]string{
+		"pyproject.toml": "[project]\nname = \"test\"\n",
+		"main.py": `def load_config(path: str) -> dict:
+    return {"name": path}
+
+def transform(cfg: dict) -> list:
+    return list(cfg.values())
+
+def main():
+    cfg = load_config("app.yaml")
+    result = transform(cfg)
+`,
+	}
+
+	for name, content := range files {
+		p := filepath.Join(dir, name)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(content), 0o644)
+	}
+
+	funcs := ParsePythonFunctions(dir)
+	src := oculus.NewFuncIndexSource(funcs)
+	p := &oculus.SymbolPipeline{Source: src, Root: dir}
+
+	cg, err := p.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
+	if err != nil {
+		t.Fatalf("CallGraph: %v", err)
+	}
+
+	typed := 0
+	for _, e := range cg.Edges {
+		if len(e.ParamTypes) > 0 || len(e.ReturnTypes) > 0 {
+			typed++
+			t.Logf("  %s → %s (params=%v returns=%v)", e.Caller, e.Callee, e.ParamTypes, e.ReturnTypes)
+		}
+	}
+	if typed == 0 {
+		t.Error("expected typed edges from Python type annotations")
+	}
+	t.Logf("Python typed edges: %d/%d", typed, len(cg.Edges))
+}
+
+func TestPython_NonPythonRepo(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\n"), 0o644)
 
-	a := NewPythonDeep(dir)
-	if a != nil {
-		t.Error("expected nil for non-Python repo")
+	funcs := ParsePythonFunctions(dir)
+	if len(funcs) != 0 {
+		t.Error("expected 0 functions for non-Python repo")
 	}
 }

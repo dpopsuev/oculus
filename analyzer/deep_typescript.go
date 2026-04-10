@@ -1,112 +1,46 @@
 package analyzer
 
 import (
-	"github.com/dpopsuev/oculus"
 	"context"
 	"os"
 	"path/filepath"
 	"strings"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/typescript/typescript"
-
+	"github.com/dpopsuev/oculus"
 	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
+
+	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/typescript/typescript"
 )
 
 func init() {
-	Register(lang.TypeScript, 80, func(root string, pool lsp.Pool) oculus.DeepAnalyzer {
-		return NewTypeScriptDeep(root)
-	}, nil)
-}
-
-// TypeScriptDeepAnalyzer uses tree-sitter-typescript for call graph analysis.
-type TypeScriptDeepAnalyzer struct {
-	root string
-}
-
-// NewTypeScriptDeep creates a TypeScriptDeepAnalyzer. Returns nil for non-TS projects.
-func NewTypeScriptDeep(root string) *TypeScriptDeepAnalyzer {
-	if lang.DetectLanguage(root) != lang.TypeScript {
-		return nil
-	}
-	return &TypeScriptDeepAnalyzer{root: root}
-}
-
-type tsFunc struct {
-	name        string
-	pkg         string
-	file        string
-	line        int
-	endLine     int
-	paramTypes  []string
-	returnTypes []string
-	callees     []string
-}
-
-func (a *TypeScriptDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
-	depth := opts.Depth
-	if depth <= 0 {
-		depth = oculus.DefaultCallGraphDepth
-	}
-
-	funcs, err := a.parseFunctions()
-	if err != nil {
-		return nil, err
-	}
-
-	nf := make([]namedFunc, len(funcs))
-	for i, f := range funcs {
-		nf[i] = namedFunc(f)
-	}
-
-	var roots []string
-	if opts.Entry != "" {
-		roots = []string{opts.Entry}
-	} else {
-		for _, f := range funcs {
-			if opts.Scope != "" && !strings.HasPrefix(f.pkg, opts.Scope) {
-				continue
-			}
-			roots = append(roots, f.name)
+	RegisterSource(lang.TypeScript, 80, func(root string, _ lsp.Pool) oculus.SymbolSource {
+		if lang.DetectLanguage(root) != lang.TypeScript {
+			return nil
 		}
-	}
-
-	return buildSimpleCallGraph(nf, roots, depth, oculus.LayerTypeScript), nil
+		funcs := ParseTypeScriptFunctions(root)
+		if len(funcs) == 0 {
+			return nil
+		}
+		return oculus.NewFuncIndexSource(funcs)
+	})
 }
 
-func (a *TypeScriptDeepAnalyzer) DataFlowTrace(ctx context.Context, _, entry string, maxDepth int) (*oculus.DataFlow, error) {
-	if maxDepth <= 0 {
-		maxDepth = oculus.DefaultDataFlowDepth
-	}
-	funcs, err := a.parseFunctions()
-	if err != nil {
-		return nil, err
-	}
-
-	nf := make([]namedFunc, len(funcs))
-	for i, f := range funcs {
-		nf[i] = namedFunc(f)
-	}
-	return dataFlowTrace(nf, entry, maxDepth, oculus.LayerTypeScript), nil
-}
-
-func (a *TypeScriptDeepAnalyzer) DetectStateMachines(ctx context.Context, _ string) ([]oculus.StateMachine, error) {
-	return nil, nil
-}
-
-func (a *TypeScriptDeepAnalyzer) parseFunctions() ([]tsFunc, error) {
+// ParseTypeScriptFunctions parses all TS/JS files and returns SourceFuncs
+// with type annotations extracted from tree-sitter AST.
+func ParseTypeScriptFunctions(root string) []oculus.SourceFunc {
 	parser := sitter.NewParser()
 	parser.SetLanguage(typescript.GetLanguage())
 
-	absRoot, err := filepath.Abs(a.root)
+	absRoot, err := filepath.Abs(root)
 	if err != nil {
-		return nil, err
+		return nil
 	}
 
-	var funcs []tsFunc
+	var funcs []oculus.SourceFunc
 
-	err = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -135,40 +69,51 @@ func (a *TypeScriptDeepAnalyzer) parseFunctions() ([]tsFunc, error) {
 			pkg = pkgRoot
 		}
 
-		extractTSFunctions(tree.RootNode(), src, pkg, &funcs)
+		extractTSSourceFuncs(tree.RootNode(), src, pkg, filepath.ToSlash(rel), &funcs)
 		return nil
 	})
-	return funcs, err
+	return funcs
 }
 
-func extractTSFunctions(root *sitter.Node, src []byte, pkg string, funcs *[]tsFunc) {
+func extractTSSourceFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		switch child.Type() {
 		case "function_declaration", "method_definition":
-			name := ""
-			if nameNode := child.ChildByFieldName("name"); nameNode != nil {
-				name = nameNode.Content(src)
+			nameNode := child.ChildByFieldName("name")
+			if nameNode == nil {
+				continue
 			}
+			name := nameNode.Content(src)
 			if name == "" {
 				continue
 			}
+
+			paramTypes := extractTSParamTypes(child, src)
+			returnTypes := extractTSReturnType(child, src)
+
 			body := child.ChildByFieldName("body")
 			var callees []string
 			if body != nil {
 				callees = extractTSCallees(body, src)
 			}
-			*funcs = append(*funcs, tsFunc{
-				name: name, pkg: pkg,
-				line:    int(child.StartPoint().Row) + 1,
-				endLine: int(child.EndPoint().Row) + 1,
-				callees: callees,
+
+			*funcs = append(*funcs, oculus.SourceFunc{
+				Name:        name,
+				Package:     pkg,
+				File:        file,
+				Line:        int(child.StartPoint().Row) + 1,
+				EndLine:     int(child.EndPoint().Row) + 1,
+				ParamTypes:  paramTypes,
+				ReturnTypes: returnTypes,
+				Callees:     callees,
+				Exported:    true, // TS functions are public by default
 			})
+
 		case "export_statement", "lexical_declaration":
-			// export function foo() or const foo = () =>
-			extractTSFunctions(child, src, pkg, funcs)
+			extractTSSourceFuncs(child, src, pkg, file, funcs)
+
 		case "variable_declarator":
-			// const foo = () => { ... }
 			nameNode := child.ChildByFieldName("name")
 			valueNode := child.ChildByFieldName("value")
 			if nameNode != nil && valueNode != nil && isArrowOrFunction(valueNode) {
@@ -178,18 +123,68 @@ func extractTSFunctions(root *sitter.Node, src []byte, pkg string, funcs *[]tsFu
 				if body != nil {
 					callees = extractTSCallees(body, src)
 				}
-				*funcs = append(*funcs, tsFunc{
-					name: name, pkg: pkg,
-					line:    int(child.StartPoint().Row) + 1,
-					callees: callees,
+				paramTypes := extractTSParamTypes(valueNode, src)
+				returnTypes := extractTSReturnType(valueNode, src)
+
+				*funcs = append(*funcs, oculus.SourceFunc{
+					Name:        name,
+					Package:     pkg,
+					File:        file,
+					Line:        int(child.StartPoint().Row) + 1,
+					EndLine:     int(child.EndPoint().Row) + 1,
+					ParamTypes:  paramTypes,
+					ReturnTypes: returnTypes,
+					Callees:     callees,
+					Exported:    true,
 				})
 			}
+
 		case "class_declaration":
 			if bodyNode := child.ChildByFieldName("body"); bodyNode != nil {
-				extractTSFunctions(bodyNode, src, pkg, funcs)
+				extractTSSourceFuncs(bodyNode, src, pkg, file, funcs)
 			}
 		}
 	}
+}
+
+// extractTSParamTypes extracts type annotations from TS function parameters.
+// Handles: function foo(x: string, y: number): ...
+func extractTSParamTypes(funcNode *sitter.Node, src []byte) []string {
+	params := funcNode.ChildByFieldName("parameters")
+	if params == nil {
+		return nil
+	}
+	var types []string
+	for i := 0; i < int(params.ChildCount()); i++ {
+		param := params.Child(i)
+		// required_parameter, optional_parameter have a "type" field
+		if typeNode := param.ChildByFieldName("type"); typeNode != nil {
+			// Type annotation node wraps the actual type
+			t := typeNode.Content(src)
+			// Strip leading ": " if present
+			t = strings.TrimPrefix(t, ": ")
+			if t != "" {
+				types = append(types, t)
+			}
+		}
+	}
+	return types
+}
+
+// extractTSReturnType extracts the return type annotation.
+// Handles: function foo(): string { ... }
+func extractTSReturnType(funcNode *sitter.Node, src []byte) []string {
+	retType := funcNode.ChildByFieldName("return_type")
+	if retType == nil {
+		return nil
+	}
+	t := retType.Content(src)
+	t = strings.TrimPrefix(t, ": ")
+	t = strings.TrimSpace(t)
+	if t == "" || t == "void" {
+		return nil
+	}
+	return []string{t}
 }
 
 func isArrowOrFunction(node *sitter.Node) bool {

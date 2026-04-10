@@ -15,14 +15,10 @@ type DeepFallbackAnalyzer struct {
 	pool      lsp.Pool
 }
 
-// NewDeepFallback creates a DeepFallbackAnalyzer using the strategy registry.
-// Analyzers are resolved by detected language and priority order.
+// NewDeepFallback creates a DeepFallbackAnalyzer using Pipeline-backed
+// SymbolSources (preferred) with raw analyzers as fallback.
 func NewDeepFallback(root string, pool lsp.Pool) *DeepFallbackAnalyzer {
-	return &DeepFallbackAnalyzer{
-		analyzers: resolveDeepAnalyzers(root, pool),
-		root:      root,
-		pool:      pool,
-	}
+	return NewPipelineFallback(root, pool)
 }
 
 // NewPipelineFallback creates a DeepFallbackAnalyzer that uses SymbolPipeline

@@ -7,29 +7,17 @@ import (
 	"github.com/dpopsuev/oculus"
 )
 
-// TestGoASTSymbolSource_Pipeline runs GoASTSymbolSource through SymbolPipeline
-// against the oculus codebase itself (self-referential test).
-func TestGoASTSymbolSource_Pipeline(t *testing.T) {
-	src := NewGoASTSymbolSource("../")
-	if src == nil {
+// TestGoAST_FuncIndexSource runs GoAST through FuncIndexSource + Pipeline.
+func TestGoAST_FuncIndexSource(t *testing.T) {
+	funcs := ParseGoASTFunctions("../")
+	if len(funcs) == 0 {
 		t.Skip("not a Go project")
 	}
+	t.Logf("GoAST found %d functions", len(funcs))
 
-	roots, err := src.Roots(context.Background(), "")
-	if err != nil {
-		t.Fatalf("Roots: %v", err)
-	}
-	if len(roots) == 0 {
-		t.Fatal("expected exported roots from oculus codebase")
-	}
-	t.Logf("GoAST found %d exported roots", len(roots))
+	src := oculus.NewFuncIndexSource(funcs)
+	p := &oculus.SymbolPipeline{Source: src, Root: "../", Concurrency: 4}
 
-	// Run through the pipeline.
-	p := &oculus.SymbolPipeline{
-		Source:      src,
-		Root:        "../",
-		Concurrency: 4,
-	}
 	cg, err := p.CallGraph(context.Background(), "../", oculus.CallGraphOpts{
 		Entry: "BuildMesh",
 		Depth: 3,
@@ -44,28 +32,17 @@ func TestGoASTSymbolSource_Pipeline(t *testing.T) {
 	}
 }
 
-// TestTreeSitterSymbolSource_Pipeline runs TreeSitterSymbolSource through
-// SymbolPipeline against the oculus codebase.
-func TestTreeSitterSymbolSource_Pipeline(t *testing.T) {
-	src := NewTreeSitterSymbolSource("../")
-	if src == nil {
-		t.Skip("could not build parsed project")
+// TestTreeSitter_FuncIndexSource runs TreeSitter through FuncIndexSource + Pipeline.
+func TestTreeSitter_FuncIndexSource(t *testing.T) {
+	funcs := ParseTreeSitterFunctions("../")
+	if len(funcs) == 0 {
+		t.Skip("could not parse project")
 	}
+	t.Logf("TreeSitter found %d functions", len(funcs))
 
-	roots, err := src.Roots(context.Background(), "")
-	if err != nil {
-		t.Fatalf("Roots: %v", err)
-	}
-	if len(roots) == 0 {
-		t.Fatal("expected exported roots")
-	}
-	t.Logf("TreeSitter found %d exported roots", len(roots))
+	src := oculus.NewFuncIndexSource(funcs)
+	p := &oculus.SymbolPipeline{Source: src, Root: "../", Concurrency: 4}
 
-	p := &oculus.SymbolPipeline{
-		Source:      src,
-		Root:        "../",
-		Concurrency: 4,
-	}
 	cg, err := p.CallGraph(context.Background(), "../", oculus.CallGraphOpts{
 		Entry: "BuildMesh",
 		Depth: 3,
@@ -80,13 +57,14 @@ func TestTreeSitterSymbolSource_Pipeline(t *testing.T) {
 	}
 }
 
-// TestGoASTSymbolSource_TypeEnrichment tests that Hover returns type info.
-func TestGoASTSymbolSource_TypeEnrichment(t *testing.T) {
-	src := NewGoASTSymbolSource("../")
-	if src == nil {
+// TestGoAST_TypeEnrichment tests that Hover returns type info via FuncIndexSource.
+func TestGoAST_TypeEnrichment(t *testing.T) {
+	funcs := ParseGoASTFunctions("../")
+	if len(funcs) == 0 {
 		t.Skip("not a Go project")
 	}
 
+	src := oculus.NewFuncIndexSource(funcs)
 	roots, _ := src.Roots(context.Background(), "BuildMesh")
 	if len(roots) == 0 {
 		t.Skip("BuildMesh not found")

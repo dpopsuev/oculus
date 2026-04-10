@@ -1,117 +1,47 @@
 package analyzer
 
 import (
-	"github.com/dpopsuev/oculus"
 	"context"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
+
+	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/lsp"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/python"
-
-	"github.com/dpopsuev/oculus/lang"
-	"github.com/dpopsuev/oculus/lsp"
 )
 
 func init() {
-	Register(lang.Python, 80, func(root string, pool lsp.Pool) oculus.DeepAnalyzer {
-		return NewPythonDeep(root)
-	}, nil)
-}
-
-// PythonDeepAnalyzer uses tree-sitter-python for call graph analysis.
-type PythonDeepAnalyzer struct {
-	root string
-}
-
-// NewPythonDeep creates a PythonDeepAnalyzer. Returns nil for non-Python projects.
-func NewPythonDeep(root string) *PythonDeepAnalyzer {
-	if lang.DetectLanguage(root) != lang.Python {
-		return nil
-	}
-	return &PythonDeepAnalyzer{root: root}
-}
-
-type pyFunc struct {
-	name        string
-	pkg         string
-	file        string
-	line        int
-	endLine     int
-	paramTypes  []string
-	returnTypes []string
-	callees     []string
-}
-
-func (a *PythonDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
-	depth := opts.Depth
-	if depth <= 0 {
-		depth = oculus.DefaultCallGraphDepth
-	}
-
-	funcs, err := a.parseFunctions()
-	if err != nil {
-		return nil, err
-	}
-
-	nf := make([]namedFunc, len(funcs))
-	for i, f := range funcs {
-		nf[i] = namedFunc(f)
-	}
-
-	var roots []string
-	if opts.Entry != "" {
-		roots = []string{opts.Entry}
-	} else {
-		for _, f := range funcs {
-			if opts.Scope != "" && !strings.HasPrefix(f.pkg, opts.Scope) {
-				continue
-			}
-			if opts.ExportedOnly && strings.HasPrefix(f.name, "_") {
-				continue
-			}
-			if !strings.HasPrefix(f.name, "_") {
-				roots = append(roots, f.name)
-			}
+	RegisterSource(lang.Python, 80, func(root string, _ lsp.Pool) oculus.SymbolSource {
+		if lang.DetectLanguage(root) != lang.Python {
+			return nil
 		}
-	}
-
-	return buildSimpleCallGraph(nf, roots, depth, oculus.LayerPython), nil
+		funcs := ParsePythonFunctions(root)
+		if len(funcs) == 0 {
+			return nil
+		}
+		return oculus.NewFuncIndexSource(funcs)
+	})
 }
 
-func (a *PythonDeepAnalyzer) DataFlowTrace(ctx context.Context, _, entry string, maxDepth int) (*oculus.DataFlow, error) {
-	if maxDepth <= 0 {
-		maxDepth = oculus.DefaultDataFlowDepth
-	}
-	funcs, err := a.parseFunctions()
-	if err != nil {
-		return nil, err
-	}
-
-	nf := make([]namedFunc, len(funcs))
-	for i, f := range funcs {
-		nf[i] = namedFunc(f)
-	}
-	return dataFlowTrace(nf, entry, maxDepth, oculus.LayerPython), nil
-}
-
-func (a *PythonDeepAnalyzer) DetectStateMachines(ctx context.Context, _ string) ([]oculus.StateMachine, error) {
-	return nil, nil
-}
-
-func (a *PythonDeepAnalyzer) parseFunctions() ([]pyFunc, error) {
+// ParsePythonFunctions parses all .py files and returns SourceFuncs
+// with type annotations extracted from tree-sitter AST.
+func ParsePythonFunctions(root string) []oculus.SourceFunc {
 	parser := sitter.NewParser()
 	parser.SetLanguage(python.GetLanguage())
 
-	absRoot, err := filepath.Abs(a.root)
+	absRoot, err := filepath.Abs(root)
 	if err != nil {
-		return nil, err
+		return nil
 	}
 
-	var funcs []pyFunc
+	var funcs []oculus.SourceFunc
 
-	err = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -139,43 +69,110 @@ func (a *PythonDeepAnalyzer) parseFunctions() ([]pyFunc, error) {
 			pkg = pkgRoot
 		}
 
-		extractPyFunctions(tree.RootNode(), src, pkg, &funcs)
+		extractPySourceFuncs(tree.RootNode(), src, pkg, filepath.ToSlash(rel), &funcs)
 		return nil
 	})
-	return funcs, err
+	return funcs
 }
 
-func extractPyFunctions(root *sitter.Node, src []byte, pkg string, funcs *[]pyFunc) {
+func extractPySourceFuncs(root *sitter.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		if child.Type() == "function_definition" || child.Type() == "async_function_definition" {
-			name := ""
-			if nameNode := child.ChildByFieldName("name"); nameNode != nil {
-				name = nameNode.Content(src)
+			nameNode := child.ChildByFieldName("name")
+			if nameNode == nil {
+				continue
 			}
+			name := nameNode.Content(src)
 			if name == "" {
 				continue
 			}
-			body := child.ChildByFieldName("body")
+
+			// Extract parameter types from annotations.
+			var paramTypes []string
+			if params := child.ChildByFieldName("parameters"); params != nil {
+				paramTypes = extractPyParamTypes(params, src)
+			}
+
+			// Extract return type annotation.
+			var returnTypes []string
+			if retType := child.ChildByFieldName("return_type"); retType != nil {
+				rt := strings.TrimSpace(retType.Content(src))
+				if rt != "" && rt != "None" {
+					returnTypes = []string{rt}
+				}
+			}
+
+			// Extract callees from body.
 			var callees []string
-			if body != nil {
+			if body := child.ChildByFieldName("body"); body != nil {
 				callees = extractPyCallees(body, src)
 			}
-			*funcs = append(*funcs, pyFunc{
-				name:    name,
-				pkg:     pkg,
-				line:    int(child.StartPoint().Row) + 1,
-				endLine: int(child.EndPoint().Row) + 1,
-				callees: callees,
+
+			exported := len(name) > 0 && !strings.HasPrefix(name, "_")
+
+			*funcs = append(*funcs, oculus.SourceFunc{
+				Name:        name,
+				Package:     pkg,
+				File:        file,
+				Line:        int(child.StartPoint().Row) + 1,
+				EndLine:     int(child.EndPoint().Row) + 1,
+				ParamTypes:  paramTypes,
+				ReturnTypes: returnTypes,
+				Callees:     callees,
+				Exported:    exported,
 			})
 		}
 		// Recurse into class definitions to find methods.
 		if child.Type() == "class_definition" {
 			if bodyNode := child.ChildByFieldName("body"); bodyNode != nil {
-				extractPyFunctions(bodyNode, src, pkg, funcs)
+				extractPySourceFuncs(bodyNode, src, pkg, file, funcs)
 			}
 		}
 	}
+}
+
+// extractPyParamTypes extracts type annotations from Python function parameters.
+// Handles: def foo(x: int, y: str, z: list[str]) -> ...
+func extractPyParamTypes(params *sitter.Node, src []byte) []string {
+	var types []string
+	for i := 0; i < int(params.ChildCount()); i++ {
+		param := params.Child(i)
+		// Skip delimiters, self/cls
+		if param.Type() != "typed_parameter" && param.Type() != "default_parameter" && param.Type() != "identifier" {
+			continue
+		}
+		name := ""
+		if param.Type() == "identifier" {
+			name = param.Content(src)
+		} else if nameNode := param.ChildByFieldName("name"); nameNode != nil {
+			name = nameNode.Content(src)
+		}
+		if name == "self" || name == "cls" {
+			continue
+		}
+		if param.Type() == "typed_parameter" {
+			if typeNode := param.ChildByFieldName("type"); typeNode != nil {
+				types = append(types, typeNode.Content(src))
+			}
+		}
+		// default_parameter with type: handled via typed_default_parameter
+		if param.Type() == "typed_default_parameter" {
+			if typeNode := param.ChildByFieldName("type"); typeNode != nil {
+				types = append(types, typeNode.Content(src))
+			}
+		}
+	}
+	return types
+}
+
+// isPyExported checks if a Python name is public (doesn't start with _).
+func isPyExported(name string) bool {
+	if len(name) == 0 {
+		return false
+	}
+	r := rune(name[0])
+	return unicode.IsLetter(r) && r != '_'
 }
 
 func extractPyCallees(node *sitter.Node, src []byte) []string {

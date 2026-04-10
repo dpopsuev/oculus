@@ -52,3 +52,18 @@ type SourceTypeInfo struct {
 	ReturnTypes []string `json:"return_types,omitempty"`
 	Signature   string   `json:"signature,omitempty"`
 }
+
+// SourceFunc is the universal function descriptor that any language parser
+// produces. FuncIndexSource wraps []SourceFunc into a SymbolSource —
+// adding a language is just a parser function that returns []SourceFunc.
+type SourceFunc struct {
+	Name        string   `json:"name"`
+	Package     string   `json:"package"`
+	File        string   `json:"file"`
+	Line        int      `json:"line"`
+	EndLine     int      `json:"end_line"`
+	ParamTypes  []string `json:"param_types,omitempty"`
+	ReturnTypes []string `json:"return_types,omitempty"`
+	Callees     []string `json:"callees,omitempty"`
+	Exported    bool     `json:"exported"`
+}
