@@ -7,12 +7,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dpopsuev/oculus"
 	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
 )
+
+// lspConcurrency is the max number of concurrent call tree walks.
+// Bounded to avoid overwhelming the LSP server with parallel requests.
+const lspConcurrency = 4
 
 // isWorkspaceURI checks if a file:// URI falls within the workspace root.
 func isWorkspaceURI(uri, absRoot string) bool {
@@ -82,8 +87,10 @@ func (a *LSPDeepAnalyzer) startConn(ctx context.Context) (*lspConn, func(), erro
 	return conn, cleanup, nil
 }
 
-// oculus.CallGraph uses callHierarchy/outgoingCalls recursively from all
-// exported functions (or a single entry if opts.Entry is set).
+// oculus.CallGraph uses a top-down call tree approach:
+// 1. workspace/symbol to discover roots (1 call, not N file scans)
+// 2. prepareCallHierarchy + outgoingCalls to walk the tree lazily
+// 3. Semaphore-bounded goroutines for concurrent root processing
 func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	conn, cleanup, err := a.startConn(ctx)
 	if err != nil {
@@ -98,25 +105,86 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 
 	absRoot, _ := filepath.Abs(a.root)
 
-	// When entry is specified, the non-entry path (lspCallGraphRoots) that
-	// normally opens files via documentSymbols is skipped. We must open files
-	// explicitly so the LSP server indexes them before workspace/symbol queries.
-	// documentSymbols is synchronous — it blocks until parsing is done.
-	if opts.Entry != "" {
-		for _, f := range findSrcFiles(a.root) {
-			if ctx.Err() != nil {
-				break
-			}
-			conn.documentSymbols(f, a.root)
-		}
-	}
-
+	// Step 1: Discover roots via workspace/symbol (1 call, not 549 file scans).
+	// For a specific entry, just open that one file.
 	roots := lspCallGraphRoots(opts, conn, a.root)
 
+	// Step 2: Walk the call tree from roots with bounded concurrency.
+	var mu sync.Mutex
 	nodeSet := make(map[string]oculus.FuncNode)
 	var edges []oculus.CallEdge
 	visited := make(map[string]bool)
-	sigCache := make(map[string]*[2][]string) // callee FQN → [paramTypes, returnTypes]
+	sigCache := make(map[string]*[2][]string)
+
+	sem := make(chan struct{}, lspConcurrency)
+	var wg sync.WaitGroup
+
+	var walk func(it *callHierarchyItem, d int)
+	walk = func(it *callHierarchyItem, d int) {
+		if ctx.Err() != nil {
+			return
+		}
+
+		mu.Lock()
+		if d > depth || visited[it.Name] {
+			mu.Unlock()
+			return
+		}
+		visited[it.Name] = true
+		mu.Unlock()
+
+		pkg := uriToPackage(it.URI, a.root)
+
+		mu.Lock()
+		nodeSet[pkg+"."+it.Name] = oculus.FuncNode{
+			Name: it.Name, Package: pkg, Line: it.Range.Start.Line + 1,
+			File: uriToRelPath(it.URI, a.root), EndLine: it.Range.End.Line + 1,
+		}
+		mu.Unlock()
+
+		outgoing, err := conn.request("callHierarchy/outgoingCalls", map[string]any{"item": it})
+		if err != nil {
+			return
+		}
+		var outs []outgoingCallItem
+		if json.Unmarshal(outgoing, &outs) != nil {
+			return
+		}
+		for _, out := range outs {
+			calleePkg := uriToPackage(out.To.URI, a.root)
+			inWorkspace := isWorkspaceURI(out.To.URI, absRoot)
+
+			calleeParams, calleeReturns := resolveCalleeTypes(
+				conn, sigCache, out.To.Name, calleePkg,
+				out.To.URI, out.To.Range.Start.Line, out.To.Range.Start.Character,
+			)
+
+			mu.Lock()
+			if inWorkspace {
+				nodeSet[calleePkg+"."+out.To.Name] = oculus.FuncNode{
+					Name: out.To.Name, Package: calleePkg,
+					Line: out.To.Range.Start.Line + 1,
+					File: uriToRelPath(out.To.URI, a.root), EndLine: out.To.Range.End.Line + 1,
+				}
+			}
+			edges = append(edges, oculus.CallEdge{
+				Caller:      it.Name,
+				Callee:      out.To.Name,
+				CallerPkg:   pkg,
+				CalleePkg:   calleePkg,
+				Line:        out.To.Range.Start.Line + 1,
+				File:        uriToRelPath(it.URI, a.root),
+				CrossPkg:    pkg != calleePkg,
+				ParamTypes:  calleeParams,
+				ReturnTypes: calleeReturns,
+			})
+			mu.Unlock()
+
+			if inWorkspace {
+				walk(&out.To, d+1)
+			}
+		}
+	}
 
 	for _, entry := range roots {
 		if ctx.Err() != nil {
@@ -126,63 +194,15 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 		if err != nil || item == nil {
 			continue
 		}
-
-		var walk func(it *callHierarchyItem, d int)
-		walk = func(it *callHierarchyItem, d int) {
-			if d > depth || visited[it.Name] {
-				return
-			}
-			visited[it.Name] = true
-
-			pkg := uriToPackage(it.URI, a.root)
-			nodeSet[pkg+"."+it.Name] = oculus.FuncNode{
-				Name: it.Name, Package: pkg, Line: it.Range.Start.Line + 1,
-				File: uriToRelPath(it.URI, a.root), EndLine: it.Range.End.Line + 1,
-			}
-
-			outgoing, err := conn.Request("callHierarchy/outgoingCalls", map[string]any{"item": it})
-			if err != nil {
-				return
-			}
-			var outs []outgoingCallItem
-			if json.Unmarshal(outgoing, &outs) != nil {
-				return
-			}
-			for _, out := range outs {
-				calleePkg := uriToPackage(out.To.URI, a.root)
-				inWorkspace := isWorkspaceURI(out.To.URI, absRoot)
-				if inWorkspace {
-					nodeSet[calleePkg+"."+out.To.Name] = oculus.FuncNode{
-						Name: out.To.Name, Package: calleePkg,
-						Line: out.To.Range.Start.Line + 1,
-						File: uriToRelPath(out.To.URI, a.root), EndLine: out.To.Range.End.Line + 1,
-					}
-				}
-				// Extract callee signature via hover at callee's definition.
-				calleeParams, calleeReturns := resolveCalleeTypes(
-					conn, sigCache, out.To.Name, calleePkg,
-					out.To.URI, out.To.Range.Start.Line, out.To.Range.Start.Character,
-				)
-				edges = append(edges, oculus.CallEdge{
-					Caller:      it.Name,
-					Callee:      out.To.Name,
-					CallerPkg:   pkg,
-					CalleePkg:   calleePkg,
-					Line:        out.To.Range.Start.Line + 1,
-					File:        uriToRelPath(it.URI, a.root),
-					CrossPkg:    pkg != calleePkg,
-					ParamTypes:  calleeParams,
-					ReturnTypes: calleeReturns,
-				})
-				// Only recurse into workspace callees — external calls are
-				// kept as leaf edges but we don't walk into stdlib internals.
-				if inWorkspace {
-					walk(&out.To, d+1)
-				}
-			}
-		}
-		walk(item, 0)
+		wg.Add(1)
+		sem <- struct{}{} // acquire semaphore
+		go func(it *callHierarchyItem) {
+			defer wg.Done()
+			defer func() { <-sem }() // release semaphore
+			walk(it, 0)
+		}(item)
 	}
+	wg.Wait()
 
 	// Note: go/parser fallback enrichment is handled by the universal hook
 	// in DeepFallbackAnalyzer.CallGraph — no need to call it here.
@@ -436,34 +456,48 @@ func (a *LSPDeepAnalyzer) DetectStateMachines(ctx context.Context, _ string) ([]
 	return machines, nil
 }
 
-// lspCallGraphRoots determines the root functions for call graph analysis.
-func lspCallGraphRoots(opts oculus.CallGraphOpts, conn *lspConn, root string) []string {
+// lspCallGraphRoots discovers root functions via workspace/symbol (1 call)
+// instead of scanning all files with documentSymbol (N calls).
+func lspCallGraphRoots(opts oculus.CallGraphOpts, conn *lspConn, _ string) []string {
 	if opts.Entry != "" {
 		return []string{opts.Entry}
 	}
-	files := findSrcFiles(root)
+	if opts.ExportedOnly {
+		return lspExportedRoots(conn)
+	}
+	// Default: all exported functions
+	return lspExportedRoots(conn)
+}
+
+// lspExportedRoots uses workspace/symbol to find all exported functions
+// in a single LSP call. O(1) instead of O(files).
+func lspExportedRoots(conn *lspConn) []string {
+	// workspace/symbol with empty query returns all symbols.
+	// gopls supports this; pyright may not (falls back to documentSymbol).
+	result, err := conn.request("workspace/symbol", map[string]any{"query": ""})
+	if err != nil {
+		return nil
+	}
+	var symbols []workspaceSymbol
+	if json.Unmarshal(result, &symbols) != nil {
+		return nil
+	}
 	seen := make(map[string]bool)
 	var roots []string
-	for _, f := range files {
-		if conn.ctx != nil && conn.ctx.Err() != nil {
-			break
-		}
-		syms, err := conn.documentSymbols(f, root)
-		if err != nil {
+	for _, s := range symbols {
+		if s.Kind != 12 && s.Kind != 6 { // function or method
 			continue
 		}
-		for _, sym := range syms {
-			if !isExported(sym.Name) {
-				continue
-			}
-			if sym.Kind != 12 && sym.Kind != 6 {
-				continue
-			}
-			if !seen[sym.Name] {
-				seen[sym.Name] = true
-				roots = append(roots, sym.Name)
-			}
+		// Extract just the function name (workspace/symbol may return "pkg.Func")
+		name := s.Name
+		if dot := strings.LastIndex(name, "."); dot >= 0 {
+			name = name[dot+1:]
 		}
+		if !isExported(name) || seen[name] {
+			continue
+		}
+		seen[name] = true
+		roots = append(roots, name)
 	}
 	return roots
 }
