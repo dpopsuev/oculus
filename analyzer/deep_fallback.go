@@ -25,6 +25,32 @@ func NewDeepFallback(root string, pool lsp.Pool) *DeepFallbackAnalyzer {
 	}
 }
 
+// NewPipelineFallback creates a DeepFallbackAnalyzer that uses SymbolPipeline
+// for concurrent graph walks. Pipeline-backed SymbolSources are tried first
+// (bounded concurrency, timeout, progress), then raw analyzers as fallback
+// for operations the Pipeline doesn't cover (DetectStateMachines, etc.).
+func NewPipelineFallback(root string, pool lsp.Pool) *DeepFallbackAnalyzer {
+	var analyzers []oculus.DeepAnalyzer
+
+	// Pipeline-backed analyzers from registered SymbolSources.
+	for _, src := range resolveSymbolSources(root, pool) {
+		analyzers = append(analyzers, &oculus.SymbolPipeline{
+			Source:      src,
+			Root:        root,
+			Concurrency: oculus.DefaultPipelineConcurrency,
+		})
+	}
+
+	// Raw analyzers as fallback.
+	analyzers = append(analyzers, resolveDeepAnalyzers(root, pool)...)
+
+	return &DeepFallbackAnalyzer{
+		analyzers: analyzers,
+		root:      root,
+		pool:      pool,
+	}
+}
+
 func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	for _, a := range f.analyzers {
 		// Each analyzer gets its own timeout so a slow LSP doesn't starve GoAST.
