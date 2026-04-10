@@ -21,6 +21,11 @@ var LanguageMarkers = []LanguageMarker{
 	{"setup.py", Python},
 	{"tsconfig.json", TypeScript},
 	{"package.json", TypeScript},
+	{"pom.xml", Java},
+	{"build.gradle", Java},
+	{"build.gradle.kts", Kotlin},
+	{"Package.swift", Swift},
+	{"build.zig", Zig},
 	{"Makefile", C},
 }
 
@@ -39,6 +44,20 @@ func DetectLanguage(root string) Language {
 	for _, m := range LanguageMarkers {
 		if _, err := os.Stat(filepath.Join(root, m.File)); err == nil {
 			return m.Lang
+		}
+	}
+	// Glob-based detection for languages using variable project file names.
+	globs := []struct {
+		pattern string
+		lang    Language
+	}{
+		{"*.csproj", CSharp},
+		{"*.sln", CSharp},
+	}
+	for _, g := range globs {
+		matches, _ := filepath.Glob(filepath.Join(root, g.pattern))
+		if len(matches) > 0 {
+			return g.lang
 		}
 	}
 	return Unknown

@@ -277,9 +277,11 @@ func transform(_ cfg: Config) -> String {
     return cfg.name
 }
 
-let cfg = loadConfig(path: "app.yaml")
-let result = transform(cfg)
-print(result)
+func main() {
+    let cfg = loadConfig(path: "app.yaml")
+    let result = transform(cfg)
+    print(result)
+}
 `,
 		},
 		entry:  "main",
