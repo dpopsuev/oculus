@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/dpopsuev/oculus/arch"
 	archgit "github.com/dpopsuev/oculus/arch/git"
 	"github.com/dpopsuev/oculus/clinic"
@@ -974,9 +976,16 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 	fa := analyzer.NewFallback(path, p.pool)
 
 	start = time.Now()
-	classes, _ := fa.Classes(path)
-	impls, _ := fa.Implements(path)
-	refs, _ := fa.FieldRefs(path)
+	var classes []oculus.ClassInfo
+	var impls []oculus.ImplEdge
+	var refs []oculus.FieldRef
+
+	tg, _ := errgroup.WithContext(ctx)
+	tg.Go(func() error { classes, _ = fa.Classes(path); return nil })
+	tg.Go(func() error { impls, _ = fa.Implements(path); return nil })
+	tg.Go(func() error { refs, _ = fa.FieldRefs(path); return nil })
+	_ = tg.Wait()
+
 	slog.LogAttrs(ctx, slog.LevelDebug, "mesh: type_analysis",
 		slog.Duration("duration", time.Since(start)),
 		slog.Int("classes", len(classes)),
