@@ -16,10 +16,13 @@ type ScaleTier struct {
 
 // Standard tiers for benchmark scaling analysis.
 var (
-	TierSmall  = ScaleTier{Name: "small", Components: 10, Edges: 20}
-	TierMedium = ScaleTier{Name: "medium", Components: 50, Edges: 150}
-	TierLarge  = ScaleTier{Name: "large", Components: 200, Edges: 1000}
-	TierXL     = ScaleTier{Name: "xl", Components: 500, Edges: 5000}
+	TierSmall  = ScaleTier{Name: "small", Components: 10, Edges: 20}       // CLI tool, small library
+	TierMedium = ScaleTier{Name: "medium", Components: 50, Edges: 150}     // Oculus, typical microservice
+	TierLarge  = ScaleTier{Name: "large", Components: 200, Edges: 1000}    // Django, Express app
+	TierXL     = ScaleTier{Name: "xl", Components: 500, Edges: 5000}       // React, Vue.js
+	TierK8s    = ScaleTier{Name: "k8s", Components: 2000, Edges: 20000}    // Kubernetes, Terraform
+	TierChrome = ScaleTier{Name: "chrome", Components: 8000, Edges: 80000} // Chromium, LLVM
+	TierKernel = ScaleTier{Name: "kernel", Components: 5000, Edges: 50000} // Linux kernel
 )
 
 const symbolsPerComponent = 5
