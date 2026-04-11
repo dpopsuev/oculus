@@ -295,12 +295,8 @@ func (m *Mesh) OverlayMesh(roles map[string]string) {
 		fanIn[e.TargetFQN]++
 	}
 
-	// Choke point overlay (betweenness centrality).
-	// Gated: O(n²) — 157ms at 500 edges, ~2.5s at 2000. Skip for large meshes.
-	var centrality map[string]float64
-	if len(m.Edges) <= 1000 {
-		centrality = graph.BetweennessCentrality(m.Edges)
-	}
+	// Choke point overlay (betweenness centrality, parallelized).
+	centrality := graph.BetweennessCentrality(m.Edges)
 
 	for key, node := range m.Nodes {
 		// HEXA role overlay (component level).
