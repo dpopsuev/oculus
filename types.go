@@ -78,12 +78,30 @@ type NestingResult struct {
 	Line     int    `json:"line,omitempty"`
 }
 
+// Granularity controls the level of detail requested from the scanner.
+// Higher granularity = more accurate but more expensive.
+type Granularity int
+
+const (
+	// GranulityDefault uses the default behavior (TypedCallGraph).
+	GranularityDefault Granularity = iota
+	// GranularityStructure: function names + packages only. Cheapest (regex).
+	GranularityStructure
+	// GranularityCallGraph: functions + call edges. Mid-tier (tree-sitter).
+	GranularityCallGraph
+	// GranularityTypedCallGraph: + param/return types. Default (tree-sitter w/ annotations).
+	GranularityTypedCallGraph
+	// GranularitySemantic: + cross-module resolution, hover. Most expensive (LSP).
+	GranularitySemantic
+)
+
 // CallGraphOpts configures call graph construction.
 type CallGraphOpts struct {
-	Entry        string // entry function name; empty = all exported
-	Depth        int    // max recursion depth; 0 = default (10)
-	ExportedOnly bool   // only include exported functions as roots
-	Scope        string // limit to this package prefix
+	Entry        string      // entry function name; empty = all exported
+	Depth        int         // max recursion depth; 0 = default (10)
+	ExportedOnly bool        // only include exported functions as roots
+	Scope        string      // limit to this package prefix
+	Granularity  Granularity // requested detail level; 0 = default (TypedCallGraph)
 
 	// OnProgress is called after each root function is resolved.
 	// Optional — nil means no progress notifications.

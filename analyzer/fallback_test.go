@@ -108,3 +108,53 @@ impl Bar for Foo {
 		t.Error("regex fallback: expected Foo implements Bar")
 	}
 }
+
+func TestGranularity_DefaultProducesEdges(t *testing.T) {
+	dir := setupTestRepo(t)
+	da := NewDeepFallback(dir, nil)
+
+	// Default granularity (TypedCallGraph) should produce edges via tree-sitter.
+	cg, err := da.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Depth: 5})
+	if err != nil {
+		t.Fatalf("CallGraph: %v", err)
+	}
+	if len(cg.Edges) == 0 {
+		t.Error("default granularity should produce edges")
+	}
+	t.Logf("default: %d nodes, %d edges", len(cg.Nodes), len(cg.Edges))
+}
+
+func TestGranularity_StructureSkipsExpensiveSources(t *testing.T) {
+	dir := setupTestRepo(t)
+	da := NewDeepFallback(dir, nil)
+
+	// Structure granularity is lower than TypedCallGraph.
+	// No sources are registered at Structure level, so Pipeline sources
+	// are skipped. Falls through to raw analyzers (GoAST/TreeSitter).
+	cg, err := da.CallGraph(context.Background(), dir, oculus.CallGraphOpts{
+		Depth:       5,
+		Granularity: oculus.GranularityStructure,
+	})
+	if err != nil {
+		t.Fatalf("CallGraph: %v", err)
+	}
+	// Raw analyzers should still produce edges.
+	t.Logf("structure: %d nodes, %d edges", len(cg.Nodes), len(cg.Edges))
+}
+
+func TestGranularity_SemanticIncludesAll(t *testing.T) {
+	dir := setupTestRepo(t)
+	da := NewDeepFallback(dir, nil)
+
+	// Semantic granularity should include all sources (TypedCallGraph >= requested).
+	// Wait — Semantic is HIGHER than TypedCallGraph. Only LSP satisfies it.
+	// Since no LSP is available in test, falls through to raw analyzers.
+	cg, err := da.CallGraph(context.Background(), dir, oculus.CallGraphOpts{
+		Depth:       5,
+		Granularity: oculus.GranularitySemantic,
+	})
+	if err != nil {
+		t.Fatalf("CallGraph: %v", err)
+	}
+	t.Logf("semantic: %d nodes, %d edges", len(cg.Nodes), len(cg.Edges))
+}

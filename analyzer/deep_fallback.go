@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"time"
+
 	"github.com/dpopsuev/oculus"
 	"github.com/dpopsuev/oculus/lsp"
 )
@@ -10,53 +11,50 @@ import (
 // DeepFallbackAnalyzer chains registered deep analyzers by priority.
 // Each method tries analyzers in order, stopping at the first non-empty result.
 type DeepFallbackAnalyzer struct {
-	analyzers []oculus.DeepAnalyzer // ordered by priority (highest first)
-	root      string
-	pool      lsp.Pool
+	rawAnalyzers []oculus.DeepAnalyzer // raw analyzer fallback (DetectStateMachines, etc.)
+	root         string
+	pool         lsp.Pool
 }
 
 // NewDeepFallback creates a DeepFallbackAnalyzer using Pipeline-backed
 // SymbolSources (preferred) with raw analyzers as fallback.
 func NewDeepFallback(root string, pool lsp.Pool) *DeepFallbackAnalyzer {
-	return NewPipelineFallback(root, pool)
+	return &DeepFallbackAnalyzer{
+		rawAnalyzers: resolveDeepAnalyzers(root, pool),
+		root:         root,
+		pool:         pool,
+	}
 }
 
-// NewPipelineFallback creates a DeepFallbackAnalyzer that uses SymbolPipeline
-// for concurrent graph walks. Pipeline-backed SymbolSources are tried first
-// (bounded concurrency, timeout, progress), then raw analyzers as fallback
-// for operations the Pipeline doesn't cover (DetectStateMachines, etc.).
+// NewPipelineFallback is an alias for NewDeepFallback (unified path).
 func NewPipelineFallback(root string, pool lsp.Pool) *DeepFallbackAnalyzer {
-	var analyzers []oculus.DeepAnalyzer
-
-	// Pipeline-backed analyzers from registered SymbolSources.
-	for _, src := range resolveSymbolSources(root, pool) {
-		analyzers = append(analyzers, &oculus.SymbolPipeline{
-			Source:      src,
-			Root:        root,
-			Concurrency: oculus.DefaultPipelineConcurrency,
-		})
-	}
-
-	// Raw analyzers as fallback.
-	analyzers = append(analyzers, resolveDeepAnalyzers(root, pool)...)
-
-	return &DeepFallbackAnalyzer{
-		analyzers: analyzers,
-		root:      root,
-		pool:      pool,
-	}
+	return NewDeepFallback(root, pool)
 }
 
 func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
-	for _, a := range f.analyzers {
-		// Each analyzer gets its own timeout so a slow LSP doesn't starve GoAST.
+	// Resolve sources matching the requested granularity (per-request, not cached).
+	sources := resolveSymbolSources(f.root, f.pool, opts.Granularity)
+	for _, src := range sources {
+		p := &oculus.SymbolPipeline{
+			Source:      src,
+			Root:        f.root,
+			Concurrency: oculus.DefaultPipelineConcurrency,
+		}
+		aCtx, cancel := context.WithTimeout(context.Background(), perAnalyzerTimeout)
+		r, err := p.CallGraph(aCtx, root, opts)
+		cancel()
+		if err == nil && len(r.Edges) > 0 {
+			EnrichCallEdgeTypes(f.root, r.Edges)
+			return r, nil
+		}
+	}
+
+	// Raw analyzer fallback.
+	for _, a := range f.rawAnalyzers {
 		aCtx, cancel := context.WithTimeout(context.Background(), perAnalyzerTimeout)
 		r, err := a.CallGraph(aCtx, root, opts)
 		cancel()
 		if err == nil && len(r.Edges) > 0 {
-			// Universal enrichment: fill in types for any edges still missing them.
-			// Individual analyzers may already populate types (GoAST, LSP hover),
-			// but this catches gaps (Regex, partial TreeSitter).
 			EnrichCallEdgeTypes(f.root, r.Edges)
 			return r, nil
 		}
@@ -70,7 +68,15 @@ func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts 
 const perAnalyzerTimeout = 5 * time.Minute
 
 func (f *DeepFallbackAnalyzer) DataFlowTrace(ctx context.Context, root, entry string, depth int) (*oculus.DataFlow, error) {
-	for _, a := range f.analyzers {
+	sources := resolveSymbolSources(f.root, f.pool)
+	for _, src := range sources {
+		p := &oculus.SymbolPipeline{Source: src, Root: f.root, Concurrency: oculus.DefaultPipelineConcurrency}
+		r, err := p.DataFlowTrace(ctx, root, entry, depth)
+		if err == nil && len(r.Edges) > 0 {
+			return r, nil
+		}
+	}
+	for _, a := range f.rawAnalyzers {
 		r, err := a.DataFlowTrace(ctx, root, entry, depth)
 		if err == nil && len(r.Edges) > 0 {
 			return r, nil
@@ -80,7 +86,7 @@ func (f *DeepFallbackAnalyzer) DataFlowTrace(ctx context.Context, root, entry st
 }
 
 func (f *DeepFallbackAnalyzer) DetectStateMachines(ctx context.Context, root string) ([]oculus.StateMachine, error) {
-	for _, a := range f.analyzers {
+	for _, a := range f.rawAnalyzers {
 		r, err := a.DetectStateMachines(ctx, root)
 		if err == nil && len(r) > 0 {
 			return r, nil

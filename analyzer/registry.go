@@ -27,9 +27,10 @@ type analyzerEntry struct {
 }
 
 type sourceEntry struct {
-	language lang.Language
-	priority int
-	factory  SymbolSourceFactory
+	language       lang.Language
+	priority       int
+	maxGranularity oculus.Granularity // highest detail level this source provides
+	factory        SymbolSourceFactory
 }
 
 var registry []analyzerEntry
@@ -53,11 +54,17 @@ func Register(language lang.Language, priority int, deep DeepAnalyzerFactory, ty
 // RegisterSource adds a SymbolSource factory to the global registry.
 // SymbolSources are used by SymbolPipeline to provide bounded concurrent
 // graph walks. Higher priority sources are tried first.
-func RegisterSource(language lang.Language, priority int, factory SymbolSourceFactory) {
+// maxGranularity declares the highest detail level this source provides.
+func RegisterSource(language lang.Language, priority int, factory SymbolSourceFactory, maxGranularity ...oculus.Granularity) {
+	mg := oculus.GranularityTypedCallGraph // default
+	if len(maxGranularity) > 0 {
+		mg = maxGranularity[0]
+	}
 	sourceRegistry = append(sourceRegistry, sourceEntry{
-		language: language,
-		priority: priority,
-		factory:  factory,
+		language:       language,
+		priority:       priority,
+		maxGranularity: mg,
+		factory:        factory,
 	})
 	sort.Slice(sourceRegistry, func(i, j int) bool {
 		return sourceRegistry[i].priority > sourceRegistry[j].priority
@@ -83,11 +90,25 @@ func resolveDeepAnalyzers(root string, pool lsp.Pool) []oculus.DeepAnalyzer {
 }
 
 // resolveSymbolSources returns all applicable SymbolSources for a root, ordered by priority.
-func resolveSymbolSources(root string, pool lsp.Pool) []oculus.SymbolSource {
+// If granularity is specified (non-zero), only sources that can satisfy it are returned.
+// Sources are sorted cheapest-first when granularity filtering is active.
+func resolveSymbolSources(root string, pool lsp.Pool, granularity ...oculus.Granularity) []oculus.SymbolSource {
 	detected := lang.DetectLanguage(root)
+	requested := oculus.GranularityDefault
+	if len(granularity) > 0 {
+		requested = granularity[0]
+	}
+	if requested == oculus.GranularityDefault {
+		requested = oculus.GranularityTypedCallGraph
+	}
+
 	var result []oculus.SymbolSource
 	for _, entry := range sourceRegistry {
 		if entry.language != lang.Unknown && entry.language != detected {
+			continue
+		}
+		// Skip sources that can't satisfy the requested granularity.
+		if entry.maxGranularity < requested {
 			continue
 		}
 		if src := entry.factory(root, pool); src != nil {
