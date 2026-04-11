@@ -66,7 +66,7 @@ func (a *TreeSitterDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts o
 	allFuncs, nodeSet := a.extractCallGraphFuncs(opts)
 	edges := walkCallGraph(allFuncs, nodeSet, opts, depth)
 
-	nodes := make([]oculus.FuncNode, 0, len(nodeSet))
+	nodes := make([]oculus.Symbol, 0, len(nodeSet))
 	for _, n := range nodeSet {
 		nodes = append(nodes, n)
 	}
@@ -75,9 +75,9 @@ func (a *TreeSitterDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts o
 }
 
 // extractCallGraphFuncs extracts function definitions grouped by package.
-func (a *TreeSitterDeepAnalyzer) extractCallGraphFuncs(opts oculus.CallGraphOpts) (allFuncs map[string]cgFuncDef, nodeSet map[string]oculus.FuncNode) {
+func (a *TreeSitterDeepAnalyzer) extractCallGraphFuncs(opts oculus.CallGraphOpts) (allFuncs map[string]cgFuncDef, nodeSet map[string]oculus.Symbol) {
 	allFuncs = make(map[string]cgFuncDef)
-	nodeSet = make(map[string]oculus.FuncNode)
+	nodeSet = make(map[string]oculus.Symbol)
 
 	for _, f := range a.project.Files {
 		pkg := f.Package
@@ -106,7 +106,7 @@ func (a *TreeSitterDeepAnalyzer) extractCallGraphFuncs(opts oculus.CallGraphOpts
 			paramTypes := extractGoFuncParamTypes(paramNode, f.Source)
 			returnTypes := extractGoFuncResultTypes(child, f.Source)
 			allFuncs[key] = cgFuncDef{name: name, pkg: pkg, file: f.RelPath, body: body, src: f.Source, line: line, endLine: endLine, paramTypes: paramTypes, returnTypes: returnTypes}
-			nodeSet[key] = oculus.FuncNode{Name: name, Package: pkg, Line: line, File: f.RelPath, EndLine: endLine}
+			nodeSet[key] = oculus.Symbol{Name: name, Package: pkg, Line: line, File: f.RelPath, EndLine: endLine}
 		}
 	}
 	return allFuncs, nodeSet
@@ -127,7 +127,7 @@ func resolveCallee(callee, callerPkg string, allFuncs map[string]cgFuncDef) (key
 }
 
 // walkCallGraph walks the call graph from roots determined by opts.
-func walkCallGraph(allFuncs map[string]cgFuncDef, nodeSet map[string]oculus.FuncNode,
+func walkCallGraph(allFuncs map[string]cgFuncDef, nodeSet map[string]oculus.Symbol,
 	opts oculus.CallGraphOpts, depth int,
 ) []oculus.CallEdge {
 	var edges []oculus.CallEdge
@@ -162,7 +162,7 @@ func walkCallGraph(allFuncs map[string]cgFuncDef, nodeSet map[string]oculus.Func
 				ReturnTypes: calleeReturnTypes,
 			})
 			if cf, exists := allFuncs[calleeKey]; exists {
-				nodeSet[calleeKey] = oculus.FuncNode{Name: callee, Package: calleePkg, Line: cf.line, File: cf.file, EndLine: cf.endLine}
+				nodeSet[calleeKey] = oculus.Symbol{Name: callee, Package: calleePkg, Line: cf.line, File: cf.file, EndLine: cf.endLine}
 				walk(calleeKey, d+1)
 			}
 		})

@@ -21,7 +21,7 @@ func init() {
 // ParseTreeSitterFunctions parses all Go source files via tree-sitter and
 // returns SourceFuncs with callees pre-extracted. Thread-safe: tree-sitter
 // nodes are only accessed during construction, not during concurrent Pipeline walks.
-func ParseTreeSitterFunctions(root string) []oculus.SourceFunc {
+func ParseTreeSitterFunctions(root string) []oculus.Symbol {
 	pp, err := BuildParsedProject(root)
 	if err != nil || pp == nil {
 		return nil
@@ -30,7 +30,7 @@ func ParseTreeSitterFunctions(root string) []oculus.SourceFunc {
 	a := &TreeSitterDeepAnalyzer{project: pp}
 	allFuncs, _ := a.extractCallGraphFuncs(oculus.CallGraphOpts{})
 
-	var funcs []oculus.SourceFunc
+	var funcs []oculus.Symbol
 	for key, fd := range allFuncs {
 		// Pre-extract callees from tree-sitter AST (single-threaded).
 		var callees []string
@@ -50,7 +50,7 @@ func ParseTreeSitterFunctions(root string) []oculus.SourceFunc {
 			// name is already just the function name
 		}
 
-		funcs = append(funcs, oculus.SourceFunc{
+		funcs = append(funcs, oculus.Symbol{
 			Name:        name,
 			Package:     fd.pkg,
 			File:        fd.file,

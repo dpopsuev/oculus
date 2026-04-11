@@ -166,12 +166,10 @@ func (s Symbol) FQN() string {
 	return s.Package + "." + s.Name
 }
 
-// FuncNode is an alias for Symbol — backward compatibility for call graph results.
-type FuncNode = Symbol
 
 // CallGraph is the result of call graph analysis.
 type CallGraph struct {
-	Nodes []FuncNode `json:"nodes"`
+	Nodes []Symbol `json:"nodes"`
 	Edges []CallEdge `json:"edges"`
 	Layer string     `json:"layer,omitempty"`
 }
@@ -234,8 +232,6 @@ type ConventionReport struct {
 	Total       int          `json:"total"`
 }
 
-// SymbolNode is an alias for Symbol — backward compatibility for symbol graph results.
-type SymbolNode = Symbol
 
 // SymbolEdge represents a typed, directed relationship between two symbols.
 // Satisfies graph.Edge via Source()/Target().
@@ -259,7 +255,7 @@ func (e SymbolEdge) Target() string { return e.TargetFQN }
 
 // SymbolGraph is the unified symbol-level graph result.
 type SymbolGraph struct {
-	Nodes []SymbolNode `json:"nodes"`
+	Nodes []Symbol `json:"nodes"`
 	Edges []SymbolEdge `json:"edges"`
 }
 

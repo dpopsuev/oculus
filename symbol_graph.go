@@ -4,7 +4,7 @@ package oculus
 // and reference data. Deduplicates nodes by FQN and edges by
 // (source, target, kind) triple.
 func MergeSymbolGraph(cg *CallGraph, classes []ClassInfo, impls []ImplEdge, refs []FieldRef) *SymbolGraph {
-	nodeMap := make(map[string]SymbolNode)
+	nodeMap := make(map[string]Symbol)
 	type edgeKey struct{ source, target, kind string }
 	edgeSet := make(map[edgeKey]SymbolEdge)
 
@@ -20,7 +20,7 @@ func MergeSymbolGraph(cg *CallGraph, classes []ClassInfo, impls []ImplEdge, refs
 		for _, n := range cg.Nodes {
 			key := fqn(n.Package, n.Name)
 			if _, exists := nodeMap[key]; !exists {
-				nodeMap[key] = SymbolNode{
+				nodeMap[key] = Symbol{
 					Name: n.Name, Package: n.Package, Kind: "function",
 					File: n.File, Line: n.Line, EndLine: n.EndLine,
 					Exported: isUpper(n.Name),
@@ -45,7 +45,7 @@ func MergeSymbolGraph(cg *CallGraph, classes []ClassInfo, impls []ImplEdge, refs
 	for _, ci := range classes {
 		key := fqn(ci.Package, ci.Name)
 		if _, exists := nodeMap[key]; !exists {
-			nodeMap[key] = SymbolNode{
+			nodeMap[key] = Symbol{
 				Name: ci.Name, Package: ci.Package, Kind: ci.Kind,
 				File: ci.File, Line: ci.Line, EndLine: ci.EndLine,
 				Exported: ci.Exported,
@@ -54,7 +54,7 @@ func MergeSymbolGraph(cg *CallGraph, classes []ClassInfo, impls []ImplEdge, refs
 		for _, m := range ci.Methods {
 			mKey := fqn(ci.Package, ci.Name+"."+m.Name)
 			if _, exists := nodeMap[mKey]; !exists {
-				nodeMap[mKey] = SymbolNode{
+				nodeMap[mKey] = Symbol{
 					Name: ci.Name + "." + m.Name, Package: ci.Package, Kind: "method",
 					File: m.File, Line: m.Line, EndLine: m.EndLine,
 					Exported: m.Exported,
@@ -83,7 +83,7 @@ func MergeSymbolGraph(cg *CallGraph, classes []ClassInfo, impls []ImplEdge, refs
 		}
 	}
 
-	nodes := make([]SymbolNode, 0, len(nodeMap))
+	nodes := make([]Symbol, 0, len(nodeMap))
 	for _, n := range nodeMap {
 		nodes = append(nodes, n)
 	}

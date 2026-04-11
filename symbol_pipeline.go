@@ -50,7 +50,7 @@ func (p *SymbolPipeline) CallGraph(ctx context.Context, _ string, opts CallGraph
 
 	// Step 2: Walk from roots with bounded concurrency.
 	var mu sync.Mutex
-	nodeSet := make(map[string]FuncNode)
+	nodeSet := make(map[string]Symbol)
 	var edges []CallEdge
 	visited := make(map[string]bool)
 	sigCache := make(map[string]*SourceTypeInfo)
@@ -58,8 +58,8 @@ func (p *SymbolPipeline) CallGraph(ctx context.Context, _ string, opts CallGraph
 	g, gCtx := errgroup.WithContext(ctx)
 	g.SetLimit(p.concurrency())
 
-	var walk func(sym SourceSymbol, d int)
-	walk = func(sym SourceSymbol, d int) {
+	var walk func(sym Symbol, d int)
+	walk = func(sym Symbol, d int) {
 		if gCtx.Err() != nil {
 			return
 		}
@@ -73,7 +73,7 @@ func (p *SymbolPipeline) CallGraph(ctx context.Context, _ string, opts CallGraph
 		mu.Unlock()
 
 		mu.Lock()
-		nodeSet[sym.Package+"."+sym.Name] = FuncNode{
+		nodeSet[sym.Package+"."+sym.Name] = Symbol{
 			Name:    sym.Name,
 			Package: sym.Package,
 			Line:    sym.Line,
@@ -115,7 +115,7 @@ func (p *SymbolPipeline) CallGraph(ctx context.Context, _ string, opts CallGraph
 
 			mu.Lock()
 			if rel.InWorkspace {
-				nodeSet[callee.Package+"."+callee.Name] = FuncNode{
+				nodeSet[callee.Package+"."+callee.Name] = Symbol{
 					Name:    callee.Name,
 					Package: callee.Package,
 					Line:    callee.Line,
@@ -168,7 +168,7 @@ func (p *SymbolPipeline) CallGraph(ctx context.Context, _ string, opts CallGraph
 	}
 	_ = g.Wait()
 
-	nodes := make([]FuncNode, 0, len(nodeSet))
+	nodes := make([]Symbol, 0, len(nodeSet))
 	for _, n := range nodeSet {
 		nodes = append(nodes, n)
 	}
@@ -195,8 +195,8 @@ func (p *SymbolPipeline) DataFlowTrace(ctx context.Context, _, entry string, max
 
 	nodeMap[entry] = DataFlowNode{Name: entry, Kind: "entry", Pkg: entryRoot.Package}
 
-	var trace func(sym SourceSymbol, d int)
-	trace = func(sym SourceSymbol, d int) {
+	var trace func(sym Symbol, d int)
+	trace = func(sym Symbol, d int) {
 		if ctx.Err() != nil || d > maxDepth || visited[sym.Name] {
 			return
 		}

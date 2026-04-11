@@ -126,11 +126,11 @@ func TestSymbolEdge_CheckLayerPurity(t *testing.T) {
 
 func TestSymbolNode_FQN(t *testing.T) {
 	tests := []struct {
-		node oculus.SymbolNode
+		node oculus.Symbol
 		want string
 	}{
-		{oculus.SymbolNode{Name: "Run", Package: "internal/core"}, "internal/core.Run"},
-		{oculus.SymbolNode{Name: "main", Package: ""}, "main"},
+		{oculus.Symbol{Name: "Run", Package: "internal/core"}, "internal/core.Run"},
+		{oculus.Symbol{Name: "main", Package: ""}, "main"},
 	}
 	for _, tt := range tests {
 		if got := tt.node.FQN(); got != tt.want {

@@ -112,7 +112,7 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 
 	// Step 2: Walk the call tree from roots with bounded concurrency.
 	var mu sync.Mutex
-	nodeSet := make(map[string]oculus.FuncNode)
+	nodeSet := make(map[string]oculus.Symbol)
 	var edges []oculus.CallEdge
 	visited := make(map[string]bool)
 	sigCache := make(map[string]*[2][]string)
@@ -137,7 +137,7 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 		pkg := uriToPackage(it.URI, a.root)
 
 		mu.Lock()
-		nodeSet[pkg+"."+it.Name] = oculus.FuncNode{
+		nodeSet[pkg+"."+it.Name] = oculus.Symbol{
 			Name: it.Name, Package: pkg, Line: it.Range.Start.Line + 1,
 			File: uriToRelPath(it.URI, a.root), EndLine: it.Range.End.Line + 1,
 		}
@@ -162,7 +162,7 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 
 			mu.Lock()
 			if inWorkspace {
-				nodeSet[calleePkg+"."+out.To.Name] = oculus.FuncNode{
+				nodeSet[calleePkg+"."+out.To.Name] = oculus.Symbol{
 					Name: out.To.Name, Package: calleePkg,
 					Line: out.To.Range.Start.Line + 1,
 					File: uriToRelPath(out.To.URI, a.root), EndLine: out.To.Range.End.Line + 1,
@@ -205,7 +205,7 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 	// Note: go/parser fallback enrichment is handled by the universal hook
 	// in DeepFallbackAnalyzer.CallGraph — no need to call it here.
 
-	nodes := make([]oculus.FuncNode, 0, len(nodeSet))
+	nodes := make([]oculus.Symbol, 0, len(nodeSet))
 	for _, n := range nodeSet {
 		nodes = append(nodes, n)
 	}

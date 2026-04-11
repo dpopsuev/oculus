@@ -26,7 +26,7 @@ func init() {
 }
 
 // ParseCFunctions parses .c/.h files via tree-sitter.
-func ParseCFunctions(root string) []oculus.SourceFunc {
+func ParseCFunctions(root string) []oculus.Symbol {
 	parser := ts.NewParser()
 	parser.SetLanguage(ts.C())
 
@@ -35,7 +35,7 @@ func ParseCFunctions(root string) []oculus.SourceFunc {
 		return nil
 	}
 
-	var funcs []oculus.SourceFunc
+	var funcs []oculus.Symbol
 
 	_ = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -72,7 +72,7 @@ func ParseCFunctions(root string) []oculus.SourceFunc {
 	return funcs
 }
 
-func extractCLangFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
+func extractCLangFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.Symbol) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		if child.Type() != "function_definition" {
@@ -106,7 +106,7 @@ func extractCLangFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]ocul
 			callees = extractCallExpressions(body, src)
 		}
 
-		*funcs = append(*funcs, oculus.SourceFunc{
+		*funcs = append(*funcs, oculus.Symbol{
 			Name: name, Package: pkg, File: file,
 			Line: int(child.StartPoint().Row) + 1, EndLine: int(child.EndPoint().Row) + 1,
 			ParamTypes: paramTypes, ReturnTypes: returnTypes,

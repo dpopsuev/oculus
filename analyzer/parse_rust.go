@@ -26,7 +26,7 @@ func init() {
 }
 
 // ParseRustFunctions parses .rs files via tree-sitter and returns SourceFuncs.
-func ParseRustFunctions(root string) []oculus.SourceFunc {
+func ParseRustFunctions(root string) []oculus.Symbol {
 	parser := ts.NewParser()
 	parser.SetLanguage(ts.Rust())
 
@@ -35,7 +35,7 @@ func ParseRustFunctions(root string) []oculus.SourceFunc {
 		return nil
 	}
 
-	var funcs []oculus.SourceFunc
+	var funcs []oculus.Symbol
 
 	_ = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -72,7 +72,7 @@ func ParseRustFunctions(root string) []oculus.SourceFunc {
 	return funcs
 }
 
-func extractRustFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
+func extractRustFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.Symbol) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		switch child.Type() {
@@ -105,7 +105,7 @@ func extractRustFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculu
 
 			exported := !strings.HasPrefix(name, "_")
 
-			*funcs = append(*funcs, oculus.SourceFunc{
+			*funcs = append(*funcs, oculus.Symbol{
 				Name: name, Package: pkg, File: file,
 				Line: int(child.StartPoint().Row) + 1, EndLine: int(child.EndPoint().Row) + 1,
 				ParamTypes: paramTypes, ReturnTypes: returnTypes,

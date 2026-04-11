@@ -43,7 +43,7 @@ func GenerateSymbolGraph(tier ScaleTier) *oculus.SymbolGraph {
 	totalSymbols := tier.Components * symbolsPerComponent
 
 	// Generate nodes
-	nodes := make([]oculus.SymbolNode, 0, totalSymbols)
+	nodes := make([]oculus.Symbol, 0, totalSymbols)
 	symbolFQNs := make([]string, 0, totalSymbols)
 	for _, comp := range components {
 		for j := 0; j < symbolsPerComponent; j++ {
@@ -53,7 +53,7 @@ func GenerateSymbolGraph(tier ScaleTier) *oculus.SymbolGraph {
 			if j == 0 {
 				kind = "struct"
 			}
-			nodes = append(nodes, oculus.SymbolNode{
+			nodes = append(nodes, oculus.Symbol{
 				Name:     name,
 				Package:  comp,
 				Kind:     kind,

@@ -6,7 +6,7 @@ import (
 
 func testSymbolGraph() *SymbolGraph {
 	return &SymbolGraph{
-		Nodes: []SymbolNode{
+		Nodes: []Symbol{
 			{Name: "main", Package: "cmd/app", Kind: "function", File: "cmd/app/main.go"},
 			{Name: "Run", Package: "internal/core", Kind: "function", File: "internal/core/core.go"},
 			{Name: "Get", Package: "internal/store", Kind: "function", File: "internal/store/store.go"},

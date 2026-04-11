@@ -11,14 +11,14 @@ import (
 // --- MockSymbolSource: in-memory SymbolSource for testing ---
 
 type mockSymbolSource struct {
-	roots    []SourceSymbol
+	roots    []Symbol
 	children map[string][]SourceRelation // keyed by symbol name
 	hovers   map[string]*SourceTypeInfo  // keyed by symbol name
 	latency  time.Duration
 	calls    atomic.Int64 // counts Children calls for concurrency verification
 }
 
-func (m *mockSymbolSource) Roots(ctx context.Context, query string) ([]SourceSymbol, error) {
+func (m *mockSymbolSource) Roots(ctx context.Context, query string) ([]Symbol, error) {
 	if m.latency > 0 {
 		select {
 		case <-time.After(m.latency):
@@ -29,7 +29,7 @@ func (m *mockSymbolSource) Roots(ctx context.Context, query string) ([]SourceSym
 	if query != "" {
 		for _, r := range m.roots {
 			if r.Name == query {
-				return []SourceSymbol{r}, nil
+				return []Symbol{r}, nil
 			}
 		}
 		return nil, nil
@@ -37,7 +37,7 @@ func (m *mockSymbolSource) Roots(ctx context.Context, query string) ([]SourceSym
 	return m.roots, nil
 }
 
-func (m *mockSymbolSource) Children(ctx context.Context, sym SourceSymbol) ([]SourceRelation, error) {
+func (m *mockSymbolSource) Children(ctx context.Context, sym Symbol) ([]SourceRelation, error) {
 	m.calls.Add(1)
 	if m.latency > 0 {
 		select {
@@ -49,7 +49,7 @@ func (m *mockSymbolSource) Children(ctx context.Context, sym SourceSymbol) ([]So
 	return m.children[sym.Name], nil
 }
 
-func (m *mockSymbolSource) Hover(ctx context.Context, sym SourceSymbol) (*SourceTypeInfo, error) {
+func (m *mockSymbolSource) Hover(ctx context.Context, sym Symbol) (*SourceTypeInfo, error) {
 	if m.latency > 0 {
 		select {
 		case <-time.After(m.latency):
@@ -78,16 +78,16 @@ func TestSymbolPipeline_InterfaceCompliance(t *testing.T) {
 // Expect 4 nodes, 3 edges.
 func TestSymbolPipeline_CallGraph_Basic(t *testing.T) {
 	src := &mockSymbolSource{
-		roots: []SourceSymbol{
+		roots: []Symbol{
 			{Name: "Main", Package: "cmd", File: "main.go", Line: 1},
 		},
 		children: map[string][]SourceRelation{
 			"Main": {
-				{Target: SourceSymbol{Name: "Foo", Package: "pkg", File: "foo.go", Line: 10}, Kind: "call", InWorkspace: true},
-				{Target: SourceSymbol{Name: "Bar", Package: "pkg", File: "bar.go", Line: 20}, Kind: "call", InWorkspace: true},
+				{Target: Symbol{Name: "Foo", Package: "pkg", File: "foo.go", Line: 10}, Kind: "call", InWorkspace: true},
+				{Target: Symbol{Name: "Bar", Package: "pkg", File: "bar.go", Line: 20}, Kind: "call", InWorkspace: true},
 			},
 			"Foo": {
-				{Target: SourceSymbol{Name: "Baz", Package: "util", File: "baz.go", Line: 5}, Kind: "call", InWorkspace: true},
+				{Target: Symbol{Name: "Baz", Package: "util", File: "baz.go", Line: 5}, Kind: "call", InWorkspace: true},
 			},
 		},
 	}
@@ -110,14 +110,14 @@ func TestSymbolPipeline_CallGraph_Basic(t *testing.T) {
 // Chain: A → B → C → D → E. Depth 2 should produce A, B, C (not D, E).
 func TestSymbolPipeline_CallGraph_DepthLimit(t *testing.T) {
 	src := &mockSymbolSource{
-		roots: []SourceSymbol{
+		roots: []Symbol{
 			{Name: "A", Package: "pkg", File: "a.go", Line: 1},
 		},
 		children: map[string][]SourceRelation{
-			"A": {{Target: SourceSymbol{Name: "B", Package: "pkg", File: "b.go", Line: 1}, Kind: "call", InWorkspace: true}},
-			"B": {{Target: SourceSymbol{Name: "C", Package: "pkg", File: "c.go", Line: 1}, Kind: "call", InWorkspace: true}},
-			"C": {{Target: SourceSymbol{Name: "D", Package: "pkg", File: "d.go", Line: 1}, Kind: "call", InWorkspace: true}},
-			"D": {{Target: SourceSymbol{Name: "E", Package: "pkg", File: "e.go", Line: 1}, Kind: "call", InWorkspace: true}},
+			"A": {{Target: Symbol{Name: "B", Package: "pkg", File: "b.go", Line: 1}, Kind: "call", InWorkspace: true}},
+			"B": {{Target: Symbol{Name: "C", Package: "pkg", File: "c.go", Line: 1}, Kind: "call", InWorkspace: true}},
+			"C": {{Target: Symbol{Name: "D", Package: "pkg", File: "d.go", Line: 1}, Kind: "call", InWorkspace: true}},
+			"D": {{Target: Symbol{Name: "E", Package: "pkg", File: "e.go", Line: 1}, Kind: "call", InWorkspace: true}},
 		},
 	}
 
@@ -149,14 +149,14 @@ func TestSymbolPipeline_CallGraph_BoundedConcurrency(t *testing.T) {
 	const numRoots = 8
 	latency := 50 * time.Millisecond
 
-	roots := make([]SourceSymbol, numRoots)
+	roots := make([]Symbol, numRoots)
 	children := make(map[string][]SourceRelation)
 	for i := range numRoots {
 		name := "Root" + string(rune('A'+i))
-		roots[i] = SourceSymbol{Name: name, Package: "pkg", File: "root.go", Line: i + 1}
+		roots[i] = Symbol{Name: name, Package: "pkg", File: "root.go", Line: i + 1}
 		childName := "Child" + string(rune('A'+i))
 		children[name] = []SourceRelation{
-			{Target: SourceSymbol{Name: childName, Package: "pkg", File: "child.go", Line: i + 1}, Kind: "call", InWorkspace: true},
+			{Target: Symbol{Name: childName, Package: "pkg", File: "child.go", Line: i + 1}, Kind: "call", InWorkspace: true},
 		}
 	}
 
@@ -193,16 +193,16 @@ func TestSymbolPipeline_CallGraph_BoundedConcurrency(t *testing.T) {
 // TestSymbolPipeline_CallGraph_ContextCancel tests graceful return on context cancellation.
 func TestSymbolPipeline_CallGraph_ContextCancel(t *testing.T) {
 	src := &mockSymbolSource{
-		roots: []SourceSymbol{
+		roots: []Symbol{
 			{Name: "Slow", Package: "pkg", File: "slow.go", Line: 1},
 		},
 		children: map[string][]SourceRelation{
 			"Slow": {
-				{Target: SourceSymbol{Name: "A", Package: "pkg"}, Kind: "call", InWorkspace: true},
-				{Target: SourceSymbol{Name: "B", Package: "pkg"}, Kind: "call", InWorkspace: true},
+				{Target: Symbol{Name: "A", Package: "pkg"}, Kind: "call", InWorkspace: true},
+				{Target: Symbol{Name: "B", Package: "pkg"}, Kind: "call", InWorkspace: true},
 			},
 			"A": {
-				{Target: SourceSymbol{Name: "C", Package: "pkg"}, Kind: "call", InWorkspace: true},
+				{Target: Symbol{Name: "C", Package: "pkg"}, Kind: "call", InWorkspace: true},
 			},
 		},
 		latency: 200 * time.Millisecond,
@@ -228,12 +228,12 @@ func TestSymbolPipeline_CallGraph_ContextCancel(t *testing.T) {
 // to populate ParamTypes and ReturnTypes on call edges.
 func TestSymbolPipeline_CallGraph_TypeEnrichment(t *testing.T) {
 	src := &mockSymbolSource{
-		roots: []SourceSymbol{
+		roots: []Symbol{
 			{Name: "Handler", Package: "http", File: "handler.go", Line: 1},
 		},
 		children: map[string][]SourceRelation{
 			"Handler": {
-				{Target: SourceSymbol{Name: "Query", Package: "db", File: "query.go", Line: 10}, Kind: "call", InWorkspace: true},
+				{Target: Symbol{Name: "Query", Package: "db", File: "query.go", Line: 10}, Kind: "call", InWorkspace: true},
 			},
 		},
 		hovers: map[string]*SourceTypeInfo{
@@ -263,13 +263,13 @@ func TestSymbolPipeline_CallGraph_TypeEnrichment(t *testing.T) {
 // TestSymbolPipeline_CallGraph_CrossPkg tests that cross-package edges are marked.
 func TestSymbolPipeline_CallGraph_CrossPkg(t *testing.T) {
 	src := &mockSymbolSource{
-		roots: []SourceSymbol{
+		roots: []Symbol{
 			{Name: "Start", Package: "cmd", File: "main.go", Line: 1},
 		},
 		children: map[string][]SourceRelation{
 			"Start": {
-				{Target: SourceSymbol{Name: "Same", Package: "cmd", File: "same.go", Line: 5}, Kind: "call", InWorkspace: true},
-				{Target: SourceSymbol{Name: "Other", Package: "lib", File: "other.go", Line: 5}, Kind: "call", InWorkspace: true},
+				{Target: Symbol{Name: "Same", Package: "cmd", File: "same.go", Line: 5}, Kind: "call", InWorkspace: true},
+				{Target: Symbol{Name: "Other", Package: "lib", File: "other.go", Line: 5}, Kind: "call", InWorkspace: true},
 			},
 		},
 	}
@@ -300,17 +300,17 @@ func TestSymbolPipeline_CallGraph_CrossPkg(t *testing.T) {
 // callees produce edges but don't recurse.
 func TestSymbolPipeline_CallGraph_ExternalSkipped(t *testing.T) {
 	src := &mockSymbolSource{
-		roots: []SourceSymbol{
+		roots: []Symbol{
 			{Name: "Main", Package: "cmd", File: "main.go", Line: 1},
 		},
 		children: map[string][]SourceRelation{
 			"Main": {
-				{Target: SourceSymbol{Name: "Println", Package: "fmt"}, Kind: "call", InWorkspace: false},
-				{Target: SourceSymbol{Name: "Helper", Package: "pkg", File: "h.go", Line: 1}, Kind: "call", InWorkspace: true},
+				{Target: Symbol{Name: "Println", Package: "fmt"}, Kind: "call", InWorkspace: false},
+				{Target: Symbol{Name: "Helper", Package: "pkg", File: "h.go", Line: 1}, Kind: "call", InWorkspace: true},
 			},
 			// Println has children, but since it's external they should NOT be walked.
 			"Println": {
-				{Target: SourceSymbol{Name: "Fprintln", Package: "fmt"}, Kind: "call", InWorkspace: false},
+				{Target: Symbol{Name: "Fprintln", Package: "fmt"}, Kind: "call", InWorkspace: false},
 			},
 		},
 	}
@@ -335,13 +335,13 @@ func TestSymbolPipeline_CallGraph_ExternalSkipped(t *testing.T) {
 // TestSymbolPipeline_CallGraph_EntryOpt tests that Entry option limits to a single root.
 func TestSymbolPipeline_CallGraph_EntryOpt(t *testing.T) {
 	src := &mockSymbolSource{
-		roots: []SourceSymbol{
+		roots: []Symbol{
 			{Name: "Alpha", Package: "pkg", File: "a.go", Line: 1},
 			{Name: "Beta", Package: "pkg", File: "b.go", Line: 1},
 		},
 		children: map[string][]SourceRelation{
-			"Alpha": {{Target: SourceSymbol{Name: "X", Package: "pkg"}, Kind: "call", InWorkspace: true}},
-			"Beta":  {{Target: SourceSymbol{Name: "Y", Package: "pkg"}, Kind: "call", InWorkspace: true}},
+			"Alpha": {{Target: Symbol{Name: "X", Package: "pkg"}, Kind: "call", InWorkspace: true}},
+			"Beta":  {{Target: Symbol{Name: "Y", Package: "pkg"}, Kind: "call", InWorkspace: true}},
 		},
 	}
 
@@ -365,16 +365,16 @@ func TestSymbolPipeline_CallGraph_EntryOpt(t *testing.T) {
 // TestSymbolPipeline_DataFlowTrace_Basic tests basic data flow tracing.
 func TestSymbolPipeline_DataFlowTrace_Basic(t *testing.T) {
 	src := &mockSymbolSource{
-		roots: []SourceSymbol{
+		roots: []Symbol{
 			{Name: "HandleRequest", Package: "api", File: "handler.go", Line: 1},
 		},
 		children: map[string][]SourceRelation{
 			"HandleRequest": {
-				{Target: SourceSymbol{Name: "ValidateInput", Package: "api"}, Kind: "call", InWorkspace: true},
-				{Target: SourceSymbol{Name: "QueryDB", Package: "db"}, Kind: "data_store", InWorkspace: true},
+				{Target: Symbol{Name: "ValidateInput", Package: "api"}, Kind: "call", InWorkspace: true},
+				{Target: Symbol{Name: "QueryDB", Package: "db"}, Kind: "data_store", InWorkspace: true},
 			},
 			"ValidateInput": {
-				{Target: SourceSymbol{Name: "ParseJSON", Package: "util"}, Kind: "call", InWorkspace: true},
+				{Target: Symbol{Name: "ParseJSON", Package: "util"}, Kind: "call", InWorkspace: true},
 			},
 		},
 	}
@@ -408,17 +408,17 @@ func TestSymbolPipeline_DataFlowTrace_Basic(t *testing.T) {
 // TestSymbolPipeline_CallGraph_Progress tests that OnProgress fires after each root.
 func TestSymbolPipeline_CallGraph_Progress(t *testing.T) {
 	src := &mockSymbolSource{
-		roots: []SourceSymbol{
+		roots: []Symbol{
 			{Name: "Alpha", Package: "pkg", File: "a.go", Line: 1},
 			{Name: "Beta", Package: "pkg", File: "b.go", Line: 1},
 			{Name: "Gamma", Package: "pkg", File: "c.go", Line: 1},
 			{Name: "Delta", Package: "pkg", File: "d.go", Line: 1},
 		},
 		children: map[string][]SourceRelation{
-			"Alpha": {{Target: SourceSymbol{Name: "A1", Package: "pkg"}, Kind: "call", InWorkspace: true}},
-			"Beta":  {{Target: SourceSymbol{Name: "B1", Package: "pkg"}, Kind: "call", InWorkspace: true}},
-			"Gamma": {{Target: SourceSymbol{Name: "C1", Package: "pkg"}, Kind: "call", InWorkspace: true}},
-			"Delta": {{Target: SourceSymbol{Name: "D1", Package: "pkg"}, Kind: "call", InWorkspace: true}},
+			"Alpha": {{Target: Symbol{Name: "A1", Package: "pkg"}, Kind: "call", InWorkspace: true}},
+			"Beta":  {{Target: Symbol{Name: "B1", Package: "pkg"}, Kind: "call", InWorkspace: true}},
+			"Gamma": {{Target: Symbol{Name: "C1", Package: "pkg"}, Kind: "call", InWorkspace: true}},
+			"Delta": {{Target: Symbol{Name: "D1", Package: "pkg"}, Kind: "call", InWorkspace: true}},
 		},
 		latency: 10 * time.Millisecond,
 	}

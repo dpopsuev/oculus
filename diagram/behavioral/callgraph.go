@@ -38,7 +38,7 @@ func CallGraph(in core.Input, opts core.Options) (string, error) {
 	b.WriteString("flowchart TB\n")
 
 	// Group nodes by package
-	pkgNodes := make(map[string][]oculus.FuncNode)
+	pkgNodes := make(map[string][]oculus.Symbol)
 	for _, n := range cg.Nodes {
 		pkgNodes[n.Package] = append(pkgNodes[n.Package], n)
 	}

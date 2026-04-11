@@ -9,7 +9,7 @@ import (
 // def load_config(path: str) -> dict: ...
 // def transform(cfg: dict) -> list: ...
 // def main(): cfg = load_config(...); result = transform(cfg)
-var pythonFixture = []SourceFunc{
+var pythonFixture = []Symbol{
 	{Name: "load_config", Package: ".", File: "main.py", Line: 1, EndLine: 2, Exported: true,
 		ParamTypes: []string{"str"}, ReturnTypes: []string{"dict"}, Callees: nil},
 	{Name: "transform", Package: ".", File: "main.py", Line: 4, EndLine: 5, Exported: true,
@@ -71,7 +71,7 @@ func TestFuncIndexSource_TypeEnrichment(t *testing.T) {
 
 // TestFuncIndexSource_AllExported tests that empty query returns all exported functions.
 func TestFuncIndexSource_AllExported(t *testing.T) {
-	funcs := []SourceFunc{
+	funcs := []Symbol{
 		{Name: "Public", Package: "pkg", Exported: true},
 		{Name: "_private", Package: "pkg", Exported: false},
 		{Name: "AlsoPublic", Package: "pkg", Exported: true},
@@ -105,7 +105,7 @@ func TestFuncIndexSource_QueryByName(t *testing.T) {
 
 // TestFuncIndexSource_DepthLimit tests depth limit through Pipeline.
 func TestFuncIndexSource_DepthLimit(t *testing.T) {
-	funcs := []SourceFunc{
+	funcs := []Symbol{
 		{Name: "A", Package: "p", Exported: true, Callees: []string{"B"}},
 		{Name: "B", Package: "p", Exported: true, Callees: []string{"C"}},
 		{Name: "C", Package: "p", Exported: true, Callees: []string{"D"}},
@@ -132,7 +132,7 @@ func TestFuncIndexSource_DepthLimit(t *testing.T) {
 
 // TestFuncIndexSource_CrossPkg tests cross-package edge marking.
 func TestFuncIndexSource_CrossPkg(t *testing.T) {
-	funcs := []SourceFunc{
+	funcs := []Symbol{
 		{Name: "Handler", Package: "api", Exported: true, Callees: []string{"Query", "Helper"}},
 		{Name: "Query", Package: "db", Exported: true},
 		{Name: "Helper", Package: "api", Exported: true},

@@ -9,7 +9,7 @@ import (
 
 func TestComputeDiffIntelligence_SingleFileWithCallers(t *testing.T) {
 	graph := &oculus.CallGraph{
-		Nodes: []oculus.FuncNode{
+		Nodes: []oculus.Symbol{
 			{Name: "DoWork", Package: "internal/core"},
 			{Name: "Helper", Package: "internal/core"},
 			{Name: "HandleRequest", Package: "internal/api"},
@@ -50,7 +50,7 @@ func TestComputeDiffIntelligence_SingleFileWithCallers(t *testing.T) {
 func TestComputeDiffIntelligence_NoExportedSymbols(t *testing.T) {
 	// Symbols in the graph are in a different package than the changed file.
 	graph := &oculus.CallGraph{
-		Nodes: []oculus.FuncNode{
+		Nodes: []oculus.Symbol{
 			{Name: "Unrelated", Package: "internal/other"},
 		},
 		Edges: []oculus.CallEdge{
@@ -73,7 +73,7 @@ func TestComputeDiffIntelligence_NoExportedSymbols(t *testing.T) {
 }
 
 func TestComputeDiffIntelligence_HighFanInCritical(t *testing.T) {
-	nodes := []oculus.FuncNode{
+	nodes := []oculus.Symbol{
 		{Name: "Log", Package: "pkg/logger"},
 	}
 	edges := make([]oculus.CallEdge, 0, 15)
@@ -107,7 +107,7 @@ func TestComputeDiffIntelligence_HighFanInCritical(t *testing.T) {
 
 func TestComputeDiffIntelligence_NoChangedFiles(t *testing.T) {
 	graph := &oculus.CallGraph{
-		Nodes: []oculus.FuncNode{{Name: "Foo", Package: "pkg"}},
+		Nodes: []oculus.Symbol{{Name: "Foo", Package: "pkg"}},
 		Edges: []oculus.CallEdge{{Caller: "Bar", Callee: "Foo"}},
 	}
 
@@ -129,7 +129,7 @@ func TestComputeDiffIntelligence_NoChangedFiles(t *testing.T) {
 
 func TestComputeDiffIntelligence_MultiplePackages(t *testing.T) {
 	graph := &oculus.CallGraph{
-		Nodes: []oculus.FuncNode{
+		Nodes: []oculus.Symbol{
 			{Name: "Parse", Package: "internal/parser"},
 			{Name: "Validate", Package: "internal/validator"},
 			{Name: "Transform", Package: "internal/parser"},
@@ -176,7 +176,7 @@ func TestComputeDiffIntelligence_MultiplePackages(t *testing.T) {
 
 func TestComputeDiffIntelligence_ModulePathStripped(t *testing.T) {
 	graph := &oculus.CallGraph{
-		Nodes: []oculus.FuncNode{
+		Nodes: []oculus.Symbol{
 			{Name: "Init", Package: "internal/app"},
 		},
 		Edges: []oculus.CallEdge{
@@ -212,7 +212,7 @@ func TestComputeDiffIntelligence_NilGraph(t *testing.T) {
 func TestComputeDiffIntelligence_ZeroCallersExcluded(t *testing.T) {
 	// Symbol is in a changed package but has zero callers — should NOT appear.
 	graph := &oculus.CallGraph{
-		Nodes: []oculus.FuncNode{
+		Nodes: []oculus.Symbol{
 			{Name: "Unused", Package: "internal/core"},
 			{Name: "Used", Package: "internal/core"},
 		},
@@ -258,7 +258,7 @@ func TestCallerSeverity(t *testing.T) {
 
 func TestComputeDiffIntelligence_RootPackage(t *testing.T) {
 	graph := &oculus.CallGraph{
-		Nodes: []oculus.FuncNode{
+		Nodes: []oculus.Symbol{
 			{Name: "Main", Package: "(root)"},
 		},
 		Edges: []oculus.CallEdge{

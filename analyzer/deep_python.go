@@ -28,7 +28,7 @@ func init() {
 
 // ParsePythonFunctions parses all .py files and returns SourceFuncs
 // with type annotations extracted from tree-sitter AST.
-func ParsePythonFunctions(root string) []oculus.SourceFunc {
+func ParsePythonFunctions(root string) []oculus.Symbol {
 	parser := ts.NewParser()
 	parser.SetLanguage(ts.Python())
 
@@ -37,7 +37,7 @@ func ParsePythonFunctions(root string) []oculus.SourceFunc {
 		return nil
 	}
 
-	var funcs []oculus.SourceFunc
+	var funcs []oculus.Symbol
 
 	_ = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -73,7 +73,7 @@ func ParsePythonFunctions(root string) []oculus.SourceFunc {
 	return funcs
 }
 
-func extractPySourceFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
+func extractPySourceFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.Symbol) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		if child.Type() == "function_definition" || child.Type() == "async_function_definition" {
@@ -109,7 +109,7 @@ func extractPySourceFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]o
 
 			exported := len(name) > 0 && !strings.HasPrefix(name, "_")
 
-			*funcs = append(*funcs, oculus.SourceFunc{
+			*funcs = append(*funcs, oculus.Symbol{
 				Name:        name,
 				Package:     pkg,
 				File:        file,

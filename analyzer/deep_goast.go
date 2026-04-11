@@ -74,7 +74,7 @@ func (a *GoASTDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus
 		}
 	}
 
-	nodeSet := make(map[string]oculus.FuncNode)
+	nodeSet := make(map[string]oculus.Symbol)
 	var edges []oculus.CallEdge
 	visited := make(map[string]bool)
 
@@ -91,7 +91,7 @@ func (a *GoASTDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus
 		}
 
 		key := fn.Package + "." + fn.Name
-		nodeSet[key] = oculus.FuncNode{Name: fn.Name, Package: fn.Package, Line: fn.Line, File: fn.File, EndLine: fn.EndLine}
+		nodeSet[key] = oculus.Symbol{Name: fn.Name, Package: fn.Package, Line: fn.Line, File: fn.File, EndLine: fn.EndLine}
 
 		for _, callee := range fn.Callees {
 			calleeFn, ok := funcIndex[callee]
@@ -99,7 +99,7 @@ func (a *GoASTDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus
 				continue
 			}
 			calleeKey := calleeFn.Package + "." + calleeFn.Name
-			nodeSet[calleeKey] = oculus.FuncNode{Name: calleeFn.Name, Package: calleeFn.Package, Line: calleeFn.Line, File: calleeFn.File, EndLine: calleeFn.EndLine}
+			nodeSet[calleeKey] = oculus.Symbol{Name: calleeFn.Name, Package: calleeFn.Package, Line: calleeFn.Line, File: calleeFn.File, EndLine: calleeFn.EndLine}
 			edges = append(edges, oculus.CallEdge{
 				Caller:       fn.Name,
 				Callee:       calleeFn.Name,
@@ -120,7 +120,7 @@ func (a *GoASTDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus
 		walk(root, 0)
 	}
 
-	nodes := make([]oculus.FuncNode, 0, len(nodeSet))
+	nodes := make([]oculus.Symbol, 0, len(nodeSet))
 	for _, n := range nodeSet {
 		nodes = append(nodes, n)
 	}

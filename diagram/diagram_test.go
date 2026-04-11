@@ -233,7 +233,7 @@ type mockDeepAnalyzer struct{}
 
 func (m *mockDeepAnalyzer) CallGraph(_ context.Context, _ string, _ oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	return &oculus.CallGraph{
-		Nodes: []oculus.FuncNode{
+		Nodes: []oculus.Symbol{
 			{Name: "main", Package: "cmd/app", Line: 10},
 			{Name: "Run", Package: "internal/core", Line: 15},
 			{Name: "Get", Package: "internal/store", Line: 20},

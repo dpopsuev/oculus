@@ -98,10 +98,10 @@ func TestSampleFactories(t *testing.T) {
 	// Verify location metadata on FuncNodes
 	for _, n := range cg.Nodes {
 		if n.File == "" {
-			t.Errorf("FuncNode %q: missing File", n.Name)
+			t.Errorf("Symbol %q: missing File", n.Name)
 		}
 		if n.EndLine == 0 {
-			t.Errorf("FuncNode %q: missing EndLine", n.Name)
+			t.Errorf("Symbol %q: missing EndLine", n.Name)
 		}
 	}
 	// Verify location metadata on CallEdges

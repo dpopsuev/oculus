@@ -25,14 +25,14 @@ func NewLSPSymbolSource(conn *lspConn, root string) *LSPSymbolSource {
 // Verify interface compliance.
 var _ oculus.SymbolSource = (*LSPSymbolSource)(nil)
 
-func (s *LSPSymbolSource) Roots(ctx context.Context, query string) ([]oculus.SourceSymbol, error) {
+func (s *LSPSymbolSource) Roots(ctx context.Context, query string) ([]oculus.Symbol, error) {
 	if query != "" {
 		// Single entry: find it via workspace/symbol + prepareCallHierarchy.
 		item, err := s.conn.findCallHierarchyItem(s.root, query)
 		if err != nil || item == nil {
 			return nil, err
 		}
-		return []oculus.SourceSymbol{s.itemToSymbol(item)}, nil
+		return []oculus.Symbol{s.itemToSymbol(item)}, nil
 	}
 
 	// All exported roots via workspace/symbol.
@@ -46,7 +46,7 @@ func (s *LSPSymbolSource) Roots(ctx context.Context, query string) ([]oculus.Sou
 	}
 
 	seen := make(map[string]bool)
-	var roots []oculus.SourceSymbol
+	var roots []oculus.Symbol
 	for _, sym := range symbols {
 		if sym.Kind != 12 && sym.Kind != 6 { // function or method
 			continue
@@ -66,7 +66,7 @@ func (s *LSPSymbolSource) Roots(ctx context.Context, query string) ([]oculus.Sou
 			sym.Location.Range.Start.Line,
 			sym.Location.Range.Start.Character,
 		)
-		roots = append(roots, oculus.SourceSymbol{
+		roots = append(roots, oculus.Symbol{
 			Name:    name,
 			Package: uriToPackage(sym.Location.URI, s.root),
 			File:    uriToRelPath(sym.Location.URI, s.root),
@@ -78,7 +78,7 @@ func (s *LSPSymbolSource) Roots(ctx context.Context, query string) ([]oculus.Sou
 	return roots, nil
 }
 
-func (s *LSPSymbolSource) Children(ctx context.Context, sym oculus.SourceSymbol) ([]oculus.SourceRelation, error) {
+func (s *LSPSymbolSource) Children(ctx context.Context, sym oculus.Symbol) ([]oculus.SourceRelation, error) {
 	item, ok := sym.Handle.(*callHierarchyItem)
 	if !ok || item == nil {
 		// No call hierarchy handle — try to resolve it.
@@ -111,7 +111,7 @@ func (s *LSPSymbolSource) Children(ctx context.Context, sym oculus.SourceSymbol)
 	return rels, nil
 }
 
-func (s *LSPSymbolSource) Hover(ctx context.Context, sym oculus.SourceSymbol) (*oculus.SourceTypeInfo, error) {
+func (s *LSPSymbolSource) Hover(ctx context.Context, sym oculus.Symbol) (*oculus.SourceTypeInfo, error) {
 	file := sym.File
 	if file == "" {
 		return nil, nil
@@ -122,7 +122,7 @@ func (s *LSPSymbolSource) Hover(ctx context.Context, sym oculus.SourceSymbol) (*
 		file = filepath.Join(abs, file)
 	}
 
-	line := sym.Line - 1 // SourceSymbol uses 1-indexed, LSP uses 0-indexed
+	line := sym.Line - 1 // Symbol uses 1-indexed, LSP uses 0-indexed
 	if line < 0 {
 		line = 0
 	}
@@ -147,8 +147,8 @@ func (s *LSPSymbolSource) Hover(ctx context.Context, sym oculus.SourceSymbol) (*
 	}, nil
 }
 
-func (s *LSPSymbolSource) itemToSymbol(item *callHierarchyItem) oculus.SourceSymbol {
-	return oculus.SourceSymbol{
+func (s *LSPSymbolSource) itemToSymbol(item *callHierarchyItem) oculus.Symbol {
+	return oculus.Symbol{
 		Name:    item.Name,
 		Package: uriToPackage(item.URI, s.root),
 		File:    uriToRelPath(item.URI, s.root),

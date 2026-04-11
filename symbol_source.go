@@ -13,22 +13,20 @@ type SymbolSource interface {
 	// Roots discovers entry-point symbols for graph traversal.
 	// An empty query returns all exported functions; a specific name
 	// returns matching symbols.
-	Roots(ctx context.Context, query string) ([]SourceSymbol, error)
+	Roots(ctx context.Context, query string) ([]Symbol, error)
 
 	// Children returns outgoing relationships from a symbol.
 	// For call graphs, these are callees. For data flow, downstream nodes.
-	Children(ctx context.Context, sym SourceSymbol) ([]SourceRelation, error)
+	Children(ctx context.Context, sym Symbol) ([]SourceRelation, error)
 
 	// Hover returns type/signature info for a symbol at its definition.
-	Hover(ctx context.Context, sym SourceSymbol) (*SourceTypeInfo, error)
+	Hover(ctx context.Context, sym Symbol) (*SourceTypeInfo, error)
 }
 
-// SourceSymbol is an alias for Symbol — backward compatibility for SymbolSource interface.
-type SourceSymbol = Symbol
 
 // SourceRelation represents a directed relationship between two symbols.
 type SourceRelation struct {
-	Target      SourceSymbol `json:"target"`
+	Target      Symbol `json:"target"`
 	Kind        string       `json:"kind"` // "call", "data_store", "reference"
 	InWorkspace bool         `json:"in_workspace"`
 }
@@ -40,5 +38,3 @@ type SourceTypeInfo struct {
 	Signature   string   `json:"signature,omitempty"`
 }
 
-// SourceFunc is an alias for Symbol — backward compatibility for language parsers.
-type SourceFunc = Symbol

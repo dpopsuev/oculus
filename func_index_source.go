@@ -3,7 +3,7 @@ package oculus
 import "context"
 
 // FuncIndexSource implements SymbolSource from a pre-parsed function index.
-// Any language that can produce []SourceFunc gets SymbolSource + DeepAnalyzer
+// Any language that can produce []Symbol gets SymbolSource + DeepAnalyzer
 // (via SymbolPipeline) for free — no bespoke struct needed.
 //
 // Usage:
@@ -12,13 +12,13 @@ import "context"
 //	    return oculus.NewFuncIndexSource(parsePythonFunctions(root))
 //	})
 type FuncIndexSource struct {
-	funcs []SourceFunc
-	index map[string]*SourceFunc // keyed by function name
+	funcs []Symbol
+	index map[string]*Symbol // keyed by function name
 }
 
 // NewFuncIndexSource creates a SymbolSource from a parsed function list.
-func NewFuncIndexSource(funcs []SourceFunc) *FuncIndexSource {
-	idx := make(map[string]*SourceFunc, len(funcs))
+func NewFuncIndexSource(funcs []Symbol) *FuncIndexSource {
+	idx := make(map[string]*Symbol, len(funcs))
 	for i := range funcs {
 		idx[funcs[i].Name] = &funcs[i]
 	}
@@ -27,15 +27,15 @@ func NewFuncIndexSource(funcs []SourceFunc) *FuncIndexSource {
 
 var _ SymbolSource = (*FuncIndexSource)(nil)
 
-func (s *FuncIndexSource) Roots(_ context.Context, query string) ([]SourceSymbol, error) {
+func (s *FuncIndexSource) Roots(_ context.Context, query string) ([]Symbol, error) {
 	if query != "" {
 		fn, ok := s.index[query]
 		if !ok {
 			return nil, nil
 		}
-		return []SourceSymbol{s.toSymbol(fn)}, nil
+		return []Symbol{s.toSymbol(fn)}, nil
 	}
-	var roots []SourceSymbol
+	var roots []Symbol
 	seen := make(map[string]bool)
 	for i := range s.funcs {
 		f := &s.funcs[i]
@@ -48,8 +48,8 @@ func (s *FuncIndexSource) Roots(_ context.Context, query string) ([]SourceSymbol
 	return roots, nil
 }
 
-func (s *FuncIndexSource) Children(_ context.Context, sym SourceSymbol) ([]SourceRelation, error) {
-	fn, ok := sym.Handle.(*SourceFunc)
+func (s *FuncIndexSource) Children(_ context.Context, sym Symbol) ([]SourceRelation, error) {
+	fn, ok := sym.Handle.(*Symbol)
 	if !ok || fn == nil {
 		fn = s.index[sym.Name]
 		if fn == nil {
@@ -71,8 +71,8 @@ func (s *FuncIndexSource) Children(_ context.Context, sym SourceSymbol) ([]Sourc
 	return rels, nil
 }
 
-func (s *FuncIndexSource) Hover(_ context.Context, sym SourceSymbol) (*SourceTypeInfo, error) {
-	fn, ok := sym.Handle.(*SourceFunc)
+func (s *FuncIndexSource) Hover(_ context.Context, sym Symbol) (*SourceTypeInfo, error) {
+	fn, ok := sym.Handle.(*Symbol)
 	if !ok || fn == nil {
 		fn = s.index[sym.Name]
 		if fn == nil {
@@ -88,8 +88,8 @@ func (s *FuncIndexSource) Hover(_ context.Context, sym SourceSymbol) (*SourceTyp
 	}, nil
 }
 
-func (s *FuncIndexSource) toSymbol(fn *SourceFunc) SourceSymbol {
-	return SourceSymbol{
+func (s *FuncIndexSource) toSymbol(fn *Symbol) Symbol {
+	return Symbol{
 		Name:    fn.Name,
 		Package: fn.Package,
 		File:    fn.File,

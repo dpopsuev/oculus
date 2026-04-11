@@ -69,7 +69,7 @@ func (a *GoToolsDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts ocul
 	cg := cha.CallGraph(prog)
 
 	// Convert gonum call graph to Locus format.
-	nodeSet := make(map[string]oculus.FuncNode)
+	nodeSet := make(map[string]oculus.Symbol)
 	var edges []oculus.CallEdge
 
 	for fn, node := range cg.Nodes {
@@ -87,7 +87,7 @@ func (a *GoToolsDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts ocul
 		}
 
 		callerKey := callerPkg + "." + fn.Name()
-		nodeSet[callerKey] = oculus.FuncNode{
+		nodeSet[callerKey] = oculus.Symbol{
 			Name:    fn.Name(),
 			Package: callerPkg,
 			Line:    pos.Line,
@@ -102,7 +102,7 @@ func (a *GoToolsDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts ocul
 			calleeKey := calleePkg + "." + callee.Name()
 			calleePos := prog.Fset.Position(callee.Pos())
 
-			nodeSet[calleeKey] = oculus.FuncNode{
+			nodeSet[calleeKey] = oculus.Symbol{
 				Name:    callee.Name(),
 				Package: calleePkg,
 				Line:    calleePos.Line,
@@ -118,7 +118,7 @@ func (a *GoToolsDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts ocul
 		}
 	}
 
-	nodes := make([]oculus.FuncNode, 0, len(nodeSet))
+	nodes := make([]oculus.Symbol, 0, len(nodeSet))
 	for _, n := range nodeSet {
 		nodes = append(nodes, n)
 	}

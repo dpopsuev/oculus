@@ -27,7 +27,7 @@ func init() {
 
 // ParseTypeScriptFunctions parses all TS/JS files and returns SourceFuncs
 // with type annotations extracted from tree-sitter AST.
-func ParseTypeScriptFunctions(root string) []oculus.SourceFunc {
+func ParseTypeScriptFunctions(root string) []oculus.Symbol {
 	parser := ts.NewParser()
 	parser.SetLanguage(ts.TypeScript())
 
@@ -36,7 +36,7 @@ func ParseTypeScriptFunctions(root string) []oculus.SourceFunc {
 		return nil
 	}
 
-	var funcs []oculus.SourceFunc
+	var funcs []oculus.Symbol
 
 	_ = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -73,7 +73,7 @@ func ParseTypeScriptFunctions(root string) []oculus.SourceFunc {
 	return funcs
 }
 
-func extractTSSourceFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
+func extractTSSourceFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.Symbol) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		switch child.Type() {
@@ -96,7 +96,7 @@ func extractTSSourceFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]o
 				callees = extractTSCallees(body, src)
 			}
 
-			*funcs = append(*funcs, oculus.SourceFunc{
+			*funcs = append(*funcs, oculus.Symbol{
 				Name:        name,
 				Package:     pkg,
 				File:        file,
@@ -124,7 +124,7 @@ func extractTSSourceFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]o
 				paramTypes := extractTSParamTypes(valueNode, src)
 				returnTypes := extractTSReturnType(valueNode, src)
 
-				*funcs = append(*funcs, oculus.SourceFunc{
+				*funcs = append(*funcs, oculus.Symbol{
 					Name:        name,
 					Package:     pkg,
 					File:        file,

@@ -26,7 +26,7 @@ func init() {
 }
 
 // ParseCppFunctions parses .cpp/.hpp files via tree-sitter.
-func ParseCppFunctions(root string) []oculus.SourceFunc {
+func ParseCppFunctions(root string) []oculus.Symbol {
 	parser := ts.NewParser()
 	parser.SetLanguage(ts.Cpp())
 
@@ -35,7 +35,7 @@ func ParseCppFunctions(root string) []oculus.SourceFunc {
 		return nil
 	}
 
-	var funcs []oculus.SourceFunc
+	var funcs []oculus.Symbol
 
 	_ = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {

@@ -26,7 +26,7 @@ func init() {
 }
 
 // ParseJavaFunctions parses .java files via tree-sitter.
-func ParseJavaFunctions(root string) []oculus.SourceFunc {
+func ParseJavaFunctions(root string) []oculus.Symbol {
 	parser := ts.NewParser()
 	parser.SetLanguage(ts.Java())
 
@@ -35,7 +35,7 @@ func ParseJavaFunctions(root string) []oculus.SourceFunc {
 		return nil
 	}
 
-	var funcs []oculus.SourceFunc
+	var funcs []oculus.Symbol
 
 	_ = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -72,7 +72,7 @@ func ParseJavaFunctions(root string) []oculus.SourceFunc {
 	return funcs
 }
 
-func extractJavaFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.SourceFunc) {
+func extractJavaFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.Symbol) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		switch child.Type() {
@@ -108,7 +108,7 @@ func extractJavaFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculu
 				exported = false
 			}
 
-			*funcs = append(*funcs, oculus.SourceFunc{
+			*funcs = append(*funcs, oculus.Symbol{
 				Name: name, Package: pkg, File: file,
 				Line: int(child.StartPoint().Row) + 1, EndLine: int(child.EndPoint().Row) + 1,
 				ParamTypes: paramTypes, ReturnTypes: returnTypes,

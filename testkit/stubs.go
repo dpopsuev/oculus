@@ -105,7 +105,7 @@ func (s *StubTypeAnalyzer) NestingDepth(_ string) ([]oculus.NestingResult, error
 // SampleCallGraph returns a minimal call graph for testing.
 func SampleCallGraph() *oculus.CallGraph {
 	return &oculus.CallGraph{
-		Nodes: []oculus.FuncNode{
+		Nodes: []oculus.Symbol{
 			{Name: "main", Package: "cmd/app", Line: 10, File: "cmd/app/main.go", EndLine: 20},
 			{Name: "Run", Package: "internal/core", Line: 15, File: "internal/core/core.go", EndLine: 45},
 			{Name: "Get", Package: "internal/store", Line: 20, File: "internal/store/store.go", EndLine: 35},
@@ -175,7 +175,7 @@ func SampleEntryPoints() []oculus.EntryPoint {
 // SampleSymbolGraph returns a minimal symbol graph for testing.
 func SampleSymbolGraph() *oculus.SymbolGraph {
 	return &oculus.SymbolGraph{
-		Nodes: []oculus.SymbolNode{
+		Nodes: []oculus.Symbol{
 			{Name: "main", Package: "cmd/app", Kind: "function", File: "cmd/app/main.go", Line: 10, EndLine: 20, Exported: false},
 			{Name: "Run", Package: "internal/core", Kind: "function", File: "internal/core/core.go", Line: 15, EndLine: 45, Exported: true},
 			{Name: "Get", Package: "internal/store", Kind: "function", File: "internal/store/store.go", Line: 20, EndLine: 35, Exported: true},

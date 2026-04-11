@@ -42,7 +42,7 @@ func (a *RegexDeepAnalyzer) CallGraph(ctx context.Context, root string, opts ocu
 	}
 
 	funcIndex := make(map[string]regexFuncDef)
-	nodeSet := make(map[string]oculus.FuncNode)
+	nodeSet := make(map[string]oculus.Symbol)
 
 	walkSourceFiles(root, func(content, pkg, relPath string) {
 		for _, m := range reGoFunc.FindAllStringSubmatchIndex(content, -1) {
@@ -63,7 +63,7 @@ func (a *RegexDeepAnalyzer) CallGraph(ctx context.Context, root string, opts ocu
 			line := strings.Count(content[:start], "\n") + 1
 			key := pkg + "." + name
 			funcIndex[key] = regexFuncDef{name: name, pkg: pkg, body: content[start:endIdx], line: line}
-			nodeSet[key] = oculus.FuncNode{Name: name, Package: pkg, Line: line, File: relPath}
+			nodeSet[key] = oculus.Symbol{Name: name, Package: pkg, Line: line, File: relPath}
 		}
 	})
 
@@ -114,7 +114,7 @@ func (a *RegexDeepAnalyzer) CallGraph(ctx context.Context, root string, opts ocu
 		}
 	}
 
-	nodes := make([]oculus.FuncNode, 0, len(nodeSet))
+	nodes := make([]oculus.Symbol, 0, len(nodeSet))
 	for _, n := range nodeSet {
 		nodes = append(nodes, n)
 	}

@@ -99,7 +99,7 @@ func TestClassifyEdgeWeight(t *testing.T) {
 // TestMesh_Boundaries_MinWeight verifies that Boundaries filters by weight.
 func TestMesh_Boundaries_MinWeight(t *testing.T) {
 	sg := &SymbolGraph{
-		Nodes: []SymbolNode{
+		Nodes: []Symbol{
 			{Name: "Foo", Package: "analyzer", Kind: "function"},
 			{Name: "Bar", Package: "engine", Kind: "function"},
 			{Name: "Sprintf", Package: "fmt", Kind: "function"},
@@ -130,7 +130,7 @@ func TestMesh_Boundaries_MinWeight(t *testing.T) {
 // TestMesh_Aggregate_SumsWeights verifies that Aggregate sums weights.
 func TestMesh_Aggregate_SumsWeights(t *testing.T) {
 	sg := &SymbolGraph{
-		Nodes: []SymbolNode{
+		Nodes: []Symbol{
 			{Name: "Foo", Package: "analyzer", Kind: "function"},
 			{Name: "Bar", Package: "engine", Kind: "function"},
 			{Name: "Baz", Package: "engine", Kind: "function"},
@@ -159,7 +159,7 @@ func TestMesh_Aggregate_SumsWeights(t *testing.T) {
 // neighbors sorted by edge weight (highest first).
 func TestMesh_Neighborhood_SortsByWeight(t *testing.T) {
 	sg := &SymbolGraph{
-		Nodes: []SymbolNode{
+		Nodes: []Symbol{
 			{Name: "Foo", Package: "analyzer", Kind: "function"},
 			{Name: "Low", Package: "fmt", Kind: "function"},
 			{Name: "High", Package: "engine", Kind: "function"},

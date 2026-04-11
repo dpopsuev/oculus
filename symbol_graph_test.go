@@ -4,7 +4,7 @@ import "testing"
 
 func TestMergeSymbolGraph_CallEdgesOnly(t *testing.T) {
 	cg := &CallGraph{
-		Nodes: []FuncNode{
+		Nodes: []Symbol{
 			{Name: "main", Package: "cmd/app"},
 			{Name: "Run", Package: "internal/core"},
 		},
@@ -59,7 +59,7 @@ func TestMergeSymbolGraph_FieldRefs(t *testing.T) {
 
 func TestMergeSymbolGraph_Combined(t *testing.T) {
 	cg := &CallGraph{
-		Nodes: []FuncNode{
+		Nodes: []Symbol{
 			{Name: "main", Package: "cmd"},
 			{Name: "Run", Package: "core"},
 		},
@@ -99,7 +99,7 @@ func TestMergeSymbolGraph_NilCallGraph(t *testing.T) {
 
 func TestMergeSymbolGraph_FQNFormat(t *testing.T) {
 	cg := &CallGraph{
-		Nodes: []FuncNode{{Name: "Run", Package: "core"}},
+		Nodes: []Symbol{{Name: "Run", Package: "core"}},
 		Edges: []CallEdge{
 			{Caller: "Run", Callee: "Get", CallerPkg: "core", CalleePkg: "store"},
 		},
@@ -118,7 +118,7 @@ func TestMergeSymbolGraph_FQNFormat(t *testing.T) {
 
 func TestMergeSymbolGraph_Dedup(t *testing.T) {
 	cg := &CallGraph{
-		Nodes: []FuncNode{
+		Nodes: []Symbol{
 			{Name: "Run", Package: "core"},
 			{Name: "Run", Package: "core"}, // duplicate node
 			{Name: "Get", Package: "store"},

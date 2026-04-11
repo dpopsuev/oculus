@@ -31,13 +31,13 @@ var zigFuncRe = regexp.MustCompile(`(?m)^(?:pub\s+)?fn\s+(\w+)\s*\(([^)]*)\)\s*(
 var zigCallRe = regexp.MustCompile(`\b(\w+)\s*\(`)
 
 // ParseZigFunctions parses .zig files via regex (no tree-sitter grammar available).
-func ParseZigFunctions(root string) []oculus.SourceFunc {
+func ParseZigFunctions(root string) []oculus.Symbol {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil
 	}
 
-	var funcs []oculus.SourceFunc
+	var funcs []oculus.Symbol
 
 	_ = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -103,7 +103,7 @@ func ParseZigFunctions(root string) []oculus.SourceFunc {
 
 			exported := !strings.HasPrefix(name, "_")
 
-			funcs = append(funcs, oculus.SourceFunc{
+			funcs = append(funcs, oculus.Symbol{
 				Name: name, Package: pkg, File: filepath.ToSlash(rel),
 				Line: line, EndLine: endLine,
 				ParamTypes: paramTypes, ReturnTypes: returnTypes,
