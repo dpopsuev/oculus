@@ -1,6 +1,8 @@
 package core
 
 import (
+	"context"
+
 	oculus "github.com/dpopsuev/oculus"
 	"github.com/dpopsuev/oculus/history"
 )
@@ -20,6 +22,7 @@ type Options struct {
 // Input bundles everything the renderers may need. Not every renderer
 // uses every field — e.g. churn needs History while dependency does not.
 type Input struct {
+	Ctx           context.Context       // request context for cancellation and timeout
 	Report        *oculus.ContextReport
 	History       []history.EntrySummary
 	Analyzer      oculus.TypeAnalyzer

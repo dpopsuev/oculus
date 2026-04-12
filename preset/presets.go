@@ -165,8 +165,8 @@ func preRefactor(b *strings.Builder, path string, report *arch.ContextReport) {
 	}
 
 	da := analyzer.NewFallback(path, nil)
-	if classes, err := da.Classes(path); err == nil {
-		impls, _ := da.Implements(path)
+	if classes, err := da.Classes(context.Background(), path); err == nil {
+		impls, _ := da.Implements(context.Background(), path)
 		imReport := constraint.ComputeInterfaceMetrics(classes, impls)
 		fmt.Fprintf(b, "\n## Interfaces\n%s\n", imReport.Summary)
 		for _, iface := range imReport.Interfaces {
@@ -208,8 +208,8 @@ func fullClinic(ctx context.Context, b *strings.Builder, path string, report *ar
 	}
 
 	fa := analyzer.NewFallback(path, deps.Pool)
-	if classes, err := fa.Classes(path); err == nil {
-		impls, _ := fa.Implements(path)
+	if classes, err := fa.Classes(context.Background(), path); err == nil {
+		impls, _ := fa.Implements(context.Background(), path)
 		imReport := constraint.ComputeInterfaceMetrics(classes, impls)
 		fmt.Fprintf(b, "\n## Interfaces\n%s\n", imReport.Summary)
 	}
@@ -220,8 +220,8 @@ func fullClinic(ctx context.Context, b *strings.Builder, path string, report *ar
 	}
 
 	// Code Health Clinic pillars
-	if classes, err := fa.Classes(path); err == nil {
-		impls, _ := fa.Implements(path)
+	if classes, err := fa.Classes(context.Background(), path); err == nil {
+		impls, _ := fa.Implements(context.Background(), path)
 
 		hexaClass := clinichexa.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
 		desired, _ := deps.DesiredState(ctx, path)
@@ -247,8 +247,8 @@ func codeHealth(b *strings.Builder, path string, report *arch.ContextReport, dep
 	fmt.Fprintf(b, "%d components, %d edges\n\n", len(report.Architecture.Services), len(report.Architecture.Edges))
 
 	fa := analyzer.NewFallback(path, deps.Pool)
-	classes, _ := fa.Classes(path)
-	impls, _ := fa.Implements(path)
+	classes, _ := fa.Classes(context.Background(), path)
+	impls, _ := fa.Implements(context.Background(), path)
 
 	hexaClass := clinichexa.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
 

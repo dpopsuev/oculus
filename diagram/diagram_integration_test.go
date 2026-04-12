@@ -1,6 +1,7 @@
 package diagram
 
 import (
+	"context"
 	"github.com/dpopsuev/oculus/analyzer"
 	"path/filepath"
 	"runtime"
@@ -69,7 +70,7 @@ func TestIntegration_HexaDiagram(t *testing.T) {
 	root := integrationRoot(t)
 	report := integrationScan(t)
 	fa := analyzer.NewFallback(root, nil)
-	classes, _ := fa.Classes(root)
+	classes, _ := fa.Classes(context.Background(), root)
 	hexaClass := clinichexa.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
 
 	roles := make(map[string]string, len(hexaClass.Components))

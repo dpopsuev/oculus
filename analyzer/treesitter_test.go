@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -65,7 +66,7 @@ func init() {}
 func TestTreeSitter_Classes(t *testing.T) {
 	dir := setupTestRepo(t)
 	ts := &TreeSitterAnalyzer{}
-	classes, err := ts.Classes(dir)
+	classes, err := ts.Classes(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +125,7 @@ type Derived struct {
 	os.WriteFile(filepath.Join(dir, "embed.go"), []byte(src), 0o644)
 
 	ts := &TreeSitterAnalyzer{}
-	edges, err := ts.Implements(dir)
+	edges, err := ts.Implements(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +144,7 @@ type Derived struct {
 func TestTreeSitter_FieldRefs(t *testing.T) {
 	dir := setupTestRepo(t)
 	ts := &TreeSitterAnalyzer{}
-	refs, err := ts.FieldRefs(dir)
+	refs, err := ts.FieldRefs(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +163,7 @@ func TestTreeSitter_FieldRefs(t *testing.T) {
 func TestTreeSitter_EntryPoints(t *testing.T) {
 	dir := setupTestRepo(t)
 	ts := &TreeSitterAnalyzer{}
-	entries, err := ts.EntryPoints(dir)
+	entries, err := ts.EntryPoints(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +186,7 @@ func TestTreeSitter_EntryPoints(t *testing.T) {
 func TestTreeSitter_NestingDepth(t *testing.T) {
 	dir := setupTestRepo(t)
 	ts := &TreeSitterAnalyzer{}
-	results, err := ts.NestingDepth(dir)
+	results, err := ts.NestingDepth(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +209,7 @@ func TestTreeSitter_NestingDepth(t *testing.T) {
 func TestTreeSitter_CallChain(t *testing.T) {
 	dir := setupTestRepo(t)
 	ts := &TreeSitterAnalyzer{}
-	calls, err := ts.CallChain(dir, "main", 3)
+	calls, err := ts.CallChain(context.Background(), dir, "main", 3)
 	if err != nil {
 		t.Fatal(err)
 	}

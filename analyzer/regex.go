@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"github.com/dpopsuev/oculus"
 	"errors"
 	"os"
@@ -33,7 +34,7 @@ var (
 	reNestBlock   = regexp.MustCompile(`\b(if|for|switch|select|while|match|try)\b`)
 )
 
-func (a *RegexAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
+func (a *RegexAnalyzer) Classes(ctx context.Context, root string) ([]oculus.ClassInfo, error) {
 	absRoot, _ := filepath.Abs(root)
 	var classes []oculus.ClassInfo
 	walkSrcFiles(root, func(path, pkg string, content []byte) {
@@ -116,7 +117,7 @@ func (a *RegexAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
 }
 
 //nolint:gocyclo // multi-language regex matching requires branching per language
-func (a *RegexAnalyzer) Implements(root string) ([]oculus.ImplEdge, error) {
+func (a *RegexAnalyzer) Implements(ctx context.Context, root string) ([]oculus.ImplEdge, error) {
 	var edges []oculus.ImplEdge
 	walkSrcFiles(root, func(path, pkg string, content []byte) {
 		text := string(content)
@@ -170,15 +171,15 @@ func (a *RegexAnalyzer) Implements(root string) ([]oculus.ImplEdge, error) {
 	return edges, nil
 }
 
-func (a *RegexAnalyzer) FieldRefs(root string) ([]oculus.FieldRef, error) {
+func (a *RegexAnalyzer) FieldRefs(ctx context.Context, root string) ([]oculus.FieldRef, error) {
 	return nil, nil
 }
 
-func (a *RegexAnalyzer) CallChain(root, entry string, depth int) ([]oculus.Call, error) {
+func (a *RegexAnalyzer) CallChain(ctx context.Context, root, entry string, depth int) ([]oculus.Call, error) {
 	return nil, ErrRegexCallChainNotSupported
 }
 
-func (a *RegexAnalyzer) EntryPoints(root string) ([]oculus.EntryPoint, error) {
+func (a *RegexAnalyzer) EntryPoints(ctx context.Context, root string) ([]oculus.EntryPoint, error) {
 	var entries []oculus.EntryPoint
 	walkSrcFiles(root, func(path, pkg string, content []byte) {
 		text := string(content)
@@ -201,7 +202,7 @@ func (a *RegexAnalyzer) EntryPoints(root string) ([]oculus.EntryPoint, error) {
 	return entries, nil
 }
 
-func (a *RegexAnalyzer) NestingDepth(root string) ([]oculus.NestingResult, error) {
+func (a *RegexAnalyzer) NestingDepth(ctx context.Context, root string) ([]oculus.NestingResult, error) {
 	var results []oculus.NestingResult
 	walkSrcFiles(root, func(path, pkg string, content []byte) {
 		if filepath.Ext(path) != extGo {

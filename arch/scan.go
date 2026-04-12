@@ -573,7 +573,7 @@ func applyLOC(root string, proj *model.Project, modPath string, m *ArchModel) {
 // MaxNesting and AvgNesting on each ArchService.
 func applyNestingDepth(root, _ string, m *ArchModel) {
 	ts := &analyzer.TreeSitterAnalyzer{}
-	results, err := ts.NestingDepth(root)
+	results, err := ts.NestingDepth(context.Background(), root)
 	if err != nil || len(results) == 0 {
 		return
 	}

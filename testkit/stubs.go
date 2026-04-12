@@ -64,15 +64,15 @@ type StubTypeAnalyzer struct {
 	NestingErr       error
 }
 
-func (s *StubTypeAnalyzer) Classes(_ string) ([]oculus.ClassInfo, error) {
+func (s *StubTypeAnalyzer) Classes(_ context.Context, _ string) ([]oculus.ClassInfo, error) {
 	return s.ClassesResult, s.ClassesErr
 }
 
-func (s *StubTypeAnalyzer) Implements(_ string) ([]oculus.ImplEdge, error) {
+func (s *StubTypeAnalyzer) Implements(_ context.Context, _ string) ([]oculus.ImplEdge, error) {
 	return s.ImplementsResult, s.ImplementsErr
 }
 
-func (s *StubTypeAnalyzer) CallChain(_, _ string, _ int) ([]oculus.Call, error) {
+func (s *StubTypeAnalyzer) CallChain(_ context.Context, _, _ string, _ int) ([]oculus.Call, error) {
 	if s.CallChainErr != nil {
 		return nil, s.CallChainErr
 	}
@@ -82,7 +82,7 @@ func (s *StubTypeAnalyzer) CallChain(_, _ string, _ int) ([]oculus.Call, error) 
 	return SampleCallChain(), nil
 }
 
-func (s *StubTypeAnalyzer) EntryPoints(_ string) ([]oculus.EntryPoint, error) {
+func (s *StubTypeAnalyzer) EntryPoints(_ context.Context, _ string) ([]oculus.EntryPoint, error) {
 	if s.EntryPointsErr != nil {
 		return nil, s.EntryPointsErr
 	}
@@ -92,11 +92,11 @@ func (s *StubTypeAnalyzer) EntryPoints(_ string) ([]oculus.EntryPoint, error) {
 	return SampleEntryPoints(), nil
 }
 
-func (s *StubTypeAnalyzer) FieldRefs(_ string) ([]oculus.FieldRef, error) {
+func (s *StubTypeAnalyzer) FieldRefs(_ context.Context, _ string) ([]oculus.FieldRef, error) {
 	return s.FieldRefsResult, s.FieldRefsErr
 }
 
-func (s *StubTypeAnalyzer) NestingDepth(_ string) ([]oculus.NestingResult, error) {
+func (s *StubTypeAnalyzer) NestingDepth(_ context.Context, _ string) ([]oculus.NestingResult, error) {
 	return s.NestingResult, s.NestingErr
 }
 

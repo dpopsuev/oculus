@@ -15,30 +15,42 @@ type slowTypeAnalyzer struct {
 	delay time.Duration
 }
 
-func (s *slowTypeAnalyzer) Classes(_ string) ([]oculus.ClassInfo, error) {
-	time.Sleep(s.delay)
-	return []oculus.ClassInfo{{Name: "Slow", Package: "test", Kind: "struct"}}, nil
+func (s *slowTypeAnalyzer) Classes(ctx context.Context, _ string) ([]oculus.ClassInfo, error) {
+	select {
+	case <-time.After(s.delay):
+		return []oculus.ClassInfo{{Name: "Slow", Package: "test", Kind: "struct"}}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
-func (s *slowTypeAnalyzer) Implements(_ string) ([]oculus.ImplEdge, error) {
-	time.Sleep(s.delay)
+func (s *slowTypeAnalyzer) Implements(ctx context.Context, _ string) ([]oculus.ImplEdge, error) {
+	select {
+	case <-time.After(s.delay):
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *slowTypeAnalyzer) CallChain(_ context.Context, _, _ string, _ int) ([]oculus.Call, error) {
 	return nil, nil
 }
 
-func (s *slowTypeAnalyzer) CallChain(_, _ string, _ int) ([]oculus.Call, error) {
+func (s *slowTypeAnalyzer) EntryPoints(_ context.Context, _ string) ([]oculus.EntryPoint, error) {
 	return nil, nil
 }
 
-func (s *slowTypeAnalyzer) EntryPoints(_ string) ([]oculus.EntryPoint, error) {
-	return nil, nil
+func (s *slowTypeAnalyzer) FieldRefs(ctx context.Context, _ string) ([]oculus.FieldRef, error) {
+	select {
+	case <-time.After(s.delay):
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
-func (s *slowTypeAnalyzer) FieldRefs(_ string) ([]oculus.FieldRef, error) {
-	time.Sleep(s.delay)
-	return nil, nil
-}
-
-func (s *slowTypeAnalyzer) NestingDepth(_ string) ([]oculus.NestingResult, error) {
+func (s *slowTypeAnalyzer) NestingDepth(_ context.Context, _ string) ([]oculus.NestingResult, error) {
 	return nil, nil
 }
 
@@ -56,17 +68,14 @@ func TestTypeAnalyzerIgnoresContext(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	// Call Classes — this SHOULD respect ctx and return within ~1s.
-	// Currently: it blocks for 30s because Classes(root) has no ctx param.
+	// Call Classes with the 1s timeout context.
+	// Now that Classes accepts ctx, it should return within ~1s.
 	start := time.Now()
-	_, _ = slow.Classes("test") // No ctx to pass!
+	_, _ = slow.Classes(ctx, "test")
 	elapsed := time.Since(start)
 
-	// If we got here and it took >2s, the context wasn't respected.
-	// After the fix (ctx added to interface), this should complete in ~1s.
-	_ = ctx // ctx exists but can't be passed — that's the bug
 	if elapsed > 2*time.Second {
-		t.Errorf("Classes() took %v — context cancellation not respected (no ctx parameter)", elapsed)
+		t.Errorf("Classes() took %v — context cancellation not respected", elapsed)
 	}
 }
 
@@ -103,7 +112,7 @@ func TestFallbackAnalyzerClassesHangsWithoutContext(t *testing.T) {
 		// This test serves as documentation — the perf test below proves the real hang.
 		t.Log("FallbackAnalyzer with empty analyzers returns immediately (expected)")
 	case <-time.After(5 * time.Second):
-		t.Fatal("FallbackAnalyzer.Classes() hung for >5s — context not propagated")
+		t.Fatal("FallbackAnalyzer.Classes(context.Background(), ) hung for >5s — context not propagated")
 	}
 }
 

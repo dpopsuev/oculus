@@ -1,6 +1,8 @@
 package analyzer
 
 import (
+	"context"
+
 	"github.com/dpopsuev/oculus"
 	"github.com/dpopsuev/oculus/lsp"
 )
@@ -17,9 +19,14 @@ func NewFallback(root string, pool lsp.Pool) *FallbackAnalyzer {
 	}
 }
 
-func (f *FallbackAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
+func (f *FallbackAnalyzer) Classes(ctx context.Context, root string) ([]oculus.ClassInfo, error) {
 	for _, a := range f.analyzers {
-		r, err := a.Classes(root)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		aCtx, cancel := context.WithTimeout(ctx, perAnalyzerTimeout)
+		r, err := a.Classes(aCtx, root)
+		cancel()
 		if err == nil && len(r) > 0 {
 			return r, nil
 		}
@@ -27,9 +34,14 @@ func (f *FallbackAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
 	return nil, nil
 }
 
-func (f *FallbackAnalyzer) Implements(root string) ([]oculus.ImplEdge, error) {
+func (f *FallbackAnalyzer) Implements(ctx context.Context, root string) ([]oculus.ImplEdge, error) {
 	for _, a := range f.analyzers {
-		r, err := a.Implements(root)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		aCtx, cancel := context.WithTimeout(ctx, perAnalyzerTimeout)
+		r, err := a.Implements(aCtx, root)
+		cancel()
 		if err == nil && len(r) > 0 {
 			return r, nil
 		}
@@ -37,9 +49,14 @@ func (f *FallbackAnalyzer) Implements(root string) ([]oculus.ImplEdge, error) {
 	return nil, nil
 }
 
-func (f *FallbackAnalyzer) CallChain(root, entry string, depth int) ([]oculus.Call, error) {
+func (f *FallbackAnalyzer) CallChain(ctx context.Context, root, entry string, depth int) ([]oculus.Call, error) {
 	for _, a := range f.analyzers {
-		r, err := a.CallChain(root, entry, depth)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		aCtx, cancel := context.WithTimeout(ctx, perAnalyzerTimeout)
+		r, err := a.CallChain(aCtx, root, entry, depth)
+		cancel()
 		if err == nil && len(r) > 0 {
 			return r, nil
 		}
@@ -47,9 +64,14 @@ func (f *FallbackAnalyzer) CallChain(root, entry string, depth int) ([]oculus.Ca
 	return nil, nil
 }
 
-func (f *FallbackAnalyzer) EntryPoints(root string) ([]oculus.EntryPoint, error) {
+func (f *FallbackAnalyzer) EntryPoints(ctx context.Context, root string) ([]oculus.EntryPoint, error) {
 	for _, a := range f.analyzers {
-		r, err := a.EntryPoints(root)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		aCtx, cancel := context.WithTimeout(ctx, perAnalyzerTimeout)
+		r, err := a.EntryPoints(aCtx, root)
+		cancel()
 		if err == nil && len(r) > 0 {
 			return r, nil
 		}
@@ -57,9 +79,14 @@ func (f *FallbackAnalyzer) EntryPoints(root string) ([]oculus.EntryPoint, error)
 	return nil, nil
 }
 
-func (f *FallbackAnalyzer) FieldRefs(root string) ([]oculus.FieldRef, error) {
+func (f *FallbackAnalyzer) FieldRefs(ctx context.Context, root string) ([]oculus.FieldRef, error) {
 	for _, a := range f.analyzers {
-		r, err := a.FieldRefs(root)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		aCtx, cancel := context.WithTimeout(ctx, perAnalyzerTimeout)
+		r, err := a.FieldRefs(aCtx, root)
+		cancel()
 		if err == nil && len(r) > 0 {
 			return r, nil
 		}
@@ -67,9 +94,14 @@ func (f *FallbackAnalyzer) FieldRefs(root string) ([]oculus.FieldRef, error) {
 	return nil, nil
 }
 
-func (f *FallbackAnalyzer) NestingDepth(root string) ([]oculus.NestingResult, error) {
+func (f *FallbackAnalyzer) NestingDepth(ctx context.Context, root string) ([]oculus.NestingResult, error) {
 	for _, a := range f.analyzers {
-		r, err := a.NestingDepth(root)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		aCtx, cancel := context.WithTimeout(ctx, perAnalyzerTimeout)
+		r, err := a.NestingDepth(aCtx, root)
+		cancel()
 		if err == nil && len(r) > 0 {
 			return r, nil
 		}

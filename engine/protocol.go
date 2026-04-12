@@ -807,11 +807,11 @@ func (e callEdge) Target() string { return e.callee }
 func (p *Engine) GetInterfaceMetrics(ctx context.Context, path string, cacheKey ...string) (*constraint.InterfaceMetricsReport, error) {
 	path = p.resolvePath(path)
 	fa := analyzer.NewFallback(path, p.pool)
-	classes, err := fa.Classes(path)
+	classes, err := fa.Classes(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("classes: %w", err)
 	}
-	impls, err := fa.Implements(path)
+	impls, err := fa.Implements(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("implements: %w", err)
 	}
@@ -989,9 +989,9 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 	var refs []oculus.FieldRef
 
 	tg, _ := errgroup.WithContext(ctx)
-	tg.Go(func() error { classes, _ = fa.Classes(path); return nil })
-	tg.Go(func() error { impls, _ = fa.Implements(path); return nil })
-	tg.Go(func() error { refs, _ = fa.FieldRefs(path); return nil })
+	tg.Go(func() error { classes, _ = fa.Classes(ctx, path); return nil })
+	tg.Go(func() error { impls, _ = fa.Implements(ctx, path); return nil })
+	tg.Go(func() error { refs, _ = fa.FieldRefs(ctx, path); return nil })
 	_ = tg.Wait()
 
 	slog.LogAttrs(ctx, slog.LevelDebug, "mesh: type_analysis",
@@ -1739,7 +1739,7 @@ func (p *Engine) GetHexaValidation(ctx context.Context, path string, cacheKey ..
 		return nil, err
 	}
 	fa := analyzer.NewFallback(path, p.pool)
-	classes, _ := fa.Classes(path)
+	classes, _ := fa.Classes(ctx, path)
 	return clinichexa.ComputeHexaViolations(report.Architecture.Services, report.Architecture.Edges, classes), nil
 }
 
@@ -1750,8 +1750,8 @@ func (p *Engine) GetSOLIDScan(ctx context.Context, path string, cacheKey ...stri
 		return nil, err
 	}
 	fa := analyzer.NewFallback(path, p.pool)
-	classes, _ := fa.Classes(path)
-	impls, _ := fa.Implements(path)
+	classes, _ := fa.Classes(ctx, path)
+	impls, _ := fa.Implements(ctx, path)
 	hexaClass := clinichexa.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
 	desired, _ := p.db.GetDesiredState(ctx, path)
 	roles, accepted := resolveRolesAndAccepted(hexaClass, desired)
@@ -1784,8 +1784,8 @@ func (p *Engine) GetPatternScan(ctx context.Context, path string, cacheKey ...st
 		return nil, err
 	}
 	fa := analyzer.NewFallback(path, p.pool)
-	classes, _ := fa.Classes(path)
-	impls, _ := fa.Implements(path)
+	classes, _ := fa.Classes(ctx, path)
+	impls, _ := fa.Implements(ctx, path)
 	hexaClass := clinichexa.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
 	desired, _ := p.db.GetDesiredState(ctx, path)
 	roles, accepted := resolveRolesAndAccepted(hexaClass, desired)

@@ -1,6 +1,7 @@
 package diagram
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -17,14 +18,14 @@ type mockAnalyzer struct {
 	nesting []oculus.NestingResult
 }
 
-func (m *mockAnalyzer) Classes(root string) ([]oculus.ClassInfo, error)   { return m.classes, nil }
-func (m *mockAnalyzer) Implements(root string) ([]oculus.ImplEdge, error) { return m.impls, nil }
-func (m *mockAnalyzer) FieldRefs(root string) ([]oculus.FieldRef, error)  { return m.refs, nil }
-func (m *mockAnalyzer) CallChain(root, entry string, depth int) ([]oculus.Call, error) {
+func (m *mockAnalyzer) Classes(_ context.Context, root string) ([]oculus.ClassInfo, error)   { return m.classes, nil }
+func (m *mockAnalyzer) Implements(_ context.Context, root string) ([]oculus.ImplEdge, error) { return m.impls, nil }
+func (m *mockAnalyzer) FieldRefs(_ context.Context, root string) ([]oculus.FieldRef, error)  { return m.refs, nil }
+func (m *mockAnalyzer) CallChain(_ context.Context, root, entry string, depth int) ([]oculus.Call, error) {
 	return m.calls, nil
 }
-func (m *mockAnalyzer) EntryPoints(root string) ([]oculus.EntryPoint, error) { return m.entries, nil }
-func (m *mockAnalyzer) NestingDepth(root string) ([]oculus.NestingResult, error) {
+func (m *mockAnalyzer) EntryPoints(_ context.Context, root string) ([]oculus.EntryPoint, error) { return m.entries, nil }
+func (m *mockAnalyzer) NestingDepth(_ context.Context, root string) ([]oculus.NestingResult, error) {
 	return m.nesting, nil
 }
 

@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"github.com/dpopsuev/oculus"
 	"errors"
 	"fmt"
@@ -20,7 +21,7 @@ var ErrUnsupportedLanguage = errors.New("tree-sitter: unsupported language")
 // with tree-sitter grammars. Accuracy is ~70% (syntactic, not semantic).
 type TreeSitterAnalyzer struct{}
 
-func (a *TreeSitterAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
+func (a *TreeSitterAnalyzer) Classes(ctx context.Context, root string) ([]oculus.ClassInfo, error) {
 	lang := olang.DetectLanguage(root)
 	switch lang {
 	case olang.Go:
@@ -30,7 +31,7 @@ func (a *TreeSitterAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
 	}
 }
 
-func (a *TreeSitterAnalyzer) Implements(root string) ([]oculus.ImplEdge, error) {
+func (a *TreeSitterAnalyzer) Implements(ctx context.Context, root string) ([]oculus.ImplEdge, error) {
 	lang := olang.DetectLanguage(root)
 	switch lang {
 	case olang.Go:
@@ -40,7 +41,7 @@ func (a *TreeSitterAnalyzer) Implements(root string) ([]oculus.ImplEdge, error) 
 	}
 }
 
-func (a *TreeSitterAnalyzer) FieldRefs(root string) ([]oculus.FieldRef, error) {
+func (a *TreeSitterAnalyzer) FieldRefs(ctx context.Context, root string) ([]oculus.FieldRef, error) {
 	lang := olang.DetectLanguage(root)
 	switch lang {
 	case olang.Go:
@@ -50,7 +51,7 @@ func (a *TreeSitterAnalyzer) FieldRefs(root string) ([]oculus.FieldRef, error) {
 	}
 }
 
-func (a *TreeSitterAnalyzer) CallChain(root, entry string, depth int) ([]oculus.Call, error) {
+func (a *TreeSitterAnalyzer) CallChain(ctx context.Context, root, entry string, depth int) ([]oculus.Call, error) {
 	lang := olang.DetectLanguage(root)
 	switch lang {
 	case olang.Go:
@@ -60,7 +61,7 @@ func (a *TreeSitterAnalyzer) CallChain(root, entry string, depth int) ([]oculus.
 	}
 }
 
-func (a *TreeSitterAnalyzer) EntryPoints(root string) ([]oculus.EntryPoint, error) {
+func (a *TreeSitterAnalyzer) EntryPoints(ctx context.Context, root string) ([]oculus.EntryPoint, error) {
 	lang := olang.DetectLanguage(root)
 	switch lang {
 	case olang.Go:
@@ -70,7 +71,7 @@ func (a *TreeSitterAnalyzer) EntryPoints(root string) ([]oculus.EntryPoint, erro
 	}
 }
 
-func (a *TreeSitterAnalyzer) NestingDepth(root string) ([]oculus.NestingResult, error) {
+func (a *TreeSitterAnalyzer) NestingDepth(ctx context.Context, root string) ([]oculus.NestingResult, error) {
 	lang := olang.DetectLanguage(root)
 	switch lang {
 	case olang.Go:

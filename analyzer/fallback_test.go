@@ -12,7 +12,7 @@ import (
 func TestFallback_Classes(t *testing.T) {
 	dir := setupTestRepo(t)
 	fb := NewFallback(dir, nil)
-	classes, err := fb.Classes(dir)
+	classes, err := fb.Classes(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func TestFallback_Classes(t *testing.T) {
 func TestFallback_NestingDepth(t *testing.T) {
 	dir := setupTestRepo(t)
 	fb := NewFallback(dir, nil)
-	results, err := fb.NestingDepth(dir)
+	results, err := fb.NestingDepth(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ impl Bar for Foo {
 `), 0o644)
 
 	fb := NewFallback(dir, nil)
-	classes, err := fb.Classes(dir)
+	classes, err := fb.Classes(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ impl Bar for Foo {
 		t.Fatalf("regex fallback: expected at least 2 types, got %d", len(classes))
 	}
 
-	edges, err := fb.Implements(dir)
+	edges, err := fb.Implements(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

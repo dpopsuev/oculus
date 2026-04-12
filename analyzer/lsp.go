@@ -46,7 +46,7 @@ type LSPAnalyzer struct {
 	pool    lsp.Pool      // optional connection pool (nil = cold-start per request)
 }
 
-func (a *LSPAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
+func (a *LSPAnalyzer) Classes(ctx context.Context, root string) ([]oculus.ClassInfo, error) {
 	conn, cleanup, err := a.startServer(root)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func (a *LSPAnalyzer) Classes(root string) ([]oculus.ClassInfo, error) {
 	return conn.documentClasses(root)
 }
 
-func (a *LSPAnalyzer) Implements(root string) ([]oculus.ImplEdge, error) {
+func (a *LSPAnalyzer) Implements(ctx context.Context, root string) ([]oculus.ImplEdge, error) {
 	conn, cleanup, err := a.startServer(root)
 	if err != nil {
 		return nil, err
@@ -64,11 +64,11 @@ func (a *LSPAnalyzer) Implements(root string) ([]oculus.ImplEdge, error) {
 	return conn.implementations(root)
 }
 
-func (a *LSPAnalyzer) FieldRefs(root string) ([]oculus.FieldRef, error) {
+func (a *LSPAnalyzer) FieldRefs(ctx context.Context, root string) ([]oculus.FieldRef, error) {
 	return nil, ErrLSPFieldRefs
 }
 
-func (a *LSPAnalyzer) CallChain(root, entry string, depth int) ([]oculus.Call, error) {
+func (a *LSPAnalyzer) CallChain(ctx context.Context, root, entry string, depth int) ([]oculus.Call, error) {
 	conn, cleanup, err := a.startServer(root)
 	if err != nil {
 		return nil, err
@@ -77,11 +77,11 @@ func (a *LSPAnalyzer) CallChain(root, entry string, depth int) ([]oculus.Call, e
 	return conn.callChain(root, entry, depth)
 }
 
-func (a *LSPAnalyzer) EntryPoints(root string) ([]oculus.EntryPoint, error) {
+func (a *LSPAnalyzer) EntryPoints(ctx context.Context, root string) ([]oculus.EntryPoint, error) {
 	return nil, ErrLSPEntryPoints
 }
 
-func (a *LSPAnalyzer) NestingDepth(root string) ([]oculus.NestingResult, error) {
+func (a *LSPAnalyzer) NestingDepth(ctx context.Context, root string) ([]oculus.NestingResult, error) {
 	return nil, ErrLSPNestingDepth
 }
 

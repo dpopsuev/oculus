@@ -15,11 +15,11 @@ func Classes(in core.Input, opts core.Options) (string, error) {
 	if in.Analyzer == nil {
 		return "", core.ErrTypeAnalyzerRequired
 	}
-	classes, err := in.Analyzer.Classes(in.Root)
+	classes, err := in.Analyzer.Classes(in.Ctx, in.Root)
 	if err != nil {
 		return "", fmt.Errorf("classes: %w", err)
 	}
-	impls, _ := in.Analyzer.Implements(in.Root)
+	impls, _ := in.Analyzer.Implements(in.Ctx, in.Root)
 
 	if opts.Scope != "" {
 		classes = filterClassesByPkg(classes, opts.Scope)

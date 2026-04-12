@@ -16,7 +16,7 @@ func Sequence(in core.Input, opts core.Options) (string, error) {
 
 	entry := opts.Entry
 	if entry == "" {
-		eps, _ := in.Analyzer.EntryPoints(in.Root)
+		eps, _ := in.Analyzer.EntryPoints(in.Ctx, in.Root)
 		if len(eps) == 0 {
 			return "", core.ErrNoEntryProvided
 		}
@@ -28,7 +28,7 @@ func Sequence(in core.Input, opts core.Options) (string, error) {
 		depth = 5
 	}
 
-	calls, err := in.Analyzer.CallChain(in.Root, entry, depth)
+	calls, err := in.Analyzer.CallChain(in.Ctx, in.Root, entry, depth)
 	if err != nil {
 		return "", fmt.Errorf("sequence: %w", err)
 	}

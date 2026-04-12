@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"github.com/dpopsuev/oculus/analyzer"
 	"path/filepath"
 	"runtime"
@@ -61,11 +62,11 @@ func TestDogfood_RoleAwareScanReducesFalsePositives(t *testing.T) {
 	edges := report.Architecture.Edges
 
 	fa := analyzer.NewFallback(root, nil)
-	classes, err := fa.Classes(root)
+	classes, err := fa.Classes(context.Background(), root)
 	if err != nil {
 		t.Fatalf("Classes: %v", err)
 	}
-	impls, _ := fa.Implements(root)
+	impls, _ := fa.Implements(context.Background(), root)
 
 	hexaClass := clinichexa.ComputeHexaClassification(services, edges, classes)
 
@@ -124,8 +125,8 @@ func TestDogfood_AcceptedSuppressionWorks(t *testing.T) {
 	cycles := report.Cycles
 
 	fa := analyzer.NewFallback(root, nil)
-	classes, _ := fa.Classes(root)
-	impls, _ := fa.Implements(root)
+	classes, _ := fa.Classes(context.Background(), root)
+	impls, _ := fa.Implements(context.Background(), root)
 
 	// First scan: no accepted violations.
 	baseline := clinic.ComputePatternScan(services, edges, cycles, classes, impls, nil, nil)

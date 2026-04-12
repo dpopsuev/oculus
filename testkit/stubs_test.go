@@ -73,7 +73,7 @@ func TestStubDeepAnalyzer_Errors(t *testing.T) {
 func TestStubTypeAnalyzer_Defaults(t *testing.T) {
 	stub := &StubTypeAnalyzer{}
 
-	calls, err := stub.CallChain(".", "main", 5)
+	calls, err := stub.CallChain(context.Background(), ".", "main", 5)
 	if err != nil {
 		t.Fatalf("CallChain: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestStubTypeAnalyzer_Defaults(t *testing.T) {
 		t.Errorf("CallChain: got %d calls, want 3", len(calls))
 	}
 
-	eps, err := stub.EntryPoints(".")
+	eps, err := stub.EntryPoints(context.Background(), ".")
 	if err != nil {
 		t.Fatalf("EntryPoints: %v", err)
 	}
