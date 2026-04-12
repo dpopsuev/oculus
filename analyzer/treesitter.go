@@ -2,13 +2,14 @@ package analyzer
 
 import (
 	"context"
-	"github.com/dpopsuev/oculus"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
+	"github.com/dpopsuev/oculus"
 	"github.com/dpopsuev/oculus/ts"
 
 	olang "github.com/dpopsuev/oculus/lang"
@@ -19,7 +20,19 @@ var ErrUnsupportedLanguage = errors.New("tree-sitter: unsupported language")
 
 // TreeSitterAnalyzer extracts type-level metadata by parsing source files
 // with tree-sitter grammars. Accuracy is ~70% (syntactic, not semantic).
-type TreeSitterAnalyzer struct{}
+// Parsed ASTs are cached per root to avoid re-parsing across method calls.
+type TreeSitterAnalyzer struct {
+	mu     sync.Mutex
+	cached map[string][]parsedGoFile // root → parsed files
+}
+
+// parsedGoFile holds a cached tree-sitter parse result.
+type parsedGoFile struct {
+	tree ts.Tree
+	src  []byte
+	pkg  string
+	file string
+}
 
 func (a *TreeSitterAnalyzer) Classes(ctx context.Context, root string) ([]oculus.ClassInfo, error) {
 	lang := olang.DetectLanguage(root)
@@ -419,14 +432,38 @@ func (a *TreeSitterAnalyzer) goNestingDepth(root string) ([]oculus.NestingResult
 // --- helpers ---
 
 func (a *TreeSitterAnalyzer) walkGoFiles(root string, fn func(ts.Tree, []byte, string, string)) error {
-	parser := ts.NewParser()
-	parser.SetLanguage(ts.Go())
-
-	absRoot, err := filepath.Abs(root)
+	files, err := a.parseGoFiles(root)
 	if err != nil {
 		return err
 	}
-	return filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
+	for _, f := range files {
+		fn(f.tree, f.src, f.pkg, f.file)
+	}
+	return nil
+}
+
+// parseGoFiles returns cached parsed Go files for a root directory.
+// First call parses all files; subsequent calls return the cache.
+func (a *TreeSitterAnalyzer) parseGoFiles(root string) ([]parsedGoFile, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+
+	a.mu.Lock()
+	if a.cached != nil {
+		if files, ok := a.cached[absRoot]; ok {
+			a.mu.Unlock()
+			return files, nil
+		}
+	}
+	a.mu.Unlock()
+
+	parser := ts.NewParser()
+	parser.SetLanguage(ts.Go())
+
+	var files []parsedGoFile
+	err = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -443,12 +480,12 @@ func (a *TreeSitterAnalyzer) walkGoFiles(root string, fn func(ts.Tree, []byte, s
 		if strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		src, err := os.ReadFile(path)
-		if err != nil {
+		src, readErr := os.ReadFile(path)
+		if readErr != nil {
 			return nil
 		}
-		tree, err := parser.Parse(src)
-		if err != nil {
+		tree, parseErr := parser.Parse(src)
+		if parseErr != nil {
 			return nil
 		}
 		rel, _ := filepath.Rel(absRoot, path)
@@ -457,9 +494,21 @@ func (a *TreeSitterAnalyzer) walkGoFiles(root string, fn func(ts.Tree, []byte, s
 			pkg = pkgRoot
 		}
 		pkg = filepath.ToSlash(pkg)
-		fn(tree, src, pkg, rel)
+		files = append(files, parsedGoFile{tree: tree, src: src, pkg: pkg, file: rel})
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	a.mu.Lock()
+	if a.cached == nil {
+		a.cached = make(map[string][]parsedGoFile)
+	}
+	a.cached[absRoot] = files
+	a.mu.Unlock()
+
+	return files, nil
 }
 
 func extractGoStructFields(structNode ts.Node, src []byte) []oculus.FieldInfo {
