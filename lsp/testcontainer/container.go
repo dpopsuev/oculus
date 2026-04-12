@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/dpopsuev/oculus/lang"
 	"github.com/dpopsuev/oculus/lsp"
@@ -189,5 +190,19 @@ func shutdownContainer(entry *containerEntry) {
 	_, _ = entry.client.Request("shutdown", nil)
 	_ = entry.client.Notify("exit", nil)
 	entry.stdin.Close()
-	_ = entry.cmd.Wait()
+
+	done := make(chan struct{})
+	go func() {
+		_ = entry.cmd.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		if entry.cmd.Process != nil {
+			_ = entry.cmd.Process.Kill()
+		}
+		<-done
+	}
 }
