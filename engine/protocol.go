@@ -1015,9 +1015,15 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 // linear call chains where each function's return types overlap with
 // the next function's parameter types.
 func (p *Engine) DetectPipelines(ctx context.Context, path string, minLength int, cacheKey ...string) (*oculus.PipelineReport, error) {
+	return p.DetectPipelinesOpts(ctx, path, minLength, SymbolGraphOpts{})
+}
+
+// DetectPipelinesOpts is like DetectPipelines but accepts SymbolGraphOpts
+// for progress reporting.
+func (p *Engine) DetectPipelinesOpts(ctx context.Context, path string, minLength int, opts SymbolGraphOpts) (*oculus.PipelineReport, error) {
 	slog.LogAttrs(ctx, slog.LevelInfo, "engine: DetectPipelines", slog.String("path", path), slog.Int("min_length", minLength))
 	start := time.Now()
-	sg, err := p.GetSymbolGraph(ctx, path)
+	sg, err := p.GetSymbolGraph(ctx, path, opts)
 	if err != nil {
 		slog.LogAttrs(ctx, slog.LevelWarn, "engine: DetectPipelines failed", slog.Duration("duration", time.Since(start)), slog.Any("error", err))
 		return nil, fmt.Errorf("symbol graph: %w", err)
@@ -1033,10 +1039,15 @@ func (p *Engine) DetectPipelines(ctx context.Context, path string, minLength int
 // GetMesh builds a hierarchical mesh view of the codebase:
 // symbols → files → packages → components with edge overlay.
 func (p *Engine) GetMesh(ctx context.Context, path string, cacheKey ...string) (*oculus.Mesh, error) {
+	return p.GetMeshOpts(ctx, path, SymbolGraphOpts{}, cacheKey...)
+}
+
+// GetMeshOpts is like GetMesh but accepts SymbolGraphOpts for progress reporting.
+func (p *Engine) GetMeshOpts(ctx context.Context, path string, opts SymbolGraphOpts, cacheKey ...string) (*oculus.Mesh, error) {
 	slog.LogAttrs(ctx, slog.LevelInfo, "engine: GetMesh", slog.String("path", path))
 	total := time.Now()
 
-	sg, err := p.GetSymbolGraph(ctx, path)
+	sg, err := p.GetSymbolGraph(ctx, path, opts)
 	if err != nil {
 		slog.LogAttrs(ctx, slog.LevelWarn, "engine: GetMesh failed", slog.Duration("duration", time.Since(total)), slog.Any("error", err))
 		return nil, fmt.Errorf("symbol graph: %w", err)
