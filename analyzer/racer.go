@@ -150,3 +150,20 @@ func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
 	}
 	return winner, nil
 }
+
+// Invalidate clears the cached result. Next Race() runs fresh.
+func (r *Racer[T]) Invalidate() {
+	r.mu.Lock()
+	r.cache = nil
+	r.mu.Unlock()
+}
+
+// CachedQuality returns the quality tier of the cached result, or 0 if uncached.
+func (r *Racer[T]) CachedQuality() QualityTier {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.cache == nil {
+		return 0
+	}
+	return r.cache.Quality
+}

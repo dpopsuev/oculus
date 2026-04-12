@@ -103,6 +103,71 @@ func TestRacer_MetadataCorrect(t *testing.T) {
 	}
 }
 
+// TestRacer_ContextCancel returns quickly when context is cancelled.
+func TestRacer_ContextCancel(t *testing.T) {
+	r := NewRacer(
+		func(s string) bool { return s == "" },
+		Attempt[string]{Name: "slow", Quality: QualityLSP, Fn: func(ctx context.Context) (string, error) {
+			select {
+			case <-time.After(5 * time.Second):
+				return "slow-result", nil
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}},
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	result, _ := r.Race(ctx)
+	elapsed := time.Since(start)
+
+	if elapsed > 200*time.Millisecond {
+		t.Errorf("took %v, should cancel quickly", elapsed)
+	}
+	if result.Value != "" {
+		t.Errorf("expected empty result on cancel, got %q", result.Value)
+	}
+}
+
+// TestRacer_Invalidate clears cache, forcing fresh race.
+func TestRacer_Invalidate(t *testing.T) {
+	callCount := 0
+	r := NewRacer(
+		func(n int) bool { return n == 0 },
+		Attempt[int]{Name: "counter", Quality: QualityGoAST, Fn: func(ctx context.Context) (int, error) {
+			callCount++
+			return callCount, nil
+		}},
+	)
+
+	// First call.
+	r1, _ := r.Race(context.Background())
+	if r1.Value != 1 {
+		t.Errorf("first = %d, want 1", r1.Value)
+	}
+
+	// Second call — cached, same value.
+	r2, _ := r.Race(context.Background())
+	if r2.Value != 1 || !r2.Cached {
+		t.Errorf("second = %d cached=%v, want 1/true", r2.Value, r2.Cached)
+	}
+
+	// Invalidate.
+	r.Invalidate()
+	if r.CachedQuality() != 0 {
+		t.Error("cache should be empty after invalidate")
+	}
+
+	// Third call — fresh race.
+	r3, _ := r.Race(context.Background())
+	if r3.Value != 2 {
+		t.Errorf("third = %d, want 2 (fresh call)", r3.Value)
+	}
+}
+
 // TestRacer_AllEmpty returns zero value when no attempt produces data.
 func TestRacer_AllEmpty(t *testing.T) {
 	r := NewRacer(
