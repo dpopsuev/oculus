@@ -94,12 +94,18 @@ type lspConn struct {
 	ctx context.Context
 }
 
-// request sends an LSP request with context timeout support.
+// request sends an LSP request using the connection-level context (if set).
 func (c *lspConn) request(method string, params any) (json.RawMessage, error) {
 	if c.ctx != nil {
 		return c.Client.RequestContext(c.ctx, method, params)
 	}
 	return c.Client.Request(method, params)
+}
+
+// requestWith sends an LSP request using an explicit context.
+// Prefers the explicit ctx; falls back to c.ctx; falls back to Background.
+func (c *lspConn) requestWith(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	return c.Client.RequestContext(ctx, method, params)
 }
 
 func newLSPConn(r interface{ Read([]byte) (int, error) }, w interface{ Write([]byte) (int, error) }) *lspConn {
@@ -801,9 +807,14 @@ func uriToRelPath(uri, root string) string {
 // hoverAt calls textDocument/hover and returns the markdown content.
 // Works with any LSP server (gopls, rust-analyzer, typescript-language-server, etc.).
 func (c *lspConn) hoverAt(file string, line, col int) (string, error) {
+	return c.hoverAtCtx(context.Background(), file, line, col)
+}
+
+// hoverAtCtx is like hoverAt but respects the given context for cancellation.
+func (c *lspConn) hoverAtCtx(ctx context.Context, file string, line, col int) (string, error) {
 	uri := pathToURI(file)
 	c.ensureOpen(file)
-	result, err := c.request("textDocument/hover", map[string]any{
+	result, err := c.requestWith(ctx, "textDocument/hover", map[string]any{
 		"textDocument": map[string]string{"uri": uri},
 		"position":     map[string]int{"line": line, "character": col},
 	})

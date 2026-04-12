@@ -36,7 +36,7 @@ func (s *LSPSymbolSource) Roots(ctx context.Context, query string) ([]oculus.Sym
 	}
 
 	// All exported roots via workspace/symbol.
-	result, err := s.conn.request("workspace/symbol", map[string]any{"query": ""})
+	result, err := s.conn.requestWith(ctx, "workspace/symbol", map[string]any{"query": ""})
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (s *LSPSymbolSource) Children(ctx context.Context, sym oculus.Symbol) ([]oc
 		}
 	}
 
-	outgoing, err := s.conn.request("callHierarchy/outgoingCalls", map[string]any{"item": item})
+	outgoing, err := s.conn.requestWith(ctx, "callHierarchy/outgoingCalls", map[string]any{"item": item})
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (s *LSPSymbolSource) Hover(ctx context.Context, sym oculus.Symbol) (*oculus
 		line = 0
 	}
 
-	hover, err := s.conn.hoverAt(file, line, sym.Col)
+	hover, err := s.conn.hoverAtCtx(ctx, file, line, sym.Col)
 	if err != nil || hover == "" {
 		return nil, nil
 	}

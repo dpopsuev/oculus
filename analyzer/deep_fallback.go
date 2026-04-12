@@ -2,6 +2,8 @@ package analyzer
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/dpopsuev/oculus"
@@ -34,31 +36,53 @@ func NewPipelineFallback(root string, pool lsp.Pool) *DeepFallbackAnalyzer {
 func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	// Resolve sources matching the requested granularity (per-request, not cached).
 	sources := resolveSymbolSources(f.root, f.pool, opts.Granularity)
-	for _, src := range sources {
+	slog.LogAttrs(ctx, slog.LevelInfo, "fallback: CallGraph start", slog.Int("sources", len(sources)), slog.Int("raw_analyzers", len(f.rawAnalyzers)))
+	for i, src := range sources {
+		if ctx.Err() != nil {
+			slog.LogAttrs(ctx, slog.LevelWarn, "fallback: context cancelled", slog.Any("error", ctx.Err()))
+			return &oculus.CallGraph{}, ctx.Err()
+		}
+		name := fmt.Sprintf("source[%d]/%T", i, src)
+		slog.LogAttrs(ctx, slog.LevelInfo, "fallback: trying source", slog.String("source", name))
+		start := time.Now()
 		p := &oculus.SymbolPipeline{
 			Source:      src,
 			Root:        f.root,
 			Concurrency: oculus.DefaultPipelineConcurrency,
 		}
-		aCtx, cancel := context.WithTimeout(context.Background(), perAnalyzerTimeout)
+		aCtx, cancel := context.WithTimeout(ctx, perAnalyzerTimeout)
 		r, err := p.CallGraph(aCtx, root, opts)
 		cancel()
+		elapsed := time.Since(start)
 		if err == nil && len(r.Edges) > 0 {
+			slog.LogAttrs(ctx, slog.LevelInfo, "fallback: source succeeded", slog.String("source", name), slog.Duration("duration", elapsed), slog.Int("edges", len(r.Edges)))
 			EnrichCallEdgeTypes(f.root, r.Edges)
 			return r, nil
 		}
+		slog.LogAttrs(ctx, slog.LevelDebug, "fallback: source empty/failed", slog.String("source", name), slog.Duration("duration", elapsed), slog.Any("error", err))
 	}
 
 	// Raw analyzer fallback.
-	for _, a := range f.rawAnalyzers {
-		aCtx, cancel := context.WithTimeout(context.Background(), perAnalyzerTimeout)
+	for i, a := range f.rawAnalyzers {
+		if ctx.Err() != nil {
+			slog.LogAttrs(ctx, slog.LevelWarn, "fallback: context cancelled", slog.Any("error", ctx.Err()))
+			return &oculus.CallGraph{}, ctx.Err()
+		}
+		name := fmt.Sprintf("raw[%d]/%T", i, a)
+		slog.LogAttrs(ctx, slog.LevelInfo, "fallback: trying raw analyzer", slog.String("analyzer", name))
+		start := time.Now()
+		aCtx, cancel := context.WithTimeout(ctx, perAnalyzerTimeout)
 		r, err := a.CallGraph(aCtx, root, opts)
 		cancel()
+		elapsed := time.Since(start)
 		if err == nil && len(r.Edges) > 0 {
+			slog.LogAttrs(ctx, slog.LevelInfo, "fallback: raw analyzer succeeded", slog.String("analyzer", name), slog.Duration("duration", elapsed), slog.Int("edges", len(r.Edges)))
 			EnrichCallEdgeTypes(f.root, r.Edges)
 			return r, nil
 		}
+		slog.LogAttrs(ctx, slog.LevelDebug, "fallback: raw analyzer empty/failed", slog.String("analyzer", name), slog.Duration("duration", elapsed), slog.Any("error", err))
 	}
+	slog.LogAttrs(ctx, slog.LevelWarn, "fallback: all analyzers exhausted, returning empty call graph")
 	return &oculus.CallGraph{}, nil
 }
 

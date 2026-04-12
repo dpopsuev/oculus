@@ -899,6 +899,8 @@ type DataFlowReport struct {
 
 // GetDataFlow traces data flow from an entry function through the codebase.
 func (p *Engine) GetDataFlow(ctx context.Context, path, entry string, depth int, cacheKey ...string) (*DataFlowReport, error) {
+	slog.LogAttrs(ctx, slog.LevelInfo, "engine: GetDataFlow", slog.String("path", path), slog.String("entry", entry), slog.Int("depth", depth))
+	start := time.Now()
 	path = p.resolvePath(path)
 	if entry == "" {
 		entry = "main"
@@ -909,10 +911,12 @@ func (p *Engine) GetDataFlow(ctx context.Context, path, entry string, depth int,
 	da := analyzer.CachedDeepFallback(path, p.pool)
 	flow, err := da.DataFlowTrace(ctx, path, entry, depth)
 	if err != nil {
+		slog.LogAttrs(ctx, slog.LevelWarn, "engine: GetDataFlow failed", slog.Duration("duration", time.Since(start)), slog.Any("error", err))
 		return nil, fmt.Errorf("data flow trace from %q: %w", entry, err)
 	}
 	summary := fmt.Sprintf("%d nodes, %d edges, %d boundaries from %q",
 		len(flow.Nodes), len(flow.Edges), len(flow.Boundaries), entry)
+	slog.LogAttrs(ctx, slog.LevelInfo, "engine: GetDataFlow done", slog.Duration("duration", time.Since(start)), slog.Int("nodes", len(flow.Nodes)), slog.Int("edges", len(flow.Edges)))
 	return &DataFlowReport{Entry: entry, Flow: flow, Summary: summary}, nil
 }
 
@@ -924,10 +928,13 @@ type StateMachineReport struct {
 
 // DetectStateMachines finds const/iota groups and switch-based state patterns.
 func (p *Engine) DetectStateMachines(ctx context.Context, path string, cacheKey ...string) (*StateMachineReport, error) {
+	slog.LogAttrs(ctx, slog.LevelInfo, "engine: DetectStateMachines", slog.String("path", path))
+	start := time.Now()
 	path = p.resolvePath(path)
 	da := analyzer.CachedDeepFallback(path, p.pool)
 	machines, err := da.DetectStateMachines(ctx, path)
 	if err != nil {
+		slog.LogAttrs(ctx, slog.LevelWarn, "engine: DetectStateMachines failed", slog.Duration("duration", time.Since(start)), slog.Any("error", err))
 		return nil, fmt.Errorf("detect state machines: %w", err)
 	}
 	totalStates := 0
@@ -935,6 +942,7 @@ func (p *Engine) DetectStateMachines(ctx context.Context, path string, cacheKey 
 		totalStates += len(m.States)
 	}
 	summary := fmt.Sprintf("%d state machine(s), %d total states", len(machines), totalStates)
+	slog.LogAttrs(ctx, slog.LevelInfo, "engine: DetectStateMachines done", slog.Duration("duration", time.Since(start)), slog.Int("machines", len(machines)))
 	return &StateMachineReport{Machines: machines, Summary: summary}, nil
 }
 
@@ -1007,23 +1015,30 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 // linear call chains where each function's return types overlap with
 // the next function's parameter types.
 func (p *Engine) DetectPipelines(ctx context.Context, path string, minLength int, cacheKey ...string) (*oculus.PipelineReport, error) {
+	slog.LogAttrs(ctx, slog.LevelInfo, "engine: DetectPipelines", slog.String("path", path), slog.Int("min_length", minLength))
+	start := time.Now()
 	sg, err := p.GetSymbolGraph(ctx, path)
 	if err != nil {
+		slog.LogAttrs(ctx, slog.LevelWarn, "engine: DetectPipelines failed", slog.Duration("duration", time.Since(start)), slog.Any("error", err))
 		return nil, fmt.Errorf("symbol graph: %w", err)
 	}
 	if minLength <= 0 {
 		minLength = 3
 	}
-	return oculus.DetectPipelines(sg, minLength), nil
+	result := oculus.DetectPipelines(sg, minLength)
+	slog.LogAttrs(ctx, slog.LevelInfo, "engine: DetectPipelines done", slog.Duration("duration", time.Since(start)), slog.Int("pipelines", len(result.Pipelines)))
+	return result, nil
 }
 
 // GetMesh builds a hierarchical mesh view of the codebase:
 // symbols → files → packages → components with edge overlay.
 func (p *Engine) GetMesh(ctx context.Context, path string, cacheKey ...string) (*oculus.Mesh, error) {
+	slog.LogAttrs(ctx, slog.LevelInfo, "engine: GetMesh", slog.String("path", path))
 	total := time.Now()
 
 	sg, err := p.GetSymbolGraph(ctx, path)
 	if err != nil {
+		slog.LogAttrs(ctx, slog.LevelWarn, "engine: GetMesh failed", slog.Duration("duration", time.Since(total)), slog.Any("error", err))
 		return nil, fmt.Errorf("symbol graph: %w", err)
 	}
 
