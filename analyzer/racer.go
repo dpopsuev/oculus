@@ -37,8 +37,9 @@ type RaceResult[T any] struct {
 // their results with quality tiers. Next call returns the highest-quality
 // cached result in O(1).
 type Racer[T any] struct {
-	attempts []Attempt[T]
-	isEmpty  func(T) bool
+	attempts   []Attempt[T]
+	isEmpty    func(T) bool
+	minQuality QualityTier // results below this quality are treated as empty
 
 	mu    sync.RWMutex
 	cache *RaceResult[T]
@@ -50,6 +51,14 @@ func NewRacer[T any](isEmpty func(T) bool, attempts ...Attempt[T]) *Racer[T] {
 		attempts: attempts,
 		isEmpty:  isEmpty,
 	}
+}
+
+// WithMinQuality sets the minimum quality threshold. Results from attempts
+// below this quality are treated as empty — the racer keeps waiting for
+// a higher-quality result.
+func (r *Racer[T]) WithMinQuality(q QualityTier) *Racer[T] {
+	r.minQuality = q
+	return r
 }
 
 // Race runs all attempts in parallel. Returns the first non-empty result.
@@ -99,7 +108,7 @@ func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
 		res := <-ch
 		remaining--
 
-		if res.err != nil || r.isEmpty(res.value) {
+		if res.err != nil || r.isEmpty(res.value) || res.quality < r.minQuality {
 			continue
 		}
 

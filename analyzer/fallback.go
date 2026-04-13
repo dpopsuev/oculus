@@ -68,8 +68,8 @@ func NewFallback(root string, pool lsp.Pool) *FallbackAnalyzer {
 
 	return &FallbackAnalyzer{
 		analyzers:       analyzers,
-		classesRacer:    NewRacer(func(r []oculus.ClassInfo) bool { return len(r) == 0 }, classAttempts...),
-		implementsRacer: NewRacer(func(r []oculus.ImplEdge) bool { return len(r) == 0 }, implAttempts...),
+		classesRacer:    NewRacer(func(r []oculus.ClassInfo) bool { return len(r) == 0 }, classAttempts...).WithMinQuality(QualityTreeSitter),
+		implementsRacer: NewRacer(func(r []oculus.ImplEdge) bool { return len(r) == 0 }, implAttempts...).WithMinQuality(QualityTreeSitter),
 		fieldRefsRacer:  NewRacer(func(r []oculus.FieldRef) bool { return len(r) == 0 }, refAttempts...),
 	}
 }

@@ -579,8 +579,12 @@ func extractGoInterfaceMethods(ifaceNode ts.Node, src []byte) []oculus.MethodInf
 	var methods []oculus.MethodInfo
 	for i := 0; i < int(ifaceNode.ChildCount()); i++ {
 		child := ifaceNode.Child(i)
-		if child.Type() == "method_spec" {
+		if child.Type() == "method_spec" || child.Type() == "method_elem" {
 			nameNode := child.ChildByFieldName("name")
+			if nameNode == nil {
+				// tree-sitter-go uses field_identifier as first named child
+				nameNode = findChildByType(child, "field_identifier")
+			}
 			if nameNode == nil {
 				continue
 			}
