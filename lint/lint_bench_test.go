@@ -1,6 +1,7 @@
 package lint_test
 
 import (
+	"context"
 	"runtime"
 	"testing"
 
@@ -13,7 +14,7 @@ const oculusRoot = ".."
 
 func scanSelf(tb testing.TB) *arch.ContextReport {
 	tb.Helper()
-	report, err := arch.ScanAndBuild(oculusRoot, arch.ScanOpts{
+	report, err := arch.ScanAndBuild(context.Background(), oculusRoot, arch.ScanOpts{
 		Intent:       arch.IntentHealth,
 		ExcludeTests: true,
 	})
@@ -29,7 +30,7 @@ func BenchmarkLintRun(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for b.Loop() {
-		lint.Run(report, lint.RunOpts{Root: oculusRoot})
+		lint.Run(context.Background(), report, lint.RunOpts{Root: oculusRoot})
 	}
 }
 
@@ -46,7 +47,7 @@ func TestLintMemoryBudget(t *testing.T) {
 	runtime.GC()
 	runtime.ReadMemStats(&before)
 
-	result := lint.Run(report, lint.RunOpts{Root: oculusRoot})
+	result := lint.Run(context.Background(), report, lint.RunOpts{Root: oculusRoot})
 
 	runtime.ReadMemStats(&after)
 

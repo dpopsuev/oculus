@@ -32,7 +32,7 @@ func oculusRoot(t *testing.T) string {
 func scanLocus(t *testing.T) *arch.ContextReport {
 	t.Helper()
 	root := oculusRoot(t)
-	report, err := arch.ScanAndBuild(root, arch.ScanOpts{
+	report, err := arch.ScanAndBuild(context.Background(), root, arch.ScanOpts{
 		ExcludeTests: true,
 		ChurnDays:    30,
 	})

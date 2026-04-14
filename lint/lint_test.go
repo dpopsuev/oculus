@@ -1,6 +1,7 @@
 package lint_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/dpopsuev/oculus/arch"
@@ -13,7 +14,7 @@ const testdataRoot = "../testdata/testkit/go"
 
 func scanFixture(t *testing.T, root string) *arch.ContextReport { //nolint:unparam // keep param for future multi-fixture tests
 	t.Helper()
-	report, err := arch.ScanAndBuild(root, arch.ScanOpts{
+	report, err := arch.ScanAndBuild(context.Background(), root, arch.ScanOpts{
 		Intent:          arch.IntentHealth,
 		ExcludeTests:    true,
 		IncludeExternal: false,
@@ -26,7 +27,7 @@ func scanFixture(t *testing.T, root string) *arch.ContextReport { //nolint:unpar
 
 func TestRun_Fixture_ReturnsNonNilReport(t *testing.T) {
 	report := scanFixture(t, testdataRoot)
-	result := lint.Run(report, lint.RunOpts{Root: testdataRoot})
+	result := lint.Run(context.Background(), report, lint.RunOpts{Root: testdataRoot})
 
 	if result == nil {
 		t.Fatal("Run returned nil report")
@@ -35,7 +36,7 @@ func TestRun_Fixture_ReturnsNonNilReport(t *testing.T) {
 
 func TestRun_Fixture_ScoreInRange(t *testing.T) {
 	report := scanFixture(t, testdataRoot)
-	result := lint.Run(report, lint.RunOpts{Root: testdataRoot})
+	result := lint.Run(context.Background(), report, lint.RunOpts{Root: testdataRoot})
 
 	if result.Score < 0 || result.Score > 100 {
 		t.Errorf("Score out of range: got %f, want [0, 100]", result.Score)
@@ -44,7 +45,7 @@ func TestRun_Fixture_ScoreInRange(t *testing.T) {
 
 func TestRun_Fixture_CleanMatchesViolations(t *testing.T) {
 	report := scanFixture(t, testdataRoot)
-	result := lint.Run(report, lint.RunOpts{Root: testdataRoot})
+	result := lint.Run(context.Background(), report, lint.RunOpts{Root: testdataRoot})
 
 	wantClean := len(result.Violations) == 0
 	if result.Clean != wantClean {
@@ -54,7 +55,7 @@ func TestRun_Fixture_CleanMatchesViolations(t *testing.T) {
 
 func TestRun_Fixture_ByCategoryMatchesViolations(t *testing.T) {
 	report := scanFixture(t, testdataRoot)
-	result := lint.Run(report, lint.RunOpts{Root: testdataRoot})
+	result := lint.Run(context.Background(), report, lint.RunOpts{Root: testdataRoot})
 
 	totalFromCategories := 0
 	for _, n := range result.ByCategory {
@@ -67,7 +68,7 @@ func TestRun_Fixture_ByCategoryMatchesViolations(t *testing.T) {
 
 func TestRun_Fixture_SummaryNonEmpty(t *testing.T) {
 	report := scanFixture(t, testdataRoot)
-	result := lint.Run(report, lint.RunOpts{Root: testdataRoot})
+	result := lint.Run(context.Background(), report, lint.RunOpts{Root: testdataRoot})
 
 	if result.Summary == "" {
 		t.Error("Summary is empty")
@@ -76,7 +77,7 @@ func TestRun_Fixture_SummaryNonEmpty(t *testing.T) {
 
 func TestRun_DefaultLinters(t *testing.T) {
 	report := scanFixture(t, testdataRoot)
-	result := lint.Run(report, lint.RunOpts{Root: testdataRoot})
+	result := lint.Run(context.Background(), report, lint.RunOpts{Root: testdataRoot})
 
 	// Default linters should not include layer/budget (they require config).
 	for _, v := range result.Violations {
@@ -88,7 +89,7 @@ func TestRun_DefaultLinters(t *testing.T) {
 
 func TestRun_EnabledLinters_SingleCategory(t *testing.T) {
 	report := scanFixture(t, testdataRoot)
-	result := lint.Run(report, lint.RunOpts{
+	result := lint.Run(context.Background(), report, lint.RunOpts{
 		Root:           testdataRoot,
 		EnabledLinters: []lint.Category{lint.CategoryHexa},
 	})
@@ -104,7 +105,7 @@ func TestRun_ChangedComponents_FiltersOutput(t *testing.T) {
 	report := scanFixture(t, testdataRoot)
 
 	// Run with no filter to find all violations.
-	full := lint.Run(report, lint.RunOpts{Root: testdataRoot})
+	full := lint.Run(context.Background(), report, lint.RunOpts{Root: testdataRoot})
 
 	if len(full.Violations) == 0 {
 		t.Skip("No violations in fixture; cannot test filtering")
@@ -114,7 +115,7 @@ func TestRun_ChangedComponents_FiltersOutput(t *testing.T) {
 	target := full.Violations[0].Component
 
 	// Run with ChangedComponents filter.
-	filtered := lint.Run(report, lint.RunOpts{
+	filtered := lint.Run(context.Background(), report, lint.RunOpts{
 		Root:              testdataRoot,
 		ChangedComponents: []string{target},
 	})
@@ -133,7 +134,7 @@ func TestRun_ChangedComponents_FiltersOutput(t *testing.T) {
 
 func TestRun_ChangedComponents_NonexistentComponent(t *testing.T) {
 	report := scanFixture(t, testdataRoot)
-	result := lint.Run(report, lint.RunOpts{
+	result := lint.Run(context.Background(), report, lint.RunOpts{
 		Root:              testdataRoot,
 		ChangedComponents: []string{"nonexistent/package/that/does/not/exist"},
 	})
@@ -161,7 +162,7 @@ func TestRun_WithDesiredState_BudgetViolation(t *testing.T) {
 		},
 	}
 
-	result := lint.Run(report, lint.RunOpts{
+	result := lint.Run(context.Background(), report, lint.RunOpts{
 		Root:           testdataRoot,
 		EnabledLinters: []lint.Category{lint.CategoryBudget},
 		DesiredState:   ds,
@@ -177,7 +178,7 @@ func TestRun_WithDesiredState_BudgetViolation(t *testing.T) {
 
 func TestRun_ViolationSeverityValues(t *testing.T) {
 	report := scanFixture(t, testdataRoot)
-	result := lint.Run(report, lint.RunOpts{Root: testdataRoot})
+	result := lint.Run(context.Background(), report, lint.RunOpts{Root: testdataRoot})
 
 	validSeverities := map[string]bool{
 		"info": true, "warning": true, "error": true, "critical": true,
@@ -192,7 +193,7 @@ func TestRun_ViolationSeverityValues(t *testing.T) {
 
 func TestRun_ViolationsSortedBySeverity(t *testing.T) {
 	report := scanFixture(t, testdataRoot)
-	result := lint.Run(report, lint.RunOpts{Root: testdataRoot})
+	result := lint.Run(context.Background(), report, lint.RunOpts{Root: testdataRoot})
 
 	if len(result.Violations) < 2 {
 		t.Skip("Need at least 2 violations to test sort order")
@@ -216,7 +217,7 @@ func TestRun_EmptyReport(t *testing.T) {
 		Architecture: arch.ArchModel{},
 	}}
 
-	result := lint.Run(report, lint.RunOpts{})
+	result := lint.Run(context.Background(), report, lint.RunOpts{})
 	if result == nil {
 		t.Fatal("Run returned nil for empty report")
 	}
@@ -231,7 +232,7 @@ func TestRun_EmptyReport(t *testing.T) {
 func TestRun_NilDesiredState(t *testing.T) {
 	report := scanFixture(t, testdataRoot)
 	// Should not panic with nil DesiredState.
-	result := lint.Run(report, lint.RunOpts{
+	result := lint.Run(context.Background(), report, lint.RunOpts{
 		Root:         testdataRoot,
 		DesiredState: nil,
 	})

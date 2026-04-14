@@ -1,6 +1,7 @@
 package arch
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,7 +31,7 @@ func TestScanAndBuild_IntentLevels(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.intent), func(t *testing.T) {
-			report, err := ScanAndBuild(root, ScanOpts{
+			report, err := ScanAndBuild(context.Background(), root, ScanOpts{
 				ExcludeTests: true,
 				Depth:        2,
 				ChurnDays:    7,

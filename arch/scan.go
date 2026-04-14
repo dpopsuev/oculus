@@ -113,7 +113,7 @@ const (
 //	L1 (coupling):     L0 + cycles, import depth, hot spots, API surfaces
 //	L2 (health):       L1 + churn, nesting, git history (default)
 //	L3 (full):         L2 + coverage, authors, anchors
-func ScanAndBuild(root string, opts ScanOpts) (*ContextReport, error) {
+func ScanAndBuild(ctx context.Context, root string, opts ScanOpts) (*ContextReport, error) {
 	level := opts.Intent.ScanLevel()
 
 	// --- L0: structure ---
@@ -121,7 +121,7 @@ func ScanAndBuild(root string, opts ScanOpts) (*ContextReport, error) {
 
 	// Incremental scan: if Since is set, identify changed packages and merge.
 	if opts.Since != "" {
-		return incrementalScan(root, opts, sc)
+		return incrementalScan(ctx, root, opts, sc)
 	}
 
 	proj, err := sc.Scan(root)
@@ -129,7 +129,7 @@ func ScanAndBuild(root string, opts ScanOpts) (*ContextReport, error) {
 		return nil, fmt.Errorf("survey scan: %w", err)
 	}
 
-	slog.LogAttrs(context.Background(), slog.LevelDebug, "scan: project scanned",
+	slog.LogAttrs(ctx, slog.LevelDebug, "scan: project scanned",
 		slog.String(logKeyPath, proj.Path),
 		slog.Any(logKeyLanguage, proj.Language),
 		slog.Int(logKeyNamespaces, len(proj.Namespaces)),
@@ -210,27 +210,27 @@ func ScanAndBuild(root string, opts ScanOpts) (*ContextReport, error) {
 	}
 
 	// --- L2: health (churn, nesting, git history) ---
-	runL2Health(root, modPath, opts, &archModel, report)
+	runL2Health(ctx, root, modPath, opts, &archModel, report)
 
 	if level < 3 {
 		return report, nil
 	}
 
 	// --- L3: full (coverage, authors, anchors) ---
-	runL3Full(root, modPath, opts, proj, report)
+	runL3Full(ctx, root, modPath, opts, proj, report)
 
 	return report, nil
 }
 
 // runL2Health runs nesting depth, recent commits, and file hotspots in parallel.
-func runL2Health(root, modPath string, opts ScanOpts, archModel *ArchModel, report *ContextReport) {
+func runL2Health(ctx context.Context, root, modPath string, opts ScanOpts, archModel *ArchModel, report *ContextReport) {
 	var (
 		commits  []archgit.PackageCommit
 		hotFiles []archgit.HotFile
 	)
-	g, _ := errgroup.WithContext(context.Background())
+	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
-		applyNestingDepth(root, modPath, archModel)
+		applyNestingDepth(ctx, root, modPath, archModel)
 		return nil
 	})
 	gitDays := opts.GitDays
@@ -248,13 +248,13 @@ func runL2Health(root, modPath string, opts ScanOpts, archModel *ArchModel, repo
 }
 
 // runL3Full runs coverage, author ownership, and anchor extraction in parallel.
-func runL3Full(root, modPath string, opts ScanOpts, proj *model.Project, report *ContextReport) {
+func runL3Full(ctx context.Context, root, modPath string, opts ScanOpts, proj *model.Project, report *ContextReport) {
 	var (
 		coverage []archgit.CoverageResult
 		authors  map[string][]archgit.Author
 		anchors  []archanchors.SemanticAnchor
 	)
-	g, _ := errgroup.WithContext(context.Background())
+	g, _ := errgroup.WithContext(ctx)
 	if opts.IncludeCoverage && proj.Language == model.LangGo {
 		g.Go(func() error { coverage, _ = archgit.RunGoCoverage(root, modPath); return nil })
 	}
@@ -273,12 +273,12 @@ func runL3Full(root, modPath string, opts ScanOpts, proj *model.Project, report 
 // incrementalScan performs a full scan but is aware of what changed since a ref.
 // Currently does a full scan but marks the report with the since ref for downstream use.
 // Future: partial package re-scan + merge with cached baseline.
-func incrementalScan(root string, opts ScanOpts, _ *survey.AutoScanner) (*ContextReport, error) {
+func incrementalScan(ctx context.Context, root string, opts ScanOpts, _ *survey.AutoScanner) (*ContextReport, error) {
 	changedPkgs := changedPackages(root, opts.Since)
 
 	// Full scan for now — incremental merge requires cached baseline.
 	opts.Since = "" // prevent recursion
-	report, err := ScanAndBuild(root, opts)
+	report, err := ScanAndBuild(ctx, root, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -571,9 +571,9 @@ func applyLOC(root string, proj *model.Project, modPath string, m *ArchModel) {
 
 // applyNestingDepth runs tree-sitter nesting analysis and populates
 // MaxNesting and AvgNesting on each ArchService.
-func applyNestingDepth(root, _ string, m *ArchModel) {
+func applyNestingDepth(ctx context.Context, root, _ string, m *ArchModel) {
 	ts := &analyzer.TreeSitterAnalyzer{}
-	results, err := ts.NestingDepth(context.Background(), root)
+	results, err := ts.NestingDepth(ctx, root)
 	if err != nil || len(results) == 0 {
 		return
 	}

@@ -189,7 +189,7 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 		return &ScanResult{Report: cached, CacheKey: path + "@" + sha, SHA: sha}, nil
 	}
 
-	report, err := arch.ScanAndBuild(path, arch.ScanOpts{
+	report, err := arch.ScanAndBuild(ctx, path, arch.ScanOpts{
 		ScannerOverride: opts.Scanner,
 		ExcludeTests:    !opts.IncludeTests,
 		IncludeExternal: opts.IncludeExternal,
@@ -216,7 +216,7 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 
 func (p *Engine) SuggestDepth(ctx context.Context, path string) (*SuggestDepthResult, error) {
 	path = p.resolvePath(path)
-	report, err := arch.ScanAndBuild(path, arch.ScanOpts{ExcludeTests: true})
+	report, err := arch.ScanAndBuild(ctx, path, arch.ScanOpts{ExcludeTests: true})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrScanFailed, err)
 	}
@@ -236,7 +236,7 @@ func (p *Engine) SuggestDepth(ctx context.Context, path string) (*SuggestDepthRe
 
 func (p *Engine) GetHotSpots(ctx context.Context, path string, churnDays, topN int, cacheKey ...string) ([]arch.HotSpot, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +257,7 @@ func (p *Engine) GetDependencies(ctx context.Context, path, component string, ca
 	if component == "" {
 		return nil, ErrComponentRequired
 	}
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +276,7 @@ func (p *Engine) GetDependencies(ctx context.Context, path, component string, ca
 
 func (p *Engine) GetCouplingTable(ctx context.Context, path, sortBy string, topN int, cacheKey ...string) (string, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return "", err
 	}
@@ -288,7 +288,7 @@ func (p *Engine) GetCouplingTable(ctx context.Context, path, sortBy string, topN
 
 func (p *Engine) GetEdgeList(ctx context.Context, path, component string, cacheKey ...string) (string, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return "", err
 	}
@@ -304,7 +304,7 @@ type CycleReport struct {
 
 func (p *Engine) GetCycles(ctx context.Context, path string, layers []string, cacheKey ...string) (*CycleReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +330,7 @@ type ViolationReport struct {
 
 func (p *Engine) GetViolations(ctx context.Context, path string, layers []string, cacheKey ...string) (*ViolationReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -445,7 +445,7 @@ func (p *Engine) GetDrift(ctx context.Context, path string, cacheKey ...string) 
 	if err != nil {
 		return nil, err
 	}
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		if ds == nil {
 			return &DriftReport{HasDesiredState: false, Summary: "No desired state configured and scan unavailable."}, nil
@@ -545,7 +545,7 @@ func countBudgetChecks(services []arch.ArchService, constraints []port.HealthCon
 
 func (p *Engine) SuggestArchitecture(ctx context.Context, path string, cacheKey ...string) (*port.DesiredState, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -689,9 +689,9 @@ type SymbolSearchReport struct {
 	Summary string        `json:"summary"`
 }
 
-func (p *Engine) SearchSymbols(_ context.Context, path, pattern string, cacheKey ...string) (*SymbolSearchReport, error) {
+func (p *Engine) SearchSymbols(ctx context.Context, path, pattern string, cacheKey ...string) (*SymbolSearchReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -841,7 +841,7 @@ func (p *Engine) GetDiffIntelligence(ctx context.Context, path, since string, ca
 	if since == "" {
 		since = "HEAD~1"
 	}
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1053,7 +1053,7 @@ func (p *Engine) GetMeshOpts(ctx context.Context, path string, opts SymbolGraphO
 		return nil, fmt.Errorf("symbol graph: %w", err)
 	}
 
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, fmt.Errorf("scan: %w", err)
 	}
@@ -1087,11 +1087,11 @@ type CrossRepoReport struct {
 }
 
 func (p *Engine) GetCrossRepo(ctx context.Context, pathA, pathB, cacheKeyA, cacheKeyB string) (*CrossRepoReport, error) {
-	reportA, err := p.getOrScan(p.resolvePath(pathA), cacheKeyA)
+	reportA, err := p.getOrScan(ctx, p.resolvePath(pathA), cacheKeyA)
 	if err != nil {
 		return nil, fmt.Errorf("repo A: %w", err)
 	}
-	reportB, err := p.getOrScan(p.resolvePath(pathB), cacheKeyB)
+	reportB, err := p.getOrScan(ctx, p.resolvePath(pathB), cacheKeyB)
 	if err != nil {
 		return nil, fmt.Errorf("repo B: %w", err)
 	}
@@ -1155,7 +1155,7 @@ const (
 
 func (p *Engine) RunPreset(ctx context.Context, path, preset string, cacheKey ...string) (string, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return "", err
 	}
@@ -1185,7 +1185,7 @@ func (p *Engine) GetComponentDetail(ctx context.Context, path, name string, cach
 	if name == "" {
 		return nil, ErrComponentRequired
 	}
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1270,7 +1270,7 @@ func (p *Engine) AnswerQuery(ctx context.Context, path, query string, cacheKey .
 			if strings.Contains(q, kw) {
 				switch {
 				case strings.HasPrefix(pat.action, "coupling"):
-					report, err := p.getOrScan(path, cacheKey...)
+					report, err := p.getOrScan(ctx, path, cacheKey...)
 					if err != nil {
 						return nil, err
 					}
@@ -1458,7 +1458,7 @@ type APISurfaceReport struct {
 
 func (p *Engine) GetAPISurface(ctx context.Context, path string, trusted []string, cacheKey ...string) (*APISurfaceReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1470,7 +1470,7 @@ func (p *Engine) GetAPISurface(ctx context.Context, path string, trusted []strin
 
 func (p *Engine) ValidateArchitecture(ctx context.Context, path, desiredState, format string) (*arch.ArchDrift, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path)
+	report, err := p.getOrScan(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -1558,11 +1558,11 @@ func (p *Engine) DiffBranches(ctx context.Context, path, branchA, branchB string
 	if branchA == "" || branchB == "" {
 		return nil, ErrBothBranchesRequired
 	}
-	reportA, err := p.scanBranch(path, branchA)
+	reportA, err := p.scanBranch(ctx,path, branchA)
 	if err != nil {
 		return nil, fmt.Errorf("scan branch %s: %w", branchA, err)
 	}
-	reportB, err := p.scanBranch(path, branchB)
+	reportB, err := p.scanBranch(ctx,path, branchB)
 	if err != nil {
 		return nil, fmt.Errorf("scan branch %s: %w", branchB, err)
 	}
@@ -1593,7 +1593,7 @@ func (p *Engine) GetImpact(ctx context.Context, path, component string, cacheKey
 	if component == "" {
 		return nil, ErrComponentRequired
 	}
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1604,9 +1604,9 @@ func (p *Engine) GetImpact(ctx context.Context, path, component string, cacheKey
 	)
 }
 
-func (p *Engine) GetWhatIf(_ context.Context, path string, moves []impact.FileMove, cacheKey ...string) (*impact.GraphDelta, error) {
+func (p *Engine) GetWhatIf(ctx context.Context, path string, moves []impact.FileMove, cacheKey ...string) (*impact.GraphDelta, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1620,28 +1620,28 @@ func (p *Engine) GetWhatIf(_ context.Context, path string, moves []impact.FileMo
 
 func (p *Engine) GetGaps(ctx context.Context, path string) (*constraint.GapReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path)
+	report, err := p.getOrScan(ctx, path)
 	if err != nil {
 		return nil, err
 	}
 	return constraint.DetectGaps(report, path)
 }
 
-func (p *Engine) GetBloaterScan(_ context.Context, path string, cacheKey ...string) (*clinic.BloaterReport, error) {
+func (p *Engine) GetBloaterScan(ctx context.Context, path string, cacheKey ...string) (*clinic.BloaterReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
 	return clinic.ComputeBloaterScan(report), nil
 }
 
-func (p *Engine) GetLeverage(_ context.Context, path, target string, cacheKey ...string) (*impact.LeverageReport, error) {
+func (p *Engine) GetLeverage(ctx context.Context, path, target string, cacheKey ...string) (*impact.LeverageReport, error) {
 	path = p.resolvePath(path)
 	if target == "" {
 		return nil, ErrComponentRequired
 	}
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1652,9 +1652,9 @@ func (p *Engine) GetLeverage(_ context.Context, path, target string, cacheKey ..
 	)
 }
 
-func (p *Engine) GetRiskScores(_ context.Context, path string, cacheKey ...string) (*impact.RiskReport, error) {
+func (p *Engine) GetRiskScores(ctx context.Context, path string, cacheKey ...string) (*impact.RiskReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1665,9 +1665,9 @@ func (p *Engine) GetRiskScores(_ context.Context, path string, cacheKey ...strin
 	), nil
 }
 
-func (p *Engine) GetConsolidation(_ context.Context, path string, cacheKey ...string) (*impact.ConsolidationReport, error) {
+func (p *Engine) GetConsolidation(ctx context.Context, path string, cacheKey ...string) (*impact.ConsolidationReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1679,7 +1679,7 @@ func (p *Engine) GetConsolidation(_ context.Context, path string, cacheKey ...st
 
 func (p *Engine) GetBudgets(ctx context.Context, path string, cacheKey ...string) (*constraint.BudgetReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1692,7 +1692,7 @@ func (p *Engine) GetBudgets(ctx context.Context, path string, cacheKey ...string
 
 func (p *Engine) GetBlastRadius(ctx context.Context, path string, files []string, since string, cacheKey ...string) (*impact.BlastRadiusReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1708,14 +1708,14 @@ func (p *Engine) GetBlastRadius(ctx context.Context, path string, files []string
 
 func (p *Engine) GetImportDirection(ctx context.Context, path string, cacheKey ...string) (*constraint.ImportDirectionReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
 	return constraint.ComputeImportDirection(report.Architecture.Edges, report.ImportDepth), nil
 }
 
-func (p *Engine) GetModuleDependencies(_ context.Context, path string, _ ...string) (*DependencyReport, error) {
+func (p *Engine) GetModuleDependencies(ctx context.Context, path string, _ ...string) (*DependencyReport, error) {
 	path = p.resolvePath(path)
 	goModPath := filepath.Join(path, "go.mod")
 	return ComputeDependencies(goModPath)
@@ -1723,7 +1723,7 @@ func (p *Engine) GetModuleDependencies(_ context.Context, path string, _ ...stri
 
 func (p *Engine) GetTrustBoundaries(ctx context.Context, path string, cacheKey ...string) (*constraint.TrustBoundaryReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1734,7 +1734,7 @@ func (p *Engine) GetTrustBoundaries(ctx context.Context, path string, cacheKey .
 
 func (p *Engine) GetHexaValidation(ctx context.Context, path string, cacheKey ...string) (*clinichexa.HexaValidationReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1745,7 +1745,7 @@ func (p *Engine) GetHexaValidation(ctx context.Context, path string, cacheKey ..
 
 func (p *Engine) GetSOLIDScan(ctx context.Context, path string, cacheKey ...string) (*clinicsolid.SOLIDReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1758,9 +1758,9 @@ func (p *Engine) GetSOLIDScan(ctx context.Context, path string, cacheKey ...stri
 	return clinicsolid.ComputeSOLIDScan(report.Architecture.Services, report.Architecture.Edges, classes, impls, hexaClass, path, roles, accepted), nil
 }
 
-func (p *Engine) GetSymbolQuality(_ context.Context, path string, cacheKey ...string) (*clinicnaming.SymbolQualityReport, error) {
+func (p *Engine) GetSymbolQuality(ctx context.Context, path string, cacheKey ...string) (*clinicnaming.SymbolQualityReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1768,9 +1768,9 @@ func (p *Engine) GetSymbolQuality(_ context.Context, path string, cacheKey ...st
 	return clinicnaming.ComputeSymbolQuality(report.Architecture.Services, report.Architecture.Edges, rules), nil
 }
 
-func (p *Engine) GetVocabMap(_ context.Context, path string, cacheKey ...string) (*clinicnaming.VocabMapReport, error) {
+func (p *Engine) GetVocabMap(ctx context.Context, path string, cacheKey ...string) (*clinicnaming.VocabMapReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1779,7 +1779,7 @@ func (p *Engine) GetVocabMap(_ context.Context, path string, cacheKey ...string)
 
 func (p *Engine) GetPatternScan(ctx context.Context, path string, cacheKey ...string) (*clinic.PatternScanReport, error) {
 	path = p.resolvePath(path)
-	report, err := p.getOrScan(path, cacheKey...)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
@@ -1817,11 +1817,11 @@ func (p *Engine) Pool() lsp.Pool {
 // --- helpers ---
 
 // GetCachedReport retrieves a report stored under a cache key (e.g. from scan_remote).
-func (p *Engine) GetCachedReport(cacheKey string) (*arch.ContextReport, error) {
+func (p *Engine) GetCachedReport(ctx context.Context, cacheKey string) (*arch.ContextReport, error) {
 	if idx := strings.LastIndex(cacheKey, "@"); idx >= 0 {
 		path := cacheKey[:idx]
 		sha := cacheKey[idx+1:]
-		if report, hit, err := p.db.GetReport(context.Background(), path, sha); err == nil && hit {
+		if report, hit, err := p.db.GetReport(ctx, path, sha); err == nil && hit {
 			return report, nil
 		}
 	}
@@ -1847,7 +1847,7 @@ func resolveRolesAndAccepted(hexaClass *clinichexa.HexaClassificationReport, des
 	return roles, accepted
 }
 
-func (p *Engine) getOrScan(path string, cacheKeys ...string) (*arch.ContextReport, error) {
+func (p *Engine) getOrScan(ctx context.Context, path string, cacheKeys ...string) (*arch.ContextReport, error) {
 	// If a cache key is provided, resolve from cache directly.
 	for _, ck := range cacheKeys {
 		if ck == "" {
@@ -1856,7 +1856,7 @@ func (p *Engine) getOrScan(path string, cacheKeys ...string) (*arch.ContextRepor
 		if idx := strings.LastIndex(ck, "@"); idx >= 0 {
 			ckPath := ck[:idx]
 			sha := ck[idx+1:]
-			if report, hit, err := p.db.GetReport(context.Background(), ckPath, sha); err == nil && hit {
+			if report, hit, err := p.db.GetReport(ctx, ckPath, sha); err == nil && hit {
 				return report, nil
 			}
 		}
@@ -1864,25 +1864,25 @@ func (p *Engine) getOrScan(path string, cacheKeys ...string) (*arch.ContextRepor
 	}
 
 	sha := p.db.ResolveHEAD(path)
-	if cached, hit, _ := p.db.GetReport(context.Background(), path, sha); hit {
+	if cached, hit, _ := p.db.GetReport(ctx, path, sha); hit {
 		return cached, nil
 	}
-	r, err := arch.ScanAndBuild(path, arch.ScanOpts{ExcludeTests: true, ChurnDays: 30})
+	r, err := arch.ScanAndBuild(ctx, path, arch.ScanOpts{ExcludeTests: true, ChurnDays: 30})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrScanFailed, err)
 	}
 	if sha != "" {
-		_ = p.db.PutReport(context.Background(), path, sha, r)
+		_ = p.db.PutReport(ctx, path, sha, r)
 	}
 	return r, nil
 }
 
-func (p *Engine) scanBranch(repoPath, ref string) (*arch.ContextReport, error) {
+func (p *Engine) scanBranch(ctx context.Context, repoPath, ref string) (*arch.ContextReport, error) {
 	sha, err := p.db.ResolveBranch(repoPath, ref)
 	if err != nil {
 		return nil, err
 	}
-	if cached, hit, _ := p.db.GetReport(context.Background(), repoPath, sha); hit {
+	if cached, hit, _ := p.db.GetReport(ctx, repoPath, sha); hit {
 		return cached, nil
 	}
 	currentBranch := getCurrentBranch(repoPath)
@@ -1894,11 +1894,11 @@ func (p *Engine) scanBranch(repoPath, ref string) (*arch.ContextReport, error) {
 			_ = checkoutRef(repoPath, currentBranch)
 		}
 	}()
-	report, err := arch.ScanAndBuild(repoPath, arch.ScanOpts{ExcludeTests: true, ChurnDays: 30})
+	report, err := arch.ScanAndBuild(ctx, repoPath, arch.ScanOpts{ExcludeTests: true, ChurnDays: 30})
 	if err != nil {
 		return nil, err
 	}
-	_ = p.db.PutReport(context.Background(), repoPath, sha, report)
+	_ = p.db.PutReport(ctx, repoPath, sha, report)
 	return report, nil
 }
 
@@ -1962,7 +1962,7 @@ type HealthCheck struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-func (p *Engine) Health(_ context.Context) *HealthResult {
+func (p *Engine) Health(ctx context.Context) *HealthResult {
 	r := &HealthResult{OK: true}
 
 	// Health checks for stores that expose filesystem paths.
@@ -2175,7 +2175,7 @@ func (p *Engine) Evolution(ctx context.Context, opts EvolutionOpts) (*EvolutionR
 			if err := checkoutRef(path, commit.SHA); err != nil {
 				return nil, fmt.Errorf("checkout %s: %w", commit.SHA[:8], err)
 			}
-			report, err = arch.ScanAndBuild(path, arch.ScanOpts{
+			report, err = arch.ScanAndBuild(ctx, path, arch.ScanOpts{
 				ExcludeTests: true,
 				ChurnDays:    30,
 				Depth:        opts.Depth,

@@ -56,7 +56,7 @@ func ScanRemote(ctx context.Context, repoURL string, opts Opts) (*Result, error)
 		churnDays = 30
 	}
 
-	report, err := arch.ScanAndBuild(dir, arch.ScanOpts{
+	report, err := arch.ScanAndBuild(ctx, dir, arch.ScanOpts{
 		ExcludeTests: true,
 		Depth:        opts.Depth,
 		ChurnDays:    churnDays,

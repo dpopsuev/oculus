@@ -1,7 +1,6 @@
 package behavioral
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -26,7 +25,7 @@ func CallGraph(in core.Input, opts core.Options) (string, error) {
 		cgOpts.Depth = 10
 	}
 
-	cg, err := in.DeepAnalyzer.CallGraph(context.Background(), in.Root, cgOpts)
+	cg, err := in.DeepAnalyzer.CallGraph(in.Ctx, in.Root, cgOpts)
 	if err != nil {
 		return "", fmt.Errorf("call graph: %w", err)
 	}

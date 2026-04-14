@@ -1,6 +1,7 @@
 package arch_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/dpopsuev/oculus/arch"
@@ -11,7 +12,7 @@ func BenchmarkScanAndBuild(b *testing.B) {
 	root := "../.."
 	b.ReportAllocs()
 	for b.Loop() {
-		_, err := arch.ScanAndBuild(root, arch.ScanOpts{
+		_, err := arch.ScanAndBuild(context.Background(), root, arch.ScanOpts{
 			Intent:       arch.IntentHealth,
 			ExcludeTests: true,
 		})

@@ -24,7 +24,7 @@ func TestOrigami_GetSymbolGraph(t *testing.T) {
 		t.Skipf("origami not found at %s", origamiPath)
 	}
 
-	report, err := arch.ScanAndBuild(origamiPath, arch.ScanOpts{})
+	report, err := arch.ScanAndBuild(context.Background(), origamiPath, arch.ScanOpts{})
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}

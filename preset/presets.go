@@ -57,11 +57,11 @@ func Run(ctx context.Context, report *arch.ContextReport, path, preset string, d
 	case Normative:
 		normative(ctx, &b, path, report, deps)
 	case PreRefactor:
-		preRefactor(&b, path, report)
+		preRefactor(ctx, &b, path, report)
 	case FullClinic:
 		fullClinic(ctx, &b, path, report, deps)
 	case CodeHealth:
-		codeHealth(&b, path, report, deps)
+		codeHealth(ctx, &b, path, report, deps)
 	default:
 		return "", fmt.Errorf("%w %q (valid: %s, %s, %s, %s, %s, %s, %s, %s)",
 			ErrUnknown, preset, ArchReview, HealthCheck, Onboarding, PrePR,
@@ -152,7 +152,7 @@ func normative(ctx context.Context, b *strings.Builder, path string, report *arc
 	}
 }
 
-func preRefactor(b *strings.Builder, path string, report *arch.ContextReport) {
+func preRefactor(ctx context.Context, b *strings.Builder, path string, report *arch.ContextReport) {
 	fmt.Fprintf(b, "# Pre-Refactor Analysis: %s\n\n", report.ModulePath)
 
 	spots := report.HotSpots
@@ -165,8 +165,8 @@ func preRefactor(b *strings.Builder, path string, report *arch.ContextReport) {
 	}
 
 	da := analyzer.NewFallback(path, nil)
-	if classes, err := da.Classes(context.Background(), path); err == nil {
-		impls, _ := da.Implements(context.Background(), path)
+	if classes, err := da.Classes(ctx, path); err == nil {
+		impls, _ := da.Implements(ctx, path)
 		imReport := constraint.ComputeInterfaceMetrics(classes, impls)
 		fmt.Fprintf(b, "\n## Interfaces\n%s\n", imReport.Summary)
 		for _, iface := range imReport.Interfaces {
@@ -208,8 +208,8 @@ func fullClinic(ctx context.Context, b *strings.Builder, path string, report *ar
 	}
 
 	fa := analyzer.NewFallback(path, deps.Pool)
-	if classes, err := fa.Classes(context.Background(), path); err == nil {
-		impls, _ := fa.Implements(context.Background(), path)
+	if classes, err := fa.Classes(ctx, path); err == nil {
+		impls, _ := fa.Implements(ctx, path)
 		imReport := constraint.ComputeInterfaceMetrics(classes, impls)
 		fmt.Fprintf(b, "\n## Interfaces\n%s\n", imReport.Summary)
 	}
@@ -220,8 +220,8 @@ func fullClinic(ctx context.Context, b *strings.Builder, path string, report *ar
 	}
 
 	// Code Health Clinic pillars
-	if classes, err := fa.Classes(context.Background(), path); err == nil {
-		impls, _ := fa.Implements(context.Background(), path)
+	if classes, err := fa.Classes(ctx, path); err == nil {
+		impls, _ := fa.Implements(ctx, path)
 
 		hexaClass := clinichexa.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
 		desired, _ := deps.DesiredState(ctx, path)
@@ -242,13 +242,13 @@ func fullClinic(ctx context.Context, b *strings.Builder, path string, report *ar
 	fmt.Fprintf(b, "\n## Symbol Quality\n%s\n", sqReport.Summary)
 }
 
-func codeHealth(b *strings.Builder, path string, report *arch.ContextReport, deps Deps) {
+func codeHealth(ctx context.Context, b *strings.Builder, path string, report *arch.ContextReport, deps Deps) {
 	fmt.Fprintf(b, "# Code Health Clinic: %s\n\n", report.ModulePath)
 	fmt.Fprintf(b, "%d components, %d edges\n\n", len(report.Architecture.Services), len(report.Architecture.Edges))
 
 	fa := analyzer.NewFallback(path, deps.Pool)
-	classes, _ := fa.Classes(context.Background(), path)
-	impls, _ := fa.Implements(context.Background(), path)
+	classes, _ := fa.Classes(ctx, path)
+	impls, _ := fa.Implements(ctx, path)
 
 	hexaClass := clinichexa.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
 

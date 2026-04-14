@@ -24,7 +24,7 @@ func integrationRoot(t *testing.T) string {
 func integrationScan(t *testing.T) *arch.ContextReport {
 	t.Helper()
 	root := integrationRoot(t)
-	report, err := arch.ScanAndBuild(root, arch.ScanOpts{ExcludeTests: true})
+	report, err := arch.ScanAndBuild(context.Background(), root, arch.ScanOpts{ExcludeTests: true})
 	if err != nil {
 		t.Fatalf("ScanAndBuild: %v", err)
 	}

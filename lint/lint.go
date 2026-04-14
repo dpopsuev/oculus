@@ -84,7 +84,7 @@ type RunOpts struct {
 
 // Run executes enabled linters against a pre-scanned ContextReport and returns
 // a unified Report. The ContextReport must be non-nil.
-func Run(report *arch.ContextReport, opts RunOpts) *Report {
+func Run(ctx context.Context, report *arch.ContextReport, opts RunOpts) *Report {
 	enabled := resolveEnabled(opts.EnabledLinters)
 	ds := opts.DesiredState
 	if ds == nil {
@@ -101,7 +101,7 @@ func Run(report *arch.ContextReport, opts RunOpts) *Report {
 
 	if enabled[CategoryHexa] || enabled[CategorySOLID] || enabled[CategoryPattern] {
 		// Obtain class analysis for hexa classification.
-		classes := safeClasses(opts.Root)
+		classes := safeClasses(ctx, opts.Root)
 		hexaClassification = clinichexa.ComputeHexaClassification(services, edges, classes)
 		roles = clinichexa.ResolveRoles(hexaClassification, ds.Roles)
 	}
@@ -109,13 +109,13 @@ func Run(report *arch.ContextReport, opts RunOpts) *Report {
 	var violations []Violation
 
 	if enabled[CategoryHexa] {
-		violations = append(violations, runHexa(services, edges, opts.Root)...)
+		violations = append(violations, runHexa(ctx, services, edges, opts.Root)...)
 	}
 	if enabled[CategorySOLID] {
-		violations = append(violations, runSOLID(services, edges, hexaClassification, roles, ds, opts.Root)...)
+		violations = append(violations, runSOLID(ctx, services, edges, hexaClassification, roles, ds, opts.Root)...)
 	}
 	if enabled[CategoryPattern] {
-		violations = append(violations, runPattern(services, edges, cycles, roles, ds, opts.Root)...)
+		violations = append(violations, runPattern(ctx, services, edges, cycles, roles, ds, opts.Root)...)
 	}
 	if enabled[CategorySymbol] {
 		violations = append(violations, runSymbol(services, edges)...)
@@ -177,12 +177,12 @@ func resolveEnabled(linters []Category) map[Category]bool {
 
 // safeClasses obtains class analysis without panicking.
 // Returns nil if root is empty or analysis fails.
-func safeClasses(root string) []oculus.ClassInfo {
+func safeClasses(ctx context.Context, root string) []oculus.ClassInfo {
 	if root == "" {
 		return nil
 	}
 	fb := analyzer.NewFallback(root, nil)
-	classes, err := fb.Classes(context.Background(), root)
+	classes, err := fb.Classes(ctx, root)
 	if err != nil {
 		return nil
 	}
@@ -190,12 +190,12 @@ func safeClasses(root string) []oculus.ClassInfo {
 }
 
 // safeImpls obtains implementation edges without panicking.
-func safeImpls(root string) []oculus.ImplEdge {
+func safeImpls(ctx context.Context, root string) []oculus.ImplEdge {
 	if root == "" {
 		return nil
 	}
 	fb := analyzer.NewFallback(root, nil)
-	impls, err := fb.Implements(context.Background(), root)
+	impls, err := fb.Implements(ctx, root)
 	if err != nil {
 		return nil
 	}
@@ -204,8 +204,8 @@ func safeImpls(root string) []oculus.ImplEdge {
 
 // --- Linter runners ---
 
-func runHexa(services []arch.ArchService, edges []arch.ArchEdge, root string) []Violation {
-	classes := safeClasses(root)
+func runHexa(ctx context.Context, services []arch.ArchService, edges []arch.ArchEdge, root string) []Violation {
+	classes := safeClasses(ctx, root)
 	hr := clinichexa.ComputeHexaViolations(services, edges, classes)
 	if hr == nil {
 		return nil
@@ -225,6 +225,7 @@ func runHexa(services []arch.ArchService, edges []arch.ArchEdge, root string) []
 }
 
 func runSOLID(
+	ctx context.Context,
 	services []arch.ArchService,
 	edges []arch.ArchEdge,
 	hexaClassification *clinichexa.HexaClassificationReport,
@@ -232,8 +233,8 @@ func runSOLID(
 	ds *port.DesiredState,
 	root string,
 ) []Violation {
-	classes := safeClasses(root)
-	impls := safeImpls(root)
+	classes := safeClasses(ctx, root)
+	impls := safeImpls(ctx, root)
 
 	sr := clinicsolid.ComputeSOLIDScan(
 		services, edges,
@@ -262,6 +263,7 @@ func runSOLID(
 }
 
 func runPattern(
+	ctx context.Context,
 	services []arch.ArchService,
 	edges []arch.ArchEdge,
 	cycles []graph.Cycle,
@@ -269,8 +271,8 @@ func runPattern(
 	ds *port.DesiredState,
 	root string,
 ) []Violation {
-	classes := safeClasses(root)
-	impls := safeImpls(root)
+	classes := safeClasses(ctx, root)
+	impls := safeImpls(ctx, root)
 
 	pr := clinic.ComputePatternScan(
 		services, edges, cycles,

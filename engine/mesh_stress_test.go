@@ -33,7 +33,7 @@ func TestGetSymbolGraph_Stress(t *testing.T) {
 			}
 			testkit.InitGitRepo(dir)
 
-			report, err := arch.ScanAndBuild(dir, arch.ScanOpts{})
+			report, err := arch.ScanAndBuild(context.Background(), dir, arch.ScanOpts{})
 			if err != nil {
 				t.Fatalf("scan: %v", err)
 			}
