@@ -105,50 +105,59 @@ func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
 	remaining := len(r.attempts)
 
 	for remaining > 0 {
-		res := <-ch
-		remaining--
+		select {
+		case <-ctx.Done():
+			var zero T
+			return &RaceResult[T]{Value: zero}, ctx.Err()
+		case res := <-ch:
+			remaining--
 
-		if res.err != nil || r.isEmpty(res.value) || res.quality < r.minQuality {
-			continue
-		}
+			if res.err != nil || r.isEmpty(res.value) || res.quality < r.minQuality {
+				continue
+			}
 
-		rr := &RaceResult[T]{
-			Value:   res.value,
-			Winner:  res.name,
-			Quality: res.quality,
-			Elapsed: res.elapsed,
-		}
+			rr := &RaceResult[T]{
+				Value:   res.value,
+				Winner:  res.name,
+				Quality: res.quality,
+				Elapsed: res.elapsed,
+			}
 
-		if winner == nil {
-			winner = rr
-			// Cache this result.
-			r.mu.Lock()
-			r.cache = rr
-			r.mu.Unlock()
+			if winner == nil {
+				winner = rr
+				// Cache this result.
+				r.mu.Lock()
+				r.cache = rr
+				r.mu.Unlock()
 
-			// Don't return yet — drain remaining results in background
-			// to potentially upgrade cache with higher quality.
-			go func() {
-				for remaining > 0 {
-					bg := <-ch
-					remaining--
-					if bg.err != nil || r.isEmpty(bg.value) {
-						continue
-					}
-					r.mu.Lock()
-					if r.cache == nil || bg.quality > r.cache.Quality {
-						r.cache = &RaceResult[T]{
-							Value:   bg.value,
-							Winner:  bg.name,
-							Quality: bg.quality,
-							Elapsed: bg.elapsed,
+				// Don't return yet — drain remaining results in background
+				// to potentially upgrade cache with higher quality.
+				go func() {
+					for remaining > 0 {
+						select {
+						case <-ctx.Done():
+							return
+						case bg := <-ch:
+							remaining--
+							if bg.err != nil || r.isEmpty(bg.value) {
+								continue
+							}
+							r.mu.Lock()
+							if r.cache == nil || bg.quality > r.cache.Quality {
+								r.cache = &RaceResult[T]{
+									Value:   bg.value,
+									Winner:  bg.name,
+									Quality: bg.quality,
+									Elapsed: bg.elapsed,
+								}
+							}
+							r.mu.Unlock()
 						}
 					}
-					r.mu.Unlock()
-				}
-			}()
+				}()
 
-			return winner, nil
+				return winner, nil
+			}
 		}
 	}
 

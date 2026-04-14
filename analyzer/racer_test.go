@@ -168,6 +168,68 @@ func TestRacer_Invalidate(t *testing.T) {
 	}
 }
 
+// TestRacer_ContextCancelWithHangingAttempt proves that Race returns on
+// context cancellation even when attempts ignore ctx and block forever.
+// Reproduces OCL-BUG-5.
+func TestRacer_ContextCancelWithHangingAttempt(t *testing.T) {
+	r := NewRacer(
+		func(s string) bool { return s == "" },
+		Attempt[string]{Name: "hangs-a", Quality: QualityLSP, Fn: func(ctx context.Context) (string, error) {
+			// Simulates an analyzer that ignores context — blocks forever.
+			select {}
+		}},
+		Attempt[string]{Name: "hangs-b", Quality: QualityTreeSitter, Fn: func(ctx context.Context) (string, error) {
+			select {}
+		}},
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	result, err := r.Race(ctx)
+	elapsed := time.Since(start)
+
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("took %v — Race blocked instead of respecting context cancellation", elapsed)
+	}
+	if err == nil {
+		t.Fatal("expected context error, got nil")
+	}
+	if result.Value != "" {
+		t.Errorf("expected empty result on cancel, got %q", result.Value)
+	}
+}
+
+// TestRacer_BackgroundDrainRespectsContext proves that the background drain
+// goroutine exits when context is cancelled, even with a hanging attempt.
+// Reproduces OCL-BUG-5 (background drain path).
+func TestRacer_BackgroundDrainRespectsContext(t *testing.T) {
+	r := NewRacer(
+		func(s string) bool { return s == "" },
+		Attempt[string]{Name: "fast", Quality: QualityTreeSitter, Fn: func(ctx context.Context) (string, error) {
+			return "fast-result", nil
+		}},
+		Attempt[string]{Name: "hangs", Quality: QualityLSP, Fn: func(ctx context.Context) (string, error) {
+			// Blocks forever — drain goroutine must not wait for this.
+			select {}
+		}},
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	result, err := r.Race(ctx)
+	if err != nil {
+		t.Fatalf("Race: %v", err)
+	}
+	if result.Value != "fast-result" {
+		t.Errorf("value = %q, want fast-result", result.Value)
+	}
+	// The background drain goroutine should exit after context cancellation,
+	// not block forever on the hanging attempt's channel read.
+}
+
 // TestRacer_AllEmpty returns zero value when no attempt produces data.
 func TestRacer_AllEmpty(t *testing.T) {
 	r := NewRacer(
