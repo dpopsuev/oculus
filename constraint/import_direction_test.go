@@ -3,8 +3,8 @@ package constraint
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/graph"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/graph"
 )
 
 func TestComputeImportDirection_ExcludesEntrypoints(t *testing.T) {

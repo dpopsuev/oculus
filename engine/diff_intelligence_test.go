@@ -3,8 +3,8 @@ package engine
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/port"
-	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/v3/port"
+	"github.com/dpopsuev/oculus/v3"
 )
 
 func TestComputeDiffIntelligence_SingleFileWithCallers(t *testing.T) {

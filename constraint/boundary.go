@@ -4,8 +4,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/port"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/port"
 )
 
 // BoundaryViolation records a single edge that violates a boundary rule.

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/v3/lang"
 )
 
 // poolKey uniquely identifies an LSP server connection by language and workspace root.

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dpopsuev/oculus/diagram/core"
-	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/v3/diagram/core"
+	"github.com/dpopsuev/oculus/v3"
 )
 
 const kindInterface = "interface"

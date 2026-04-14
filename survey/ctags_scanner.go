@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dpopsuev/oculus/model"
+	"github.com/dpopsuev/oculus/v3/model"
 )
 
 var errCtagsNotFound = errors.New("ctags not found; install with: dnf install ctags")

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/lint"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/lint"
 )
 
 func TestRun_External(t *testing.T) {

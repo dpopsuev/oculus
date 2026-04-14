@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dpopsuev/oculus/diagram/core"
+	"github.com/dpopsuev/oculus/v3/diagram/core"
 )
 
 // Dataflow generates a Mermaid flowchart LR with DFD conventions:

@@ -6,10 +6,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/diagram/core"
-	"github.com/dpopsuev/oculus/graph"
-	"github.com/dpopsuev/oculus/model"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/diagram/core"
+	"github.com/dpopsuev/oculus/v3/graph"
+	"github.com/dpopsuev/oculus/v3/model"
 )
 
 // DefaultTopSymbols is the number of exported symbols shown per component in tree diagrams.

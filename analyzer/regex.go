@@ -2,7 +2,7 @@ package analyzer
 
 import (
 	"context"
-	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/v3"
 	"errors"
 	"os"
 	"path/filepath"

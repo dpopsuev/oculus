@@ -3,8 +3,8 @@ package impact_test
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/impact"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/impact"
 )
 
 func TestComputeRiskScores_External(t *testing.T) {

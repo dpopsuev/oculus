@@ -3,8 +3,8 @@ package oculus_test
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus"
-	"github.com/dpopsuev/oculus/testkit"
+	"github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/testkit"
 )
 
 var tiers = []testkit.ScaleTier{

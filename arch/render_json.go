@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"sort"
 
-	archanchors "github.com/dpopsuev/oculus/arch/anchors"
-	archgit "github.com/dpopsuev/oculus/arch/git"
-	"github.com/dpopsuev/oculus/graph"
+	archanchors "github.com/dpopsuev/oculus/v3/arch/anchors"
+	archgit "github.com/dpopsuev/oculus/v3/arch/git"
+	"github.com/dpopsuev/oculus/v3/graph"
 )
 
 // jsonReport is the top-level JSON output structure for mcontext.

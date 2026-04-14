@@ -6,9 +6,9 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/port"
-	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/port"
+	"github.com/dpopsuev/oculus/v3/lang"
 )
 
 // Fan-in threshold above which severity is escalated from warning to error.

@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/diagram/behavioral"
-	"github.com/dpopsuev/oculus/diagram/core"
-	"github.com/dpopsuev/oculus/diagram/metrics"
-	"github.com/dpopsuev/oculus/diagram/structural"
-	"github.com/dpopsuev/oculus/diagram/typediag"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/diagram/behavioral"
+	"github.com/dpopsuev/oculus/v3/diagram/core"
+	"github.com/dpopsuev/oculus/v3/diagram/metrics"
+	"github.com/dpopsuev/oculus/v3/diagram/structural"
+	"github.com/dpopsuev/oculus/v3/diagram/typediag"
 )
 
 // Render dispatches to the appropriate renderer by type name.

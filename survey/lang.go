@@ -1,8 +1,8 @@
 package survey
 
 import (
-	"github.com/dpopsuev/oculus/model"
-	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/v3/model"
+	"github.com/dpopsuev/oculus/v3/lang"
 )
 
 // LanguageMarker is re-exported from oculus/lang for backward compatibility.

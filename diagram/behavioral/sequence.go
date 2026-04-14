@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dpopsuev/oculus/diagram/core"
+	"github.com/dpopsuev/oculus/v3/diagram/core"
 )
 
 // Sequence produces a Mermaid sequenceDiagram tracing a call chain

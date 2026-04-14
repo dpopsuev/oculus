@@ -3,9 +3,9 @@ package impact
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/arch"
-	archgit "github.com/dpopsuev/oculus/arch/git"
-	"github.com/dpopsuev/oculus/model"
+	"github.com/dpopsuev/oculus/v3/arch"
+	archgit "github.com/dpopsuev/oculus/v3/arch/git"
+	"github.com/dpopsuev/oculus/v3/model"
 )
 
 func TestComputeRiskScores_Basic(t *testing.T) {

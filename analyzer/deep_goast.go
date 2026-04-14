@@ -2,7 +2,7 @@ package analyzer
 
 import (
 	"context"
-	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/v3"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dpopsuev/oculus/lang"
-	"github.com/dpopsuev/oculus/lsp"
+	"github.com/dpopsuev/oculus/v3/lang"
+	"github.com/dpopsuev/oculus/v3/lsp"
 )
 
 // GoASTDeepAnalyzer uses go/ast for call graph, data flow, and state machine

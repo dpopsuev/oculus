@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	oculus "github.com/dpopsuev/oculus"
+	oculus "github.com/dpopsuev/oculus/v3"
 )
 
 const summaryNoChanges = "no changes"

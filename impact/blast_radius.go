@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dpopsuev/oculus/arch"
-	gitpkg "github.com/dpopsuev/oculus/git"
-	"github.com/dpopsuev/oculus/port"
+	"github.com/dpopsuev/oculus/v3/arch"
+	gitpkg "github.com/dpopsuev/oculus/v3/git"
+	"github.com/dpopsuev/oculus/v3/port"
 )
 
 // BlastRadiusReport holds the aggregate blast radius for a set of changed files.

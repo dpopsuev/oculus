@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dpopsuev/oculus/port"
-	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/v3/port"
+	"github.com/dpopsuev/oculus/v3"
 )
 
 // SemanticChange describes a symbol in a changed package and its caller impact.

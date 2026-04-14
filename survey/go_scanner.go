@@ -14,7 +14,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/dpopsuev/oculus/model"
+	"github.com/dpopsuev/oculus/v3/model"
 )
 
 var errNoModuleDirective = errors.New("no module directive found")

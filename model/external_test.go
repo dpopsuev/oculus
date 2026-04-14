@@ -3,7 +3,7 @@ package model_test
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/model"
+	"github.com/dpopsuev/oculus/v3/model"
 )
 
 func TestSymbolsFromNames_External(t *testing.T) {

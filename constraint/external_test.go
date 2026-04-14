@@ -3,9 +3,9 @@ package constraint_test
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/constraint"
-	"github.com/dpopsuev/oculus/graph"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/constraint"
+	"github.com/dpopsuev/oculus/v3/graph"
 )
 
 func TestComputeImportDirection_External(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/dpopsuev/oculus/model"
+	"github.com/dpopsuev/oculus/v3/model"
 )
 
 func TestNewModule(t *testing.T) {

@@ -3,9 +3,9 @@ package analyzer
 import (
 	"sort"
 
-	"github.com/dpopsuev/oculus"
-	"github.com/dpopsuev/oculus/lang"
-	"github.com/dpopsuev/oculus/lsp"
+	"github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/lang"
+	"github.com/dpopsuev/oculus/v3/lsp"
 )
 
 // DeepAnalyzerFactory creates a DeepAnalyzer for a given root and optional LSP pool.

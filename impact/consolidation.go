@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/graph"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/graph"
 )
 
 // IndependenceScore measures how well-focused and widely-used a component is.

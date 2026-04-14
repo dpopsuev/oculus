@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dpopsuev/oculus/model"
-	"github.com/dpopsuev/oculus/survey"
-	"github.com/dpopsuev/oculus/testkit"
+	"github.com/dpopsuev/oculus/v3/model"
+	"github.com/dpopsuev/oculus/v3/survey"
+	"github.com/dpopsuev/oculus/v3/testkit"
 )
 
 func TestCompositeScanMergesRustAndTS(t *testing.T) {

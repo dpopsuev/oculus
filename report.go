@@ -1,10 +1,10 @@
 package oculus
 
 import (
-	archanchors "github.com/dpopsuev/oculus/arch/anchors"
-	archgit "github.com/dpopsuev/oculus/arch/git"
-	"github.com/dpopsuev/oculus/graph"
-	"github.com/dpopsuev/oculus/model"
+	archanchors "github.com/dpopsuev/oculus/v3/arch/anchors"
+	archgit "github.com/dpopsuev/oculus/v3/arch/git"
+	"github.com/dpopsuev/oculus/v3/graph"
+	"github.com/dpopsuev/oculus/v3/model"
 )
 
 // ArchService represents a service or component node in an architecture artifact.

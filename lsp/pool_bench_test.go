@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dpopsuev/oculus/lang"
-	"github.com/dpopsuev/oculus/lsp"
+	"github.com/dpopsuev/oculus/v3/lang"
+	"github.com/dpopsuev/oculus/v3/lsp"
 )
 
 // BenchmarkPoolGet_Warm measures the cost of retrieving an already-cached

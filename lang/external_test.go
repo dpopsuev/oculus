@@ -3,7 +3,7 @@ package lang_test
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/v3/lang"
 )
 
 func TestDetectLanguage_External(t *testing.T) {

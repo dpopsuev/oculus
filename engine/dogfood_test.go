@@ -2,17 +2,17 @@ package engine
 
 import (
 	"context"
-	"github.com/dpopsuev/oculus/analyzer"
+	"github.com/dpopsuev/oculus/v3/analyzer"
 	"path/filepath"
 	"runtime"
 	"testing"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/clinic"
-	clinichexa "github.com/dpopsuev/oculus/clinic/hexa"
-	clinicsolid "github.com/dpopsuev/oculus/clinic/solid"
-	"github.com/dpopsuev/oculus/impact"
-	"github.com/dpopsuev/oculus/port"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/clinic"
+	clinichexa "github.com/dpopsuev/oculus/v3/clinic/hexa"
+	clinicsolid "github.com/dpopsuev/oculus/v3/clinic/solid"
+	"github.com/dpopsuev/oculus/v3/impact"
+	"github.com/dpopsuev/oculus/v3/port"
 )
 
 // oculusRoot returns the absolute path to the Oculus repository root,

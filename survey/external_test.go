@@ -3,7 +3,7 @@ package survey_test
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/survey"
+	"github.com/dpopsuev/oculus/v3/survey"
 )
 
 func TestDetectLanguage_External(t *testing.T) {

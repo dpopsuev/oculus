@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpopsuev/oculus"
-	"github.com/dpopsuev/oculus/analyzer"
+	"github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/analyzer"
 )
 
 // slowTypeAnalyzer simulates an analyzer that blocks for a long time.

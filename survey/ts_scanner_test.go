@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dpopsuev/oculus/model"
-	"github.com/dpopsuev/oculus/survey"
+	"github.com/dpopsuev/oculus/v3/model"
+	"github.com/dpopsuev/oculus/v3/survey"
 )
 
 func setupTSProject(t *testing.T, files map[string]string) string {

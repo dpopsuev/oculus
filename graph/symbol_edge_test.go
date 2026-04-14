@@ -3,8 +3,8 @@ package graph_test
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus"
-	"github.com/dpopsuev/oculus/graph"
+	"github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/graph"
 )
 
 // symbolEdges returns a small acyclic graph for contract testing.

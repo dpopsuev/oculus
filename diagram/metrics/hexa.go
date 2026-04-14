@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dpopsuev/oculus/diagram/core"
+	"github.com/dpopsuev/oculus/v3/diagram/core"
 )
 
 // hexaRoleMeta holds rendering metadata for a hexagonal architecture role.

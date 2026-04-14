@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/lint"
-	"github.com/dpopsuev/oculus/port"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/lint"
+	"github.com/dpopsuev/oculus/v3/port"
 )
 
 // testdataRoot is the path to the Go testkit fixture relative to this file.

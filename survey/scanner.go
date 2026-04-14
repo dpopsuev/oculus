@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dpopsuev/oculus/model"
+	"github.com/dpopsuev/oculus/v3/model"
 )
 
 // nsRoot is the namespace key used for files at the project root directory.

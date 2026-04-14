@@ -6,7 +6,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/v3"
 )
 
 func benchRoot(b *testing.B) string {

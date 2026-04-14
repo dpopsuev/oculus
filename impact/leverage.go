@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/dpopsuev/oculus/arch"
+	"github.com/dpopsuev/oculus/v3/arch"
 )
 
 // ErrComponentNotFound is returned when the target component doesn't exist.

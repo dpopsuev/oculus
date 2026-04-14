@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/dpopsuev/oculus/port"
+	"github.com/dpopsuev/oculus/v3/port"
 )
 
 // Manifest defines the ground-truth expectations for a testkit fixture.

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/dpopsuev/oculus/model"
-	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/v3/model"
+	"github.com/dpopsuev/oculus/v3/lang"
 )
 
 // LanguageSupport describes how to scan a particular language.

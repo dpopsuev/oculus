@@ -3,8 +3,8 @@ package core
 import (
 	"context"
 
-	oculus "github.com/dpopsuev/oculus"
-	"github.com/dpopsuev/oculus/history"
+	oculus "github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/history"
 )
 
 // Options controls which diagram is rendered and how it is scoped.

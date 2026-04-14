@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/diagram/core"
-	"github.com/dpopsuev/oculus/graph"
-	"github.com/dpopsuev/oculus/history"
-	"github.com/dpopsuev/oculus/model"
-	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/diagram/core"
+	"github.com/dpopsuev/oculus/v3/graph"
+	"github.com/dpopsuev/oculus/v3/history"
+	"github.com/dpopsuev/oculus/v3/model"
+	"github.com/dpopsuev/oculus/v3"
 )
 
 func testReport() *arch.ContextReport {

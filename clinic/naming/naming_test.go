@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/model"
-	"github.com/dpopsuev/oculus/port"
-	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/model"
+	"github.com/dpopsuev/oculus/v3/port"
+	"github.com/dpopsuev/oculus/v3/lang"
 )
 
 func TestComputeSymbolQuality_Abbreviation(t *testing.T) {

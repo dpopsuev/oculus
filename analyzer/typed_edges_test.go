@@ -8,7 +8,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/v3"
 )
 
 // Fixture: two Go files with typed functions calling each other.

@@ -3,7 +3,7 @@ package constraint
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/v3"
 )
 
 func TestComputeInterfaceMetrics_Basic(t *testing.T) {

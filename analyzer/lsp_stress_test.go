@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpopsuev/oculus"
-	"github.com/dpopsuev/oculus/lsp/testcontainer"
-	"github.com/dpopsuev/oculus/testkit"
+	"github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/lsp/testcontainer"
+	"github.com/dpopsuev/oculus/v3/testkit"
 )
 
 // TestLSPIntegration_Stress runs the full DeepFallback pipeline (LSP priority 100)

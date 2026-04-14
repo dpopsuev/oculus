@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/v3/lang"
 )
 
 // PartitionedPool wraps an inner Pool and dispatches Get() calls to

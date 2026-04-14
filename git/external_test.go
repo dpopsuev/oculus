@@ -3,7 +3,7 @@ package git_test
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/git"
+	"github.com/dpopsuev/oculus/v3/git"
 )
 
 func TestChangedFilesSince_External(t *testing.T) {

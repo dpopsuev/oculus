@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dpopsuev/oculus/arch"
+	"github.com/dpopsuev/oculus/v3/arch"
 )
 
 type Opts struct {

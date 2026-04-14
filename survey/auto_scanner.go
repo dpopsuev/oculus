@@ -4,8 +4,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/dpopsuev/oculus/model"
-	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/v3/model"
+	"github.com/dpopsuev/oculus/v3/lang"
 )
 
 // AutoScanner selects the best available scanner for a project root.

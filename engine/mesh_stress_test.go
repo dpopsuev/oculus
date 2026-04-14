@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/testkit"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/testkit"
 )
 
 // TestGetSymbolGraph_Stress runs the full GetSymbolGraph pipeline on

@@ -3,8 +3,8 @@ package engine
 import (
 	"context"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/port"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/port"
 )
 
 // mockStore implements engine.Store for unit testing Engine methods.

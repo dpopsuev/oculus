@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dpopsuev/oculus/model"
+	"github.com/dpopsuev/oculus/v3/model"
 )
 
 // TypeScriptScanner extracts structural metadata from TypeScript/JavaScript

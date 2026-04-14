@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dpopsuev/oculus/arch"
+	"github.com/dpopsuev/oculus/v3/arch"
 )
 
 // Trust zone names.

@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/graph"
-	"github.com/dpopsuev/oculus/port"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/graph"
+	"github.com/dpopsuev/oculus/v3/port"
 )
 
 // GapEntry represents knowledge gaps for a single component.

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	oculus "github.com/dpopsuev/oculus"
+	oculus "github.com/dpopsuev/oculus/v3"
 )
 
 // CacheReadWriter abstracts the scan cache for dependency inversion.

@@ -5,8 +5,8 @@ import (
 	"io"
 	"sync"
 
-	"github.com/dpopsuev/oculus/lang"
-	"github.com/dpopsuev/oculus/lsp/mockserver"
+	"github.com/dpopsuev/oculus/v3/lang"
+	"github.com/dpopsuev/oculus/v3/lsp/mockserver"
 )
 
 // MockPool implements Pool backed by mock LSP servers.

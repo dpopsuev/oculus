@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dpopsuev/oculus/model"
-	"github.com/dpopsuev/oculus/lsp"
+	"github.com/dpopsuev/oculus/v3/model"
+	"github.com/dpopsuev/oculus/v3/lsp"
 )
 
 var errEmptyServerCmd = errors.New("lsp scanner: empty ServerCmd")

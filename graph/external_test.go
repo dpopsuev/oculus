@@ -3,7 +3,7 @@ package graph_test
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/graph"
+	"github.com/dpopsuev/oculus/v3/graph"
 )
 
 type edge struct{ from, to string }

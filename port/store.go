@@ -9,7 +9,7 @@ import (
 	"context"
 	"time"
 
-	oculus "github.com/dpopsuev/oculus"
+	oculus "github.com/dpopsuev/oculus/v3"
 )
 
 // --- Domain-specific port interfaces ---

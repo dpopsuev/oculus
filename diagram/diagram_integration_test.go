@@ -2,14 +2,14 @@ package diagram
 
 import (
 	"context"
-	"github.com/dpopsuev/oculus/analyzer"
+	"github.com/dpopsuev/oculus/v3/analyzer"
 	"path/filepath"
 	"runtime"
 	"testing"
 
-	"github.com/dpopsuev/oculus/arch"
-	clinichexa "github.com/dpopsuev/oculus/clinic/hexa"
-	"github.com/dpopsuev/oculus/diagram/core"
+	"github.com/dpopsuev/oculus/v3/arch"
+	clinichexa "github.com/dpopsuev/oculus/v3/clinic/hexa"
+	"github.com/dpopsuev/oculus/v3/diagram/core"
 )
 
 func integrationRoot(t *testing.T) string {

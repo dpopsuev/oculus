@@ -6,9 +6,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dpopsuev/oculus"
-	"github.com/dpopsuev/oculus/lang"
-	"github.com/dpopsuev/oculus/lsp/testcontainer"
+	"github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/lang"
+	"github.com/dpopsuev/oculus/v3/lsp/testcontainer"
 )
 
 // containerLanguages maps fixture names to their lang.Language constants.

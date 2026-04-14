@@ -1,7 +1,7 @@
 package arch
 
 import (
-	"github.com/dpopsuev/oculus/analyzer"
+	"github.com/dpopsuev/oculus/v3/analyzer"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -16,12 +16,12 @@ import (
 	"golang.org/x/mod/modfile"
 	"golang.org/x/sync/errgroup"
 
-	archanchors "github.com/dpopsuev/oculus/arch/anchors"
-	archgit "github.com/dpopsuev/oculus/arch/git"
-	"github.com/dpopsuev/oculus/graph"
-	"github.com/dpopsuev/oculus/model"
-	"github.com/dpopsuev/oculus/survey"
-	olang "github.com/dpopsuev/oculus/lang"
+	archanchors "github.com/dpopsuev/oculus/v3/arch/anchors"
+	archgit "github.com/dpopsuev/oculus/v3/arch/git"
+	"github.com/dpopsuev/oculus/v3/graph"
+	"github.com/dpopsuev/oculus/v3/model"
+	"github.com/dpopsuev/oculus/v3/survey"
+	olang "github.com/dpopsuev/oculus/v3/lang"
 )
 
 // ScanIntent controls what level of analysis to perform.

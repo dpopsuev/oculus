@@ -1,13 +1,13 @@
 package analyzer
 
 import (
-	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/v3"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
-	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/v3/lang"
 )
 
 // conventionData holds intermediate data collected during the filesystem walk.

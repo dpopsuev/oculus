@@ -1,9 +1,9 @@
 package impact
 
 import (
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/graph"
-	"github.com/dpopsuev/oculus/port"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/graph"
+	"github.com/dpopsuev/oculus/v3/port"
 )
 
 // ImpactResult holds the blast radius and risk for a component change.

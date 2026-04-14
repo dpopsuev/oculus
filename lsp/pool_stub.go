@@ -3,7 +3,7 @@ package lsp
 import (
 	"context"
 
-	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/v3/lang"
 )
 
 // StubPool is a no-op pool for CLI mode. Get always returns ErrNoPool,

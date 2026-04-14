@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dpopsuev/oculus/graph"
-	"github.com/dpopsuev/oculus/model"
+	"github.com/dpopsuev/oculus/v3/graph"
+	"github.com/dpopsuev/oculus/v3/model"
 )
 
 // ContainsAny returns true if s contains any of the given substrings.

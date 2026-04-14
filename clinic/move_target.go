@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dpopsuev/oculus/graph"
-	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/v3/graph"
+	"github.com/dpopsuev/oculus/v3"
 )
 
 // Pattern IDs used by enrichment.

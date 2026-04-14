@@ -1,7 +1,7 @@
 package engine
 
 import (
-	"github.com/dpopsuev/oculus/analyzer"
+	"github.com/dpopsuev/oculus/v3/analyzer"
 	"bufio"
 	"bytes"
 	"context"
@@ -18,25 +18,25 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/dpopsuev/oculus/arch"
-	archgit "github.com/dpopsuev/oculus/arch/git"
-	"github.com/dpopsuev/oculus/clinic"
-	clinichexa "github.com/dpopsuev/oculus/clinic/hexa"
-	clinicnaming "github.com/dpopsuev/oculus/clinic/naming"
-	clinicsolid "github.com/dpopsuev/oculus/clinic/solid"
-	"github.com/dpopsuev/oculus/constraint"
-	"github.com/dpopsuev/oculus/cursor"
-	gitpkg "github.com/dpopsuev/oculus/git"
-	"github.com/dpopsuev/oculus/graph"
-	"github.com/dpopsuev/oculus/history"
-	"github.com/dpopsuev/oculus/impact"
-	"github.com/dpopsuev/oculus/port"
-	presetpkg "github.com/dpopsuev/oculus/preset"
-	"github.com/dpopsuev/oculus/remote"
-	"github.com/dpopsuev/oculus/survey"
-	"github.com/dpopsuev/oculus"
-	"github.com/dpopsuev/oculus/lang"
-	"github.com/dpopsuev/oculus/lsp"
+	"github.com/dpopsuev/oculus/v3/arch"
+	archgit "github.com/dpopsuev/oculus/v3/arch/git"
+	"github.com/dpopsuev/oculus/v3/clinic"
+	clinichexa "github.com/dpopsuev/oculus/v3/clinic/hexa"
+	clinicnaming "github.com/dpopsuev/oculus/v3/clinic/naming"
+	clinicsolid "github.com/dpopsuev/oculus/v3/clinic/solid"
+	"github.com/dpopsuev/oculus/v3/constraint"
+	"github.com/dpopsuev/oculus/v3/cursor"
+	gitpkg "github.com/dpopsuev/oculus/v3/git"
+	"github.com/dpopsuev/oculus/v3/graph"
+	"github.com/dpopsuev/oculus/v3/history"
+	"github.com/dpopsuev/oculus/v3/impact"
+	"github.com/dpopsuev/oculus/v3/port"
+	presetpkg "github.com/dpopsuev/oculus/v3/preset"
+	"github.com/dpopsuev/oculus/v3/remote"
+	"github.com/dpopsuev/oculus/v3/survey"
+	"github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/lang"
+	"github.com/dpopsuev/oculus/v3/lsp"
 )
 
 // Error messages used across protocol methods.

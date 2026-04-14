@@ -3,8 +3,8 @@ package constraint
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/port"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/port"
 )
 
 func TestComputeBudgetViolations_NoConstraints(t *testing.T) {

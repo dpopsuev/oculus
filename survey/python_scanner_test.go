@@ -6,7 +6,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/dpopsuev/oculus/model"
+	"github.com/dpopsuev/oculus/v3/model"
 )
 
 func writePyFile(t *testing.T, dir, name, content string) {

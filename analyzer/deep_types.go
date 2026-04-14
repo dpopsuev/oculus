@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/v3"
 
-	"github.com/dpopsuev/oculus/ts"
+	"github.com/dpopsuev/oculus/v3/ts"
 )
 
 // ParsedFile holds a pre-parsed source file with its AST, source bytes,

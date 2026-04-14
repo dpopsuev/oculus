@@ -1,7 +1,7 @@
 package analyzer
 
 import (
-	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/v3"
 	"bufio"
 	"context"
 	"encoding/json"
@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dpopsuev/oculus/lang"
-	"github.com/dpopsuev/oculus/lsp"
+	"github.com/dpopsuev/oculus/v3/lang"
+	"github.com/dpopsuev/oculus/v3/lsp"
 )
 
 var (

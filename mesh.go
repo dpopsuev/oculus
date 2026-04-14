@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dpopsuev/oculus/graph"
+	"github.com/dpopsuev/oculus/v3/graph"
 )
 
 // BuildMesh constructs a hierarchical mesh from a SymbolGraph.

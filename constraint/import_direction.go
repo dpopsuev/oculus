@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/graph"
-	"github.com/dpopsuev/oculus/port"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/graph"
+	"github.com/dpopsuev/oculus/v3/port"
 )
 
 // ImportDirectionViolation represents a single import direction rule violation

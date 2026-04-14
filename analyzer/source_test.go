@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/v3"
 )
 
 // TestGoAST_FuncIndexSource runs GoAST through FuncIndexSource + Pipeline.

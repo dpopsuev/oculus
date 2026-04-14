@@ -4,7 +4,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/dpopsuev/oculus/survey"
+	"github.com/dpopsuev/oculus/v3/survey"
 )
 
 func TestLSPScannerWithGopls(t *testing.T) {

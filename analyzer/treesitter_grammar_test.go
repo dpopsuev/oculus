@@ -3,7 +3,7 @@ package analyzer
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/ts"
+	"github.com/dpopsuev/oculus/v3/ts"
 )
 
 // These tests verify tree-sitter Go grammar node types and field names.

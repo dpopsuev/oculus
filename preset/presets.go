@@ -3,21 +3,21 @@
 package preset
 
 import (
-	"github.com/dpopsuev/oculus/analyzer"
+	"github.com/dpopsuev/oculus/v3/analyzer"
 	"context"
 	"fmt"
 	"strings"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/clinic"
-	clinichexa "github.com/dpopsuev/oculus/clinic/hexa"
-	clinicnaming "github.com/dpopsuev/oculus/clinic/naming"
-	clinicsolid "github.com/dpopsuev/oculus/clinic/solid"
-	"github.com/dpopsuev/oculus/constraint"
-	"github.com/dpopsuev/oculus/port"
-	"github.com/dpopsuev/oculus/survey"
-	"github.com/dpopsuev/oculus/lang"
-	"github.com/dpopsuev/oculus/lsp"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/clinic"
+	clinichexa "github.com/dpopsuev/oculus/v3/clinic/hexa"
+	clinicnaming "github.com/dpopsuev/oculus/v3/clinic/naming"
+	clinicsolid "github.com/dpopsuev/oculus/v3/clinic/solid"
+	"github.com/dpopsuev/oculus/v3/constraint"
+	"github.com/dpopsuev/oculus/v3/port"
+	"github.com/dpopsuev/oculus/v3/survey"
+	"github.com/dpopsuev/oculus/v3/lang"
+	"github.com/dpopsuev/oculus/v3/lsp"
 )
 
 // Preset name constants.

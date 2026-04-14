@@ -3,12 +3,12 @@ package solid
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/clinic/hexa"
+	"github.com/dpopsuev/oculus/v3/clinic/hexa"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/model"
-	"github.com/dpopsuev/oculus/port"
-	"github.com/dpopsuev/oculus"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/model"
+	"github.com/dpopsuev/oculus/v3/port"
+	"github.com/dpopsuev/oculus/v3"
 )
 
 func TestComputeSRPViolations_HighFanOut(t *testing.T) {

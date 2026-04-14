@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dpopsuev/oculus"
-	"github.com/dpopsuev/oculus/ts"
+	"github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/ts"
 )
 
 // TestBug45_TreeSitterInterfaceMethods verifies tree-sitter extracts method_spec

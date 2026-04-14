@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/v3/lang"
 )
 
 // ErrNoPool is returned when no pool is available (CLI mode).

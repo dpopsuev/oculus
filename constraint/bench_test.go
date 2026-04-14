@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/dpopsuev/oculus"
-	"github.com/dpopsuev/oculus/arch"
+	"github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/arch"
 )
 
 func benchData(n int) ([]arch.ArchService, []arch.ArchEdge) {

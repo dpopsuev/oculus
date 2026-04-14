@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/cache"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/cache"
 )
 
 func testSetup(t *testing.T) (sc *cache.ScanCache, histDir string) {

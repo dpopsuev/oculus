@@ -1,4 +1,4 @@
-module github.com/dpopsuev/oculus
+module github.com/dpopsuev/oculus/v3
 
 go 1.25.8
 

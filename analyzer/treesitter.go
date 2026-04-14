@@ -9,10 +9,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dpopsuev/oculus"
-	"github.com/dpopsuev/oculus/ts"
+	"github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/ts"
 
-	olang "github.com/dpopsuev/oculus/lang"
+	olang "github.com/dpopsuev/oculus/v3/lang"
 )
 
 // ErrUnsupportedLanguage is returned when tree-sitter does not support the detected language.

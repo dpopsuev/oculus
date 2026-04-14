@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/diagram/core"
-	"github.com/dpopsuev/oculus/diagram/metrics"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/diagram/core"
+	"github.com/dpopsuev/oculus/v3/diagram/metrics"
 )
 
 func hexaTheme() *core.ResolvedTheme {

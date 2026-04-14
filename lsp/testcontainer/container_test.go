@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dpopsuev/oculus/lang"
+	"github.com/dpopsuev/oculus/v3/lang"
 )
 
 func TestContainerPool_Smoke(t *testing.T) {

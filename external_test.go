@@ -3,7 +3,7 @@ package oculus_test
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/analyzer"
+	"github.com/dpopsuev/oculus/v3/analyzer"
 )
 
 func TestNewFallback_External(t *testing.T) {

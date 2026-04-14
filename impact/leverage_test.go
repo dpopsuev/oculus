@@ -3,7 +3,7 @@ package impact
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/arch"
+	"github.com/dpopsuev/oculus/v3/arch"
 )
 
 func TestLeverage_MixedConsumers(t *testing.T) {

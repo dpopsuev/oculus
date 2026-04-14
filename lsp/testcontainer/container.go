@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dpopsuev/oculus/lang"
-	"github.com/dpopsuev/oculus/lsp"
+	"github.com/dpopsuev/oculus/v3/lang"
+	"github.com/dpopsuev/oculus/v3/lsp"
 )
 
 // DefaultImage is the Docker image name built from lsp/testcontainer/Dockerfile.

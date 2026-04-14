@@ -3,7 +3,7 @@ package analyzer
 import (
 	"testing"
 
-	"github.com/dpopsuev/oculus/ts"
+	"github.com/dpopsuev/oculus/v3/ts"
 )
 
 // Grammar verification tests for all tree-sitter languages.

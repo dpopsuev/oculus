@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/dpopsuev/oculus/arch"
-	archgit "github.com/dpopsuev/oculus/arch/git"
-	"github.com/dpopsuev/oculus/graph"
-	"github.com/dpopsuev/oculus/port"
+	"github.com/dpopsuev/oculus/v3/arch"
+	archgit "github.com/dpopsuev/oculus/v3/arch/git"
+	"github.com/dpopsuev/oculus/v3/graph"
+	"github.com/dpopsuev/oculus/v3/port"
 )
 
 // RiskScore holds a composite risk assessment for a single component.

@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dpopsuev/oculus/diagram/core"
-	"github.com/dpopsuev/oculus/graph"
+	"github.com/dpopsuev/oculus/v3/diagram/core"
+	"github.com/dpopsuev/oculus/v3/graph"
 )
 
 // Churn renders a churn diagram, either timeline or bar chart.

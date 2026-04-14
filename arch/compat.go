@@ -4,7 +4,7 @@ package arch
 // transition: types moved to the root oculus package, but existing consumers
 // can still use arch.ContextReport etc. Remove once all consumers migrate.
 
-import oculus "github.com/dpopsuev/oculus"
+import oculus "github.com/dpopsuev/oculus/v3"
 
 type ArchService = oculus.ArchService
 type ArchEdge = oculus.ArchEdge

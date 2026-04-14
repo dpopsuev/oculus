@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpopsuev/oculus/lang"
-	"github.com/dpopsuev/oculus/lsp/mockserver"
+	"github.com/dpopsuev/oculus/v3/lang"
+	"github.com/dpopsuev/oculus/v3/lsp/mockserver"
 )
 
 func TestPartitionedPool_DifferentClients(t *testing.T) {

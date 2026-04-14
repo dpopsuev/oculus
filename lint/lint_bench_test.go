@@ -5,8 +5,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/dpopsuev/oculus/arch"
-	"github.com/dpopsuev/oculus/lint"
+	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/lint"
 )
 
 // oculusRoot is the path to the Oculus repo root relative to this file.
