@@ -352,20 +352,32 @@ func extractCallees(body *ast.BlockStmt) []string {
 	var callees []string
 
 	ast.Inspect(body, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		var name string
-		switch fn := call.Fun.(type) {
-		case *ast.Ident:
-			name = fn.Name
-		case *ast.SelectorExpr:
-			name = fn.Sel.Name
-		}
-		if name != "" && !seen[name] {
-			seen[name] = true
-			callees = append(callees, name)
+		switch node := n.(type) {
+		case *ast.CallExpr:
+			var name string
+			switch fn := node.Fun.(type) {
+			case *ast.Ident:
+				name = fn.Name
+			case *ast.SelectorExpr:
+				name = fn.Sel.Name
+			}
+			if name != "" && !seen[name] {
+				seen[name] = true
+				callees = append(callees, name)
+			}
+		case *ast.CompositeLit:
+			// Struct literal construction: Config{Name: "x"}
+			var name string
+			switch t := node.Type.(type) {
+			case *ast.Ident:
+				name = t.Name
+			case *ast.SelectorExpr:
+				name = t.Sel.Name
+			}
+			if name != "" && !seen[name] {
+				seen[name] = true
+				callees = append(callees, name)
+			}
 		}
 		return true
 	})

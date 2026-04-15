@@ -871,9 +871,17 @@ func (p *Engine) GetCallers(ctx context.Context, path, symbol string, cacheKey .
 		return nil, fmt.Errorf("call graph: %w", err)
 	}
 
+	seen := make(map[string]bool)
 	var callers []CallerSite
+
+	// Search call graph edges (function calls).
 	for _, edge := range cg.Edges {
 		if edge.Callee == symbol {
+			key := edge.Caller + ":" + edge.File
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
 			callers = append(callers, CallerSite{
 				Caller:       edge.Caller,
 				CallerPkg:    edge.CallerPkg,
@@ -881,6 +889,29 @@ func (p *Engine) GetCallers(ctx context.Context, path, symbol string, cacheKey .
 				File:         edge.File,
 				ReceiverType: edge.ReceiverType,
 			})
+		}
+	}
+
+	// Search for type references (struct literal constructions).
+	// The call graph only contains function→function edges. To find
+	// struct constructions (Config{...}), scan the source-level data
+	// where Callees includes type names from composite literals.
+	sources := analyzer.ResolveSourceFunctions(path, p.pool)
+	for _, fn := range sources {
+		for _, callee := range fn.Callees {
+			if callee == symbol {
+				key := fn.Name + ":" + fn.File
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				callers = append(callers, CallerSite{
+					Caller:    fn.Name,
+					CallerPkg: fn.Package,
+					Line:      fn.Line,
+					File:      fn.File,
+				})
+			}
 		}
 	}
 

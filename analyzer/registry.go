@@ -118,6 +118,19 @@ func resolveSymbolSources(root string, pool lsp.Pool, granularity ...oculus.Gran
 	return result
 }
 
+// ResolveSourceFunctions returns all parsed functions from the best SymbolSource.
+// Used by GetCallers to find type references (struct constructions) that
+// don't appear in the call graph edges.
+func ResolveSourceFunctions(root string, pool lsp.Pool) []oculus.Symbol {
+	sources := resolveSymbolSources(root, pool)
+	for _, src := range sources {
+		if fis, ok := src.(*oculus.FuncIndexSource); ok {
+			return fis.Functions()
+		}
+	}
+	return nil
+}
+
 // resolveTypeAnalyzers returns all applicable TypeAnalyzers for a root, ordered by priority.
 func resolveTypeAnalyzers(root string, pool lsp.Pool) []oculus.TypeAnalyzer {
 	detected := lang.DetectLanguage(root)

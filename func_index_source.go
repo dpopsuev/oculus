@@ -27,6 +27,11 @@ func NewFuncIndexSource(funcs []Symbol) *FuncIndexSource {
 
 var _ SymbolSource = (*FuncIndexSource)(nil)
 
+// Functions returns the raw function list for direct inspection.
+func (s *FuncIndexSource) Functions() []Symbol {
+	return s.funcs
+}
+
 func (s *FuncIndexSource) Roots(_ context.Context, query string) ([]Symbol, error) {
 	if query != "" {
 		fn, ok := s.index[query]

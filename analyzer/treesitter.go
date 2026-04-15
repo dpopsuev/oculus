@@ -686,6 +686,19 @@ func extractCalls(node ts.Node, src []byte, emit func(callee string, line int)) 
 			emit(callee, int(fn.StartPoint().Row)+1)
 		}
 	}
+	// Struct literal construction: Config{Name: "x"}
+	if node.Type() == "composite_literal" {
+		typeNode := node.ChildByFieldName("type")
+		if typeNode != nil {
+			name := typeNode.Content(src)
+			if idx := strings.LastIndex(name, "."); idx >= 0 {
+				name = name[idx+1:]
+			}
+			if name != "" {
+				emit(name, int(typeNode.StartPoint().Row)+1)
+			}
+		}
+	}
 	for i := 0; i < int(node.ChildCount()); i++ {
 		extractCalls(node.Child(i), src, emit)
 	}
