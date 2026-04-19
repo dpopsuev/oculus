@@ -1,0 +1,147 @@
+nodes:
+  # Metrics
+  - id: fan-in
+    path: metrics/fan-in.md
+    kind: metric
+    keywords: [fan-in, afferent, coupling, incoming, dependencies, stable, stability]
+    about: "Afferent coupling — what high/low fan-in means for stability and change risk"
+  - id: fan-out
+    path: metrics/fan-out.md
+    kind: metric
+    keywords: [fan-out, efferent, coupling, outgoing, dependencies, unstable, fragile]
+    about: "Efferent coupling — what high fan-out means for fragility and responsibility"
+  - id: instability
+    path: metrics/instability.md
+    kind: metric
+    keywords: [instability, stability, ratio, martin, abstractness, Ce, Ca]
+    about: "Martin's I = Ce/(Ca+Ce) — stability index from 0 (stable) to 1 (unstable)"
+  - id: loc-thresholds
+    path: metrics/loc-thresholds.md
+    kind: metric
+    keywords: [loc, lines, size, length, bloat, large, function, file, package]
+    about: "LOC interpretation by scope — function, file, package thresholds with context"
+  - id: churn
+    path: metrics/churn.md
+    kind: metric
+    keywords: [churn, commits, changes, frequency, rework, additive, corrective]
+    about: "Churn interpretation — normalize by LOC/age, distinguish additive from corrective"
+  - id: lcom
+    path: metrics/lcom.md
+    kind: metric
+    keywords: [lcom, cohesion, methods, fields, chidamber, kemerer, split]
+    about: "Lack of Cohesion of Methods — when methods don't share fields, consider splitting"
+  - id: distance-main-sequence
+    path: metrics/distance-main-sequence.md
+    kind: metric
+    keywords: [distance, main sequence, zone of pain, zone of uselessness, abstractness]
+    about: "Martin's D = |A+I-1| — zone of pain (stable+concrete) vs zone of uselessness"
+
+  # Smells
+  - id: god-component
+    path: smells/god-component.md
+    kind: smell
+    keywords: [god, large class, too many responsibilities, high loc, high coupling, monolith, bloat]
+    about: "Component doing too much — high LOC, high fan-out, high symbol count"
+  - id: feature-envy
+    path: smells/feature-envy.md
+    kind: smell
+    keywords: [feature envy, calls foreign, wrong package, misplaced, move method]
+    about: "Component uses another's data more than its own — move logic to data owner"
+  - id: shotgun-surgery
+    path: smells/shotgun-surgery.md
+    kind: smell
+    keywords: [shotgun surgery, scattered changes, high churn, many files, blast radius]
+    about: "Single change requires editing many components — consolidate responsibility"
+  - id: lazy-class
+    path: smells/lazy-class.md
+    kind: smell
+    keywords: [lazy, too small, thin wrapper, unnecessary, inline, merge]
+    about: "Component too small to justify its existence — merge into neighbor"
+
+  # Principles
+  - id: srp
+    path: principles/srp.md
+    kind: principle
+    keywords: [single responsibility, srp, cohesion, reasons to change, separation]
+    about: "Single Responsibility Principle — one reason to change per component"
+  - id: ocp
+    path: principles/ocp.md
+    kind: principle
+    keywords: [open closed, ocp, extension, modification, type switch, polymorphism]
+    about: "Open/Closed Principle — open for extension, closed for modification"
+  - id: lsp
+    path: principles/lsp.md
+    kind: principle
+    keywords: [liskov, substitution, lsp, contract, behavioral, subtype]
+    about: "Liskov Substitution — subtypes must honor the base contract"
+  - id: isp
+    path: principles/isp.md
+    kind: principle
+    keywords: [interface segregation, isp, fat interface, methods, implementors]
+    about: "Interface Segregation — no client should depend on methods it doesn't use"
+  - id: dip
+    path: principles/dip.md
+    kind: principle
+    keywords: [dependency inversion, dip, abstraction, import direction, layer, domain]
+    about: "Dependency Inversion — depend on abstractions, not concretions"
+
+  # Patterns
+  - id: facade
+    path: patterns/facade.md
+    kind: pattern
+    keywords: [facade, unified interface, delegation, thin, high fan-out, low fan-in]
+    about: "Unified interface to a subsystem — high fan-out, thin delegation, not a god"
+  - id: strategy
+    path: patterns/strategy.md
+    kind: pattern
+    keywords: [strategy, interchangeable, algorithm, interface, multiple implementations]
+    about: "Family of interchangeable algorithms behind a single interface"
+  - id: mediator
+    path: patterns/mediator.md
+    kind: pattern
+    keywords: [mediator, coordinator, high fan-out, low fan-in, thin methods, orchestrator]
+    about: "Coordinates interactions without direct coupling — fan-out>10, fan-in<=3"
+  - id: factory
+    path: patterns/factory.md
+    kind: pattern
+    keywords: [factory, constructor, new, creation, dispatch, polymorphic]
+    about: "Creates objects without specifying exact types — New* functions returning interfaces"
+
+edges:
+  # Smell → Principle (violates)
+  - {from: god-component, to: srp, kind: violates}
+  - {from: feature-envy, to: srp, kind: violates}
+  - {from: shotgun-surgery, to: srp, kind: violates}
+
+  # Smell → Metric (measured_by)
+  - {from: god-component, to: fan-in, kind: measured_by}
+  - {from: god-component, to: fan-out, kind: measured_by}
+  - {from: god-component, to: loc-thresholds, kind: measured_by}
+  - {from: shotgun-surgery, to: churn, kind: measured_by}
+  - {from: shotgun-surgery, to: fan-in, kind: measured_by}
+  - {from: feature-envy, to: fan-out, kind: measured_by}
+  - {from: lazy-class, to: loc-thresholds, kind: measured_by}
+  - {from: lazy-class, to: fan-in, kind: measured_by}
+
+  # Smell ↔ Pattern (confused_with — differential diagnosis)
+  - {from: god-component, to: facade, kind: confused_with}
+  - {from: god-component, to: mediator, kind: confused_with}
+
+  # Pattern → Metric (distinguished_by)
+  - {from: facade, to: fan-out, kind: distinguished_by}
+  - {from: facade, to: fan-in, kind: distinguished_by}
+  - {from: mediator, to: fan-out, kind: distinguished_by}
+  - {from: mediator, to: fan-in, kind: distinguished_by}
+  - {from: strategy, to: isp, kind: distinguished_by}
+
+  # Metric → Metric (feeds)
+  - {from: fan-in, to: instability, kind: feeds}
+  - {from: fan-out, to: instability, kind: feeds}
+  - {from: instability, to: distance-main-sequence, kind: feeds}
+  - {from: churn, to: loc-thresholds, kind: feeds}
+
+  # Principle relationships (part_of SOLID family)
+  - {from: srp, to: dip, kind: part_of}
+  - {from: ocp, to: dip, kind: part_of}
+  - {from: lsp, to: dip, kind: part_of}
+  - {from: isp, to: dip, kind: part_of}
