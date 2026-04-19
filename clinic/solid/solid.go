@@ -110,12 +110,11 @@ func ComputeSRPViolations(services []arch.ArchService, edges []arch.ArchEdge, ro
 
 		fo := fanOut[svc.Name]
 		fi := fanIn[svc.Name]
-		mult := hexa.RoleMultiplier(roles[svc.Name])
 
-		locError := int(float64(srpLOCError) * mult)
-		locWarning := int(float64(srpLOCWarning) * mult)
-		foError := int(float64(srpFanOutError) * mult)
-		foWarning := int(float64(srpFanOutWarning) * mult)
+		locError := srpLOCError
+		locWarning := srpLOCWarning
+		foError := srpFanOutError
+		foWarning := srpFanOutWarning
 
 		// Check LOC + fan-out thresholds.
 		switch {
