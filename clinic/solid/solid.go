@@ -50,9 +50,6 @@ const (
 	ocpCasesWarning = 5
 )
 
-// solidPrincipleCount is the number of SOLID principles checked per component.
-const solidPrincipleCount = 4
-
 // SOLIDViolation records a single SOLID principle violation.
 type SOLIDViolation struct {
 	Principle  SOLIDPrinciple `json:"principle"`
@@ -66,7 +63,6 @@ type SOLIDViolation struct {
 type SOLIDReport struct {
 	Violations  []SOLIDViolation `json:"violations"`
 	ByPrinciple map[string]int   `json:"by_principle"`
-	Score       port.Score       `json:"score"`
 	Summary     string           `json:"summary"`
 }
 
@@ -466,22 +462,11 @@ func ComputeSOLIDScan(
 		byPrinciple[string(v.Principle)]++
 	}
 
-	// Score: percentage-based — violations / total checks.
-	totalChecks := len(services) * solidPrincipleCount
-	if totalChecks == 0 {
-		totalChecks = 1
-	}
-	score := 100 - float64(len(allViolations))/float64(totalChecks)*100
-	if score < 0 {
-		score = 0
-	}
-
-	summary := buildSOLIDSummary(score, byPrinciple)
+	summary := buildSOLIDSummary(byPrinciple)
 
 	return &SOLIDReport{
 		Violations:  allViolations,
 		ByPrinciple: byPrinciple,
-		Score:       port.Score(score),
 		Summary:     summary,
 	}
 }
@@ -503,14 +488,14 @@ func severityRank(severity port.Severity) int {
 }
 
 // buildSOLIDSummary generates the human-readable summary line.
-func buildSOLIDSummary(score float64, byPrinciple map[string]int) string {
+func buildSOLIDSummary(byPrinciple map[string]int) string {
 	total := 0
 	for _, v := range byPrinciple {
 		total += v
 	}
 
 	if total == 0 {
-		return "SOLID score: 100/100 — no violations detected"
+		return "SOLID: no violations detected"
 	}
 
 	parts := make([]string, 0, len(byPrinciple))
@@ -521,5 +506,5 @@ func buildSOLIDSummary(score float64, byPrinciple map[string]int) string {
 		}
 	}
 
-	return fmt.Sprintf("SOLID score: %.0f/100 — %d violation(s): %s", score, total, strings.Join(parts, ", "))
+	return fmt.Sprintf("SOLID: %d violation(s): %s", total, strings.Join(parts, ", "))
 }

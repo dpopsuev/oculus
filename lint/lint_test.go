@@ -34,15 +34,6 @@ func TestRun_Fixture_ReturnsNonNilReport(t *testing.T) {
 	}
 }
 
-func TestRun_Fixture_ScoreInRange(t *testing.T) {
-	report := scanFixture(t, testdataRoot)
-	result := lint.Run(context.Background(), report, lint.RunOpts{Root: testdataRoot})
-
-	if result.Score < 0 || result.Score > 100 {
-		t.Errorf("Score out of range: got %f, want [0, 100]", result.Score)
-	}
-}
-
 func TestRun_Fixture_CleanMatchesViolations(t *testing.T) {
 	report := scanFixture(t, testdataRoot)
 	result := lint.Run(context.Background(), report, lint.RunOpts{Root: testdataRoot})
@@ -224,8 +215,8 @@ func TestRun_EmptyReport(t *testing.T) {
 	if !result.Clean {
 		t.Error("Expected Clean=true for empty architecture")
 	}
-	if result.Score != 100 {
-		t.Errorf("Expected score 100 for empty architecture, got %f", result.Score)
+	if result.Summary != "Lint: clean, no violations" {
+		t.Errorf("Expected clean summary for empty architecture, got %q", result.Summary)
 	}
 }
 

@@ -77,8 +77,8 @@ func TestDogfood_RoleAwareScanReducesFalsePositives(t *testing.T) {
 	roles := clinichexa.ResolveRoles(hexaClass, nil)
 	solidWith := clinicsolid.ComputeSOLIDScan(services, edges, classes, impls, hexaClass, root, roles, nil)
 
-	t.Logf("SOLID violations without roles: %d (score: %.0f)", len(solidWithout.Violations), solidWithout.Score)
-	t.Logf("SOLID violations with    roles: %d (score: %.0f)", len(solidWith.Violations), solidWith.Score)
+	t.Logf("SOLID violations without roles: %d", len(solidWithout.Violations))
+	t.Logf("SOLID violations with    roles: %d", len(solidWith.Violations))
 
 	// Role multipliers scale thresholds in both directions: lenient for entrypoints,
 	// stricter for domain. Allow a small increase (≤4) from role-aware detection —

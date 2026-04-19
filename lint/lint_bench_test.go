@@ -59,8 +59,8 @@ func TestLintMemoryBudget(t *testing.T) {
 	// The scan includes class/impl analysis which dominates allocation.
 	const budgetBytes = 3 * 1024 * 1024 * 1024
 	allocated := after.TotalAlloc - before.TotalAlloc
-	t.Logf("lint.Run allocated %d bytes (%.2f MB), violations: %d, score: %.1f",
-		allocated, float64(allocated)/(1024*1024), len(result.Violations), result.Score)
+	t.Logf("lint.Run allocated %d bytes (%.2f MB), violations: %d",
+		allocated, float64(allocated)/(1024*1024), len(result.Violations))
 
 	if allocated > budgetBytes {
 		t.Errorf("lint.Run allocated %d bytes (%.2f MB), budget is %d bytes (%.0f MB)",

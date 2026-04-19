@@ -11,9 +11,6 @@ import (
 	"github.com/dpopsuev/oculus/v3/lang"
 )
 
-// Score scaling factor: issues / total * 100.
-const scoreScale = 100
-
 // Minimum remaining length after stripping a generic suffix for a symbol to be considered qualified.
 const minDomainPrefixLen = 3
 
@@ -31,7 +28,6 @@ type SymbolIssue struct {
 type SymbolQualityReport struct {
 	Issues       []SymbolIssue `json:"issues"`
 	TotalChecked int           `json:"total_checked"`
-	Score        port.Score    `json:"score"`
 	Summary      string        `json:"summary"`
 }
 
@@ -44,9 +40,8 @@ type SynonymGroup struct {
 
 // VocabMapReport summarizes vocabulary consistency across the codebase.
 type VocabMapReport struct {
-	Groups      []SynonymGroup `json:"synonym_groups"`
-	Consistency float64        `json:"consistency"` // 0-100
-	Summary     string         `json:"summary"`
+	Groups  []SynonymGroup `json:"synonym_groups"`
+	Summary string         `json:"summary"`
 }
 
 // badAbbreviations maps short abbreviations to their full-word expansions.
@@ -133,23 +128,14 @@ func ComputeSymbolQuality(services []arch.ArchService, edges []arch.ArchEdge, ru
 
 	sortIssues(issues)
 
-	score := float64(scoreScale)
-	if totalChecked > 0 {
-		score = float64(scoreScale) - float64(len(issues))/float64(totalChecked)*float64(scoreScale)
-		if score < 0 {
-			score = 0
-		}
-	}
-
-	summary := fmt.Sprintf("Symbol quality: %.0f/100 — %d issue(s) in %d symbols checked", score, len(issues), totalChecked)
+	summary := fmt.Sprintf("Symbol quality: %d issue(s) in %d symbols", len(issues), totalChecked)
 	if len(issues) == 0 {
-		summary = fmt.Sprintf("Symbol quality: 100/100 — all %d symbols clean", totalChecked)
+		summary = fmt.Sprintf("Symbol quality: all %d symbols clean", totalChecked)
 	}
 
 	return &SymbolQualityReport{
 		Issues:       issues,
 		TotalChecked: totalChecked,
-		Score:        port.Score(score),
 		Summary:      summary,
 	}
 }
@@ -327,21 +313,14 @@ func ComputeVocabMap(services []arch.ArchService) *VocabMapReport {
 		return len(groups[i].Variants) > len(groups[j].Variants)
 	})
 
-	consistency := float64(scoreScale)
-	if totalCanonicals > 0 {
-		consistency = (1 - float64(len(groups))/float64(totalCanonicals)) * float64(scoreScale)
-	}
-
-	summary := fmt.Sprintf("Vocabulary consistency: %.0f%% — %d synonym drift(s) across %d terms",
-		consistency, len(groups), totalCanonicals)
+	summary := fmt.Sprintf("Vocabulary: %d synonym drift(s) across %d terms", len(groups), totalCanonicals)
 	if len(groups) == 0 {
-		summary = fmt.Sprintf("Vocabulary: 100%% consistent across %d terms", totalCanonicals)
+		summary = fmt.Sprintf("Vocabulary: consistent across %d terms", totalCanonicals)
 	}
 
 	return &VocabMapReport{
-		Groups:      groups,
-		Consistency: consistency,
-		Summary:     summary,
+		Groups:  groups,
+		Summary: summary,
 	}
 }
 

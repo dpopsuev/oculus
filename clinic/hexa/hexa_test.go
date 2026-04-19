@@ -246,8 +246,8 @@ func TestComputeHexaViolations_MultipleRules(t *testing.T) {
 	if len(report.Violations) < 2 {
 		t.Errorf("expected >= 2 violations, got %d", len(report.Violations))
 	}
-	if float64(report.Score) >= 100 {
-		t.Errorf("expected score < 100 with violations, got %.0f", report.Score)
+	if len(report.Violations) == 0 {
+		t.Error("expected violations to be present")
 	}
 }
 
@@ -266,7 +266,7 @@ func TestComputeHexaViolations_Scoped(t *testing.T) {
 	report := ComputeHexaViolations(services, edges, nil)
 
 	// Should detect violations for both domain → adapter and pkg/lib → adapter
-	t.Logf("score: %.0f, violations: %d", report.Score, len(report.Violations))
+	t.Logf("violations: %d", len(report.Violations))
 }
 
 func TestComputeHexaClassification_EmptyRepo(t *testing.T) {

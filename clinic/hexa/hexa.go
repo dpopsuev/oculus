@@ -74,11 +74,10 @@ type HexaClassificationReport struct {
 	Summary    string          `json:"summary"`
 }
 
-// HexaValidationReport contains classification, violations, and compliance score.
+// HexaValidationReport contains classification and violations.
 type HexaValidationReport struct {
 	Classification []HexaComponent `json:"classification"`
 	Violations     []HexaViolation `json:"violations"`
-	Score          port.Score      `json:"score"`
 	Summary        string          `json:"summary"`
 }
 
@@ -322,17 +321,10 @@ func ComputeHexaViolations(
 		return violations[i].From < violations[j].From
 	})
 
-	totalEdges := len(edges)
-	score := 100.0
-	if totalEdges > 0 {
-		score = float64(totalEdges-len(violations)) / float64(totalEdges) * 100
-	}
-
 	return &HexaValidationReport{
 		Classification: classification.Components,
 		Violations:     violations,
-		Score:          port.Score(score),
-		Summary:        buildViolationSummary(score, violations),
+		Summary:        buildViolationSummary(violations),
 	}
 }
 
@@ -374,9 +366,9 @@ func buildClassificationSummary(components []HexaComponent) string {
 	return fmt.Sprintf("%d components classified: %s", len(components), strings.Join(parts, ", "))
 }
 
-func buildViolationSummary(score float64, violations []HexaViolation) string {
+func buildViolationSummary(violations []HexaViolation) string {
 	if len(violations) == 0 {
-		return "Hexagonal compliance: 100% — no violations"
+		return "Hexagonal: no violations"
 	}
 
 	errors, warnings := 0, 0
@@ -389,5 +381,5 @@ func buildViolationSummary(score float64, violations []HexaViolation) string {
 		}
 	}
 
-	return fmt.Sprintf("Hexagonal compliance: %.0f%% — %d error(s), %d warning(s)", score, errors, warnings)
+	return fmt.Sprintf("Hexagonal: %d violation(s): %d error(s), %d warning(s)", len(violations), errors, warnings)
 }

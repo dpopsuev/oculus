@@ -105,9 +105,6 @@ func TestComputeSymbolQuality_Clean(t *testing.T) {
 	if report.TotalChecked != 2 {
 		t.Errorf("expected 2 total checked, got %d", report.TotalChecked)
 	}
-	if report.Score != 100 {
-		t.Errorf("expected score 100, got %.0f", report.Score)
-	}
 	if !strings.Contains(report.Summary, "all 2 symbols clean") {
 		t.Errorf("unexpected summary: %s", report.Summary)
 	}
@@ -261,8 +258,8 @@ func TestComputeVocabMap_SynonymDrift(t *testing.T) {
 		t.Error("expected synonym group with canonical 'get'")
 	}
 
-	if report.Consistency >= 100 {
-		t.Errorf("consistency should be below 100 with drift, got %.0f", report.Consistency)
+	if !strings.Contains(report.Summary, "synonym drift") {
+		t.Errorf("summary should mention synonym drift, got %q", report.Summary)
 	}
 }
 
@@ -281,11 +278,8 @@ func TestComputeVocabMap_Consistent(t *testing.T) {
 		}
 	}
 
-	if report.Consistency != 100 {
-		t.Errorf("expected 100%% consistency, got %.0f%%", report.Consistency)
-	}
-	if !strings.Contains(report.Summary, "100%") {
-		t.Errorf("summary should mention 100%%, got %q", report.Summary)
+	if !strings.Contains(report.Summary, "consistent across") {
+		t.Errorf("summary should mention consistency, got %q", report.Summary)
 	}
 }
 

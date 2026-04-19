@@ -57,7 +57,6 @@ type Violation struct {
 type Report struct {
 	Violations []Violation      `json:"violations"`
 	ByCategory map[Category]int `json:"by_category"`
-	Score      float64          `json:"score"`
 	Clean      bool             `json:"clean"`
 	Summary    string           `json:"summary"`
 }
@@ -149,15 +148,13 @@ func Run(ctx context.Context, report *arch.ContextReport, opts RunOpts) *Report 
 		byCategory[v.Category]++
 	}
 
-	score := computeScore(violations, services)
 	clean := len(violations) == 0
 
-	summary := buildSummary(violations, byCategory, score)
+	summary := buildSummary(violations, byCategory)
 
 	return &Report{
 		Violations: violations,
 		ByCategory: byCategory,
-		Score:      score,
 		Clean:      clean,
 		Summary:    summary,
 	}
@@ -407,47 +404,9 @@ func severityRank(severity string) int {
 	}
 }
 
-// computeScore calculates a 0-100 score based on weighted violation counts.
-// Critical=3, Error=2, Warning=1, Info=0. Score = max(0, 100 - penalty).
-func computeScore(violations []Violation, services []arch.ArchService) float64 {
-	if len(services) == 0 {
-		if len(violations) == 0 {
-			return 100
-		}
-		return 0
-	}
-
-	totalWeight := 0.0
-	for _, v := range violations {
-		switch port.Severity(v.Severity) {
-		case port.SeverityCritical:
-			totalWeight += 3
-		case port.SeverityError:
-			totalWeight += 2
-		case port.SeverityWarning:
-			totalWeight++
-		case port.SeverityInfo:
-			// Info does not penalize the score.
-		}
-	}
-
-	// Normalize against component count so score scales with project size.
-	maxPenalty := float64(len(services)) * 4 // max possible if every component had a critical
-	penalty := totalWeight / maxPenalty * 100
-	if penalty > 100 {
-		penalty = 100
-	}
-
-	score := 100 - penalty
-	if score < 0 {
-		score = 0
-	}
-	return score
-}
-
-func buildSummary(violations []Violation, byCategory map[Category]int, score float64) string {
+func buildSummary(violations []Violation, byCategory map[Category]int) string {
 	if len(violations) == 0 {
-		return fmt.Sprintf("Lint: %.0f/100 -- clean, no violations", score)
+		return "Lint: clean, no violations"
 	}
 
 	parts := make([]string, 0, len(byCategory))
@@ -458,5 +417,5 @@ func buildSummary(violations []Violation, byCategory map[Category]int, score flo
 		}
 	}
 
-	return fmt.Sprintf("Lint: %.0f/100 -- %d violation(s): %s", score, len(violations), strings.Join(parts, ", "))
+	return fmt.Sprintf("Lint: %d violation(s): %s", len(violations), strings.Join(parts, ", "))
 }

@@ -266,9 +266,8 @@ func TestComputeDIPViolations_AppToAdapter(t *testing.T) {
 	}
 }
 
-func TestComputeSOLIDScan_Score(t *testing.T) {
+func TestComputeSOLIDScan_ViolationCounts(t *testing.T) {
 	// Setup: 1 SRP violation (warning) + 1 ISP violation (error) = 2 violations.
-	// 1 service × 4 principles = 4 checks. Score = 100 - 2/4*100 = 50.
 	services := []arch.ArchService{
 		{Name: "internal/big", LOC: 600, Symbols: make([]model.Symbol, 5)},
 	}
@@ -292,11 +291,6 @@ func TestComputeSOLIDScan_Score(t *testing.T) {
 		t.Fatalf("expected %d violations, got %d", expectedViolations, len(report.Violations))
 	}
 
-	expectedScore := 50.0 // 100 - 2/4*100
-	if float64(report.Score) != expectedScore {
-		t.Errorf("expected score %.0f, got %.0f", expectedScore, report.Score)
-	}
-
 	if report.ByPrinciple["SRP"] != 1 {
 		t.Errorf("expected 1 SRP violation, got %d", report.ByPrinciple["SRP"])
 	}
@@ -305,7 +299,7 @@ func TestComputeSOLIDScan_Score(t *testing.T) {
 	}
 }
 
-func TestComputeSOLIDScan_PerfectScore(t *testing.T) {
+func TestComputeSOLIDScan_Clean(t *testing.T) {
 	services := []arch.ArchService{
 		{Name: "internal/clean", LOC: 50, Symbols: make([]model.Symbol, 3)},
 	}
@@ -318,16 +312,16 @@ func TestComputeSOLIDScan_PerfectScore(t *testing.T) {
 
 	report := ComputeSOLIDScan(services, edges, classes, nil, nil, "", nil, nil)
 
-	if report.Score != 100 {
-		t.Errorf("expected score 100, got %.0f", report.Score)
+	if len(report.Violations) != 0 {
+		t.Errorf("expected 0 violations, got %d", len(report.Violations))
 	}
-	if report.Summary != "SOLID score: 100/100 — no violations detected" {
+	if report.Summary != "SOLID: no violations detected" {
 		t.Errorf("unexpected summary: %s", report.Summary)
 	}
 }
 
-func TestComputeSOLIDScan_ScoreFloor(t *testing.T) {
-	// 21+ violations should floor at 0.
+func TestComputeSOLIDScan_ManyViolations(t *testing.T) {
+	// 25 fat interfaces → 25 ISP violations.
 	services := make([]arch.ArchService, 0)
 	classes := make([]oculus.ClassInfo, 0, 25)
 	for i := range 25 {
@@ -342,8 +336,8 @@ func TestComputeSOLIDScan_ScoreFloor(t *testing.T) {
 
 	report := ComputeSOLIDScan(services, nil, classes, nil, nil, "", nil, nil)
 
-	if report.Score != 0 {
-		t.Errorf("expected score 0 (floor), got %.0f", report.Score)
+	if len(report.Violations) != 25 {
+		t.Errorf("expected 25 violations, got %d", len(report.Violations))
 	}
 }
 
