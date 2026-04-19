@@ -74,8 +74,8 @@ func TestComputeImportDirection_CleanArchitecture(t *testing.T) {
 
 func TestComputeImportDirection_SeverityLevels(t *testing.T) {
 	edges := []arch.ArchEdge{
-		{From: "domain", To: "adapter"},      // depth diff = 1 → warning
-		{From: "domain", To: "infra/detail"}, // depth diff = 3 → error
+		{From: "domain", To: "adapter"},      // depth diff = 1
+		{From: "domain", To: "infra/detail"}, // depth diff = 3
 	}
 	depths := graph.DepthMap{
 		"domain":       2,
@@ -85,21 +85,14 @@ func TestComputeImportDirection_SeverityLevels(t *testing.T) {
 
 	report := ComputeImportDirection(edges, depths)
 
-	warnings, errors := 0, 0
+	if len(report.Violations) != 2 {
+		t.Fatalf("expected 2 violations, got %d", len(report.Violations))
+	}
+	// All import direction violations are now warning (no escalation).
 	for _, v := range report.Violations {
-		switch v.Severity {
-		case "warning":
-			warnings++
-		case "error":
-			errors++
+		if v.Severity != "warning" {
+			t.Errorf("expected warning severity for %s → %s, got %s", v.From, v.To, v.Severity)
 		}
-	}
-
-	if warnings != 1 {
-		t.Errorf("expected 1 warning, got %d", warnings)
-	}
-	if errors != 1 {
-		t.Errorf("expected 1 error, got %d", errors)
 	}
 }
 

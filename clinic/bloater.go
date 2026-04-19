@@ -42,16 +42,12 @@ func ComputeBloaterScan(report *arch.ContextReport) *BloaterReport {
 
 		// Large component detection.
 		if svc.LOC > LargeComponentLOC {
-			severity := port.SeverityWarning
-			if svc.LOC > LargeComponentLOC*2 {
-				severity = port.SeverityError
-			}
 			detections = append(detections, BloaterDetection{
 				Component: svc.Name,
 				Kind:      "large_component",
 				LOC:       svc.LOC,
 				Threshold: LargeComponentLOC,
-				Severity:  severity,
+				Severity:  port.SeverityWarning,
 			})
 		}
 	}
@@ -62,17 +58,13 @@ func ComputeBloaterScan(report *arch.ContextReport) *BloaterReport {
 			component := shortComponentName(report.ModulePath, ns.ImportPath)
 			for _, f := range ns.Files {
 				if f.Lines > LargeFileLOC {
-					severity := port.SeverityWarning
-					if f.Lines > LargeFileLOC*2 {
-						severity = port.SeverityError
-					}
 					detections = append(detections, BloaterDetection{
 						Component: component,
 						File:      f.Path,
 						Kind:      "large_file",
 						LOC:       f.Lines,
 						Threshold: LargeFileLOC,
-						Severity:  severity,
+						Severity:  port.SeverityWarning,
 					})
 				}
 			}

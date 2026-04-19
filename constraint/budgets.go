@@ -81,9 +81,6 @@ func ComputeBudgetViolations(
 		for _, ch := range checks {
 			if ch.actual > ch.budget {
 				severity := port.SeverityWarning
-				if ch.actual > ch.budget*2 {
-					severity = port.SeverityError
-				}
 				violations = append(violations, BudgetViolation{
 					Component: c.Component,
 					Metric:    ch.metric,

@@ -11,9 +11,6 @@ import (
 	"github.com/dpopsuev/oculus/v3/lang"
 )
 
-// Fan-in threshold above which severity is escalated from warning to error.
-const fanInEscalationThreshold = 5
-
 // Score scaling factor: issues / total * 100.
 const scoreScale = 100
 
@@ -177,15 +174,11 @@ func checkAbbreviation(sym, pkg string, svcFanIn int, idioms map[string]bool) []
 			if idioms[sym] {
 				continue
 			}
-			severity := port.SeverityWarning
-			if svcFanIn >= fanInEscalationThreshold {
-				severity = port.SeverityError
-			}
 			return []SymbolIssue{{
 				Symbol:     sym,
 				Package:    pkg,
 				Issue:      "abbreviation",
-				Severity:   severity,
+				Severity:   port.SeverityWarning,
 				FanIn:      svcFanIn,
 				Suggestion: fmt.Sprintf("Use full word: %s → %s", abbr, expansion),
 			}}
@@ -200,15 +193,11 @@ func checkGenericName(sym, pkg string, svcFanIn int) []SymbolIssue {
 		if sym == suffix || strings.HasSuffix(sym, suffix) {
 			remaining := strings.TrimSuffix(sym, suffix)
 			if len(remaining) < minDomainPrefixLen {
-				severity := port.SeverityWarning
-				if svcFanIn >= fanInEscalationThreshold {
-					severity = port.SeverityError
-				}
 				return []SymbolIssue{{
 					Symbol:     sym,
 					Package:    pkg,
 					Issue:      "generic_name",
-					Severity:   severity,
+					Severity:   port.SeverityWarning,
 					FanIn:      svcFanIn,
 					Suggestion: "Add domain-specific prefix",
 				}}
@@ -226,16 +215,11 @@ func checkVerblessExport(sym, kind, pkg string, svcFanIn int, rules lang.Rules) 
 		return nil
 	}
 
-	severity := port.SeverityInfo
-	if svcFanIn >= fanInEscalationThreshold {
-		severity = port.SeverityWarning
-	}
-
 	return []SymbolIssue{{
 		Symbol:     sym,
 		Package:    pkg,
 		Issue:      "verbless_export",
-		Severity:   severity,
+		Severity:   port.SeverityInfo,
 		FanIn:      svcFanIn,
 		Suggestion: "Consider adding a verb prefix for clarity",
 	}}

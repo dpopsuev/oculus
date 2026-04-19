@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/dpopsuev/oculus/v3/arch"
-	"github.com/dpopsuev/oculus/v3/graph"
 	"github.com/dpopsuev/oculus/v3/port"
 )
 
@@ -27,8 +26,6 @@ type GapReport struct {
 // DetectGaps identifies undocumented or under-tested components.
 func DetectGaps(report *arch.ContextReport, root string) (*GapReport, error) {
 	r := &GapReport{ComponentsScanned: len(report.Architecture.Services)}
-
-	fanIn := graph.FanIn(report.Architecture.Edges)
 
 	for i := range report.Architecture.Services {
 		comp := report.Architecture.Services[i].Name
@@ -56,16 +53,7 @@ func DetectGaps(report *arch.ContextReport, root string) (*GapReport, error) {
 			continue
 		}
 
-		// Severity: high fan-in without tests = critical.
-		fi := fanIn[comp]
-		switch {
-		case !hasTests && fi >= 3:
-			entry.Severity = port.SeverityCritical
-		case !hasDocs:
-			entry.Severity = port.SeverityWarning
-		default:
-			entry.Severity = port.SeverityInfo
-		}
+		entry.Severity = port.SeverityWarning
 
 		r.Entries = append(r.Entries, entry)
 		r.TotalGaps += len(entry.Gaps)

@@ -130,8 +130,8 @@ func TestComputeSymbolQuality_FanInWeighting(t *testing.T) {
 		t.Fatal("expected at least 1 issue")
 	}
 	issue := report.Issues[0]
-	if issue.Severity != port.SeverityError {
-		t.Errorf("expected severity %s for high fan-in, got %s", port.SeverityError, issue.Severity)
+	if issue.Severity != port.SeverityWarning {
+		t.Errorf("expected severity %s (no escalation), got %s", port.SeverityWarning, issue.Severity)
 	}
 	if issue.FanIn != 5 {
 		t.Errorf("expected fan_in 5, got %d", issue.FanIn)
@@ -198,7 +198,7 @@ func TestComputeSymbolQuality_SortOrder(t *testing.T) {
 		{Name: "svc/b", Package: "pkg/b", Symbols: model.SymbolsFromNames("Manager")},
 	}
 	edges := []arch.ArchEdge{
-		{From: "x", To: "svc/a", Weight: 6}, // high fan-in → error
+		{From: "x", To: "svc/a", Weight: 6},
 	}
 
 	report := ComputeSymbolQuality(services, edges)
@@ -206,13 +206,15 @@ func TestComputeSymbolQuality_SortOrder(t *testing.T) {
 	if len(report.Issues) < 2 {
 		t.Fatalf("expected at least 2 issues, got %d", len(report.Issues))
 	}
-	// First issue should be error severity (escalated due to fan-in).
-	if report.Issues[0].Severity != port.SeverityError {
-		t.Errorf("first issue should be error, got %s", report.Issues[0].Severity)
+	// Both issues are warning (no fan-in escalation); sorted by fan-in descending.
+	for i, issue := range report.Issues {
+		if issue.Severity != port.SeverityWarning {
+			t.Errorf("issue[%d] should be warning, got %s", i, issue.Severity)
+		}
 	}
-	// Second issue should be warning.
-	if report.Issues[1].Severity != port.SeverityWarning {
-		t.Errorf("second issue should be warning, got %s", report.Issues[1].Severity)
+	// Higher fan-in should sort first.
+	if report.Issues[0].FanIn < report.Issues[1].FanIn {
+		t.Errorf("expected higher fan-in first: got %d then %d", report.Issues[0].FanIn, report.Issues[1].FanIn)
 	}
 }
 

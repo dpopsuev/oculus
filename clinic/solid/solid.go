@@ -37,11 +37,6 @@ const (
 	srpSymbolThres    = 20
 )
 
-// SRP fan-in (blast radius) thresholds for severity escalation.
-const (
-	srpFanInMedium = 3
-	srpFanInHigh   = 8
-)
 
 // ISP thresholds.
 const (
@@ -134,7 +129,7 @@ func ComputeSRPViolations(services []arch.ArchService, edges []arch.ArchEdge, ro
 				Principle:  PrincipleSRP,
 				Component:  svc.Name,
 				Detail:     fmt.Sprintf("%s has %d LOC and fan-out %d (fan-in %d)", svc.Name, svc.LOC, fo, fi),
-				Severity:   srpSeverityByFanIn(fi),
+				Severity:   port.SeverityWarning,
 				Suggestion: "Split into focused packages by responsibility",
 			})
 		case svc.LOC > locWarning && fo > foWarning:
@@ -142,7 +137,7 @@ func ComputeSRPViolations(services []arch.ArchService, edges []arch.ArchEdge, ro
 				Principle:  PrincipleSRP,
 				Component:  svc.Name,
 				Detail:     fmt.Sprintf("%s has %d LOC and fan-out %d (fan-in %d)", svc.Name, svc.LOC, fo, fi),
-				Severity:   srpSeverityByFanIn(fi),
+				Severity:   port.SeverityWarning,
 				Suggestion: "Consider extracting related functionality",
 			})
 		}
@@ -154,7 +149,7 @@ func ComputeSRPViolations(services []arch.ArchService, edges []arch.ArchEdge, ro
 				Principle:  PrincipleSRP,
 				Component:  svc.Name,
 				Detail:     fmt.Sprintf("%s touches %d domains with %d symbols (fan-in %d)", svc.Name, diversity, len(svc.Symbols), fi),
-				Severity:   srpSeverityByFanIn(fi),
+				Severity:   port.SeverityWarning,
 				Suggestion: "Component touches too many domains",
 			})
 		}
@@ -163,18 +158,6 @@ func ComputeSRPViolations(services []arch.ArchService, edges []arch.ArchEdge, ro
 	return violations
 }
 
-// srpSeverityByFanIn returns SRP severity based on fan-in (blast radius).
-// A component with many dependents is riskier to refactor.
-func srpSeverityByFanIn(fanIn int) port.Severity {
-	switch {
-	case fanIn >= srpFanInHigh:
-		return port.SeverityCritical
-	case fanIn >= srpFanInMedium:
-		return port.SeverityError
-	default:
-		return port.SeverityWarning
-	}
-}
 
 // countDomainDiversity counts the number of distinct domains among targets.
 // A domain is the first path segment after the last "internal/" prefix,
@@ -205,12 +188,6 @@ func extractDomain(target string) string {
 	}
 	return target
 }
-
-// ISP implementor-count thresholds for severity escalation.
-const (
-	ispImplCountMedium = 3
-	ispImplCountHigh   = 6
-)
 
 // ComputeISPViolations detects Interface Segregation Principle violations
 // based on interface method counts, weighted by implementor count.
@@ -251,8 +228,7 @@ func ComputeISPViolations(classes []oculus.ClassInfo, impls []oculus.ImplEdge, a
 			continue
 		}
 
-		// Weight severity by implementor count.
-		severity := ispSeverityByImplCount(baseSeverity, implCount[c.Name])
+		severity := baseSeverity
 
 		detail := fmt.Sprintf("%s has %d methods (threshold: %d)", c.Name, methodCount, ispMethodsWarning)
 		if n := implCount[c.Name]; n > 0 {
@@ -271,25 +247,6 @@ func ComputeISPViolations(classes []oculus.ClassInfo, impls []oculus.ImplEdge, a
 	return violations
 }
 
-// ispSeverityByImplCount adjusts ISP severity based on implementor count.
-// A fat interface with many implementors is harder to refactor.
-func ispSeverityByImplCount(baseSeverity port.Severity, implCount int) port.Severity {
-	switch {
-	case implCount >= ispImplCountHigh:
-		return port.SeverityCritical
-	case implCount >= ispImplCountMedium:
-		if baseSeverity == port.SeverityWarning {
-			return port.SeverityError
-		}
-		return port.SeverityError
-	default:
-		// 0-2 implementors: keep base but cap at warning when few.
-		if implCount > 0 && baseSeverity == port.SeverityError {
-			return port.SeverityWarning
-		}
-		return baseSeverity
-	}
-}
 
 // ComputeOCPViolations detects Open/Closed Principle violations by finding
 // type switch statements in Go source files under root.

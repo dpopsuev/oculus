@@ -79,9 +79,6 @@ func TestComputeBudgetViolations_Error(t *testing.T) {
 		{From: "d", To: "pkg/core"},
 		{From: "e", To: "pkg/core"},
 	}
-	// budget=2, actual=5 => 5 > 2*2=4 => error
-	// budget=10, actual=25 => 25 > 10*2=20 => error
-	// budget=5, actual=12 => 12 > 5*2=10 => error
 	constraints := []port.HealthConstraint{
 		{Component: "pkg/core", MaxFanIn: 2, MaxChurn: 10, MaxNesting: 5},
 	}
@@ -92,8 +89,8 @@ func TestComputeBudgetViolations_Error(t *testing.T) {
 		t.Fatalf("expected 3 failing, got %d", report.Failing)
 	}
 	for _, v := range report.Violations {
-		if v.Severity != port.SeverityError {
-			t.Errorf("expected error severity for %s (actual=%.0f, budget=%.0f), got %s",
+		if v.Severity != port.SeverityWarning {
+			t.Errorf("expected warning severity for %s (actual=%.0f, budget=%.0f), got %s",
 				v.Metric, v.Actual, v.Budget, v.Severity)
 		}
 	}
@@ -108,9 +105,7 @@ func TestComputeBudgetViolations_MixedSeverity(t *testing.T) {
 		{From: "y", To: "svc"},
 		{From: "z", To: "svc"},
 	}
-	// fan_in=3, budget=2 => warning (3 <= 2*2=4)
-	// churn=7, budget=5 => warning (7 <= 5*2=10)
-	// nesting=6, budget=2 => error (6 > 2*2=4)
+	// All budget violations are now warning regardless of overshoot.
 	constraints := []port.HealthConstraint{
 		{Component: "svc", MaxFanIn: 2, MaxChurn: 5, MaxNesting: 2},
 	}
@@ -121,19 +116,10 @@ func TestComputeBudgetViolations_MixedSeverity(t *testing.T) {
 		t.Fatalf("expected 3 failing, got %d", report.Failing)
 	}
 
-	severityOf := make(map[string]string)
 	for _, v := range report.Violations {
-		severityOf[v.Metric] = string(v.Severity)
-	}
-
-	if severityOf["fan_in"] != "warning" {
-		t.Errorf("fan_in: expected warning, got %s", severityOf["fan_in"])
-	}
-	if severityOf["churn"] != "warning" {
-		t.Errorf("churn: expected warning, got %s", severityOf["churn"])
-	}
-	if severityOf["max_nesting"] != "error" {
-		t.Errorf("max_nesting: expected error, got %s", severityOf["max_nesting"])
+		if v.Severity != port.SeverityWarning {
+			t.Errorf("%s: expected warning, got %s", v.Metric, v.Severity)
+		}
 	}
 }
 

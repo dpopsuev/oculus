@@ -727,7 +727,10 @@ func evaluateFingerprint(
 		return nil
 	}
 
-	severity := severityForDetection(entry.Kind, weightedSum)
+	severity := port.SeverityWarning
+	if entry.Kind == PatternKindPattern {
+		severity = port.SeverityInfo
+	}
 
 	return &PatternDetection{
 		PatternID:   entry.ID,
@@ -770,24 +773,13 @@ func evaluateFeatureEnvy(svc arch.ArchService, edges []arch.ArchEdge) *PatternDe
 				Component:   svc.Name,
 				Confidence:  port.Confidence(ratio),
 				Evidence:    []string{fmt.Sprintf("%.0f%% of call sites target %s", ratio*100, target)},
-				Severity:    severityForDetection(entry.Kind, ratio),
+				Severity:    port.SeverityWarning,
 			}
 		}
 	}
 	return nil
 }
 
-// severityForDetection maps pattern kind and confidence to a severity level.
-func severityForDetection(kind PatternKind, confidence float64) port.Severity {
-	if kind == PatternKindPattern {
-		return port.SeverityInfo
-	}
-	// Smells: high confidence → error, otherwise warning.
-	if confidence > 0.8 {
-		return port.SeverityError
-	}
-	return port.SeverityWarning
-}
 
 
 // reclassifyMediators checks god_component detections for Mediator structural role.

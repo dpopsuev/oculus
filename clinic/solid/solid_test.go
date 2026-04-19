@@ -397,7 +397,7 @@ func TestExtractDomain(t *testing.T) {
 // --- ISP severity by implementor count (TSK-178) ---
 
 func TestISPSeverity_FewImplementors(t *testing.T) {
-	// Fat interface (9 methods, base=error) with 2 implementors → warning.
+	// Fat interface (9 methods, base=error) with 2 implementors — severity is base only (error).
 	methods := make([]oculus.MethodInfo, 9)
 	for i := range methods {
 		methods[i] = oculus.MethodInfo{Name: "Method" + string(rune('A'+i)), Exported: true}
@@ -416,8 +416,8 @@ func TestISPSeverity_FewImplementors(t *testing.T) {
 		t.Fatal("expected ISP violation for 9-method interface")
 	}
 	v := violations[0]
-	if v.Severity != port.SeverityWarning {
-		t.Errorf("expected warning severity for 2 implementors, got %s", v.Severity)
+	if v.Severity != port.SeverityError {
+		t.Errorf("expected error severity (base, no escalation), got %s", v.Severity)
 	}
 	if v.Principle != PrincipleISP {
 		t.Errorf("expected ISP principle, got %s", v.Principle)
@@ -425,7 +425,7 @@ func TestISPSeverity_FewImplementors(t *testing.T) {
 }
 
 func TestISPSeverity_ManyImplementors(t *testing.T) {
-	// Fat interface (9 methods) with 6+ implementors → critical.
+	// Fat interface (9 methods) with 7 implementors — severity is base only (error), no escalation.
 	methods := make([]oculus.MethodInfo, 9)
 	for i := range methods {
 		methods[i] = oculus.MethodInfo{Name: "Method" + string(rune('A'+i)), Exported: true}
@@ -448,8 +448,8 @@ func TestISPSeverity_ManyImplementors(t *testing.T) {
 		t.Fatal("expected ISP violation for 9-method interface with 7 implementors")
 	}
 	v := violations[0]
-	if v.Severity != port.SeverityCritical {
-		t.Errorf("expected critical severity for 7 implementors, got %s", v.Severity)
+	if v.Severity != port.SeverityError {
+		t.Errorf("expected error severity (base, no escalation), got %s", v.Severity)
 	}
 }
 
@@ -479,7 +479,7 @@ func TestSRPSeverity_LowFanIn(t *testing.T) {
 }
 
 func TestSRPSeverity_HighFanIn(t *testing.T) {
-	// God component (LOC=1200, fan-out=10) with fan-in=10 → critical.
+	// God component (LOC=1200, fan-out=10) with fan-in=10 — severity is always warning (no escalation).
 	services := []arch.ArchService{
 		{Name: "internal/godpkg", LOC: 1200, Symbols: make([]model.Symbol, 5)},
 	}
@@ -487,7 +487,7 @@ func TestSRPSeverity_HighFanIn(t *testing.T) {
 	for i := range edges {
 		edges[i] = arch.ArchEdge{From: "internal/godpkg", To: "internal/dep" + string(rune('a'+i))}
 	}
-	// Add 10 inbound edges (fan-in=10, high blast radius).
+	// Add 10 inbound edges (fan-in=10).
 	for i := range 10 {
 		edges = append(edges, arch.ArchEdge{From: "internal/caller" + string(rune('a'+i)), To: "internal/godpkg"})
 	}
@@ -498,8 +498,8 @@ func TestSRPSeverity_HighFanIn(t *testing.T) {
 		t.Fatal("expected SRP violation for LOC=1200, fan-out=10")
 	}
 	v := violations[0]
-	if v.Severity != port.SeverityCritical {
-		t.Errorf("expected critical severity for fan-in=10, got %s", v.Severity)
+	if v.Severity != port.SeverityWarning {
+		t.Errorf("expected warning severity (no escalation), got %s", v.Severity)
 	}
 }
 

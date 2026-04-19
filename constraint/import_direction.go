@@ -52,17 +52,12 @@ func ComputeImportDirection(edges []arch.ArchEdge, depths graph.DepthMap) *Impor
 		// In a clean architecture, From should have depth >= To's depth,
 		// meaning higher-level imports lower-level.
 		if fromDepth < toDepth {
-			diff := toDepth - fromDepth
-			severity := port.SeverityWarning
-			if diff >= 2 {
-				severity = port.SeverityError
-			}
 			violations = append(violations, ImportDirectionViolation{
 				From:      e.From,
 				To:        e.To,
 				FromDepth: fromDepth,
 				ToDepth:   toDepth,
-				Severity:  severity,
+				Severity:  port.SeverityWarning,
 			})
 		}
 	}

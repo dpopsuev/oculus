@@ -241,38 +241,6 @@ func TestComputePatternScan_Strategy(t *testing.T) {
 	}
 }
 
-func TestComputePatternScan_SeverityEscalation(t *testing.T) {
-	// A god_component with very high metrics should get error severity.
-	services := []arch.ArchService{
-		{
-			Name:    "pkg/mega",
-			Package: "example.com/pkg/mega",
-			LOC:     5000,
-			Symbols: makeSymbols(100),
-		},
-	}
-	edges := make([]arch.ArchEdge, 0, 40)
-	for i := range 20 {
-		edges = append(edges, arch.ArchEdge{From: fmtPkg(i), To: "pkg/mega"})
-	}
-	for i := range 20 {
-		edges = append(edges, arch.ArchEdge{From: "pkg/mega", To: fmtPkg(200 + i)})
-	}
-
-	report := ComputePatternScan(services, edges, nil, nil, nil, nil, nil)
-
-	for _, d := range report.Detections {
-		if d.PatternID == "god_component" && d.Component == "pkg/mega" {
-			if d.Severity != port.SeverityError {
-				t.Errorf("expected error severity for high-confidence god_component, got %s (confidence=%f)",
-					d.Severity, d.Confidence)
-			}
-			return
-		}
-	}
-	t.Fatal("god_component not detected for pkg/mega")
-}
-
 func TestComputePatternScan_EmptyInput(t *testing.T) {
 	report := ComputePatternScan(nil, nil, nil, nil, nil, nil, nil)
 
