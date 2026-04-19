@@ -21,24 +21,14 @@ const (
 	PatternKindSmell   PatternKind = "smell"
 )
 
-// CodeExample provides before/after code snippets illustrating a refactoring.
-type CodeExample struct {
-	Before string `json:"before"`
-	After  string `json:"after"`
-	Label  string `json:"label"`
-}
-
 // CatalogEntry describes a known pattern or smell in the catalog.
 type CatalogEntry struct {
-	ID          string        `json:"id"`
-	Name        string        `json:"name"`
-	Kind        PatternKind   `json:"kind"`
-	Category    string        `json:"category"`
-	Description string        `json:"description"`
-	Indicators  []string      `json:"indicators"`
-	Remediation string        `json:"remediation,omitempty"`
-	Steps       []string      `json:"steps,omitempty"`
-	Examples    []CodeExample `json:"examples,omitempty"`
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Kind        PatternKind `json:"kind"`
+	Category    string      `json:"category"`
+	Description string      `json:"description"`
+	Indicators  []string    `json:"indicators"`
 }
 
 // PatternDetection records a single detected pattern or smell in a component.
@@ -112,180 +102,17 @@ var patternCatalog = []CatalogEntry{
 		Indicators: []string{"high fan-out (>10)", "low fan-in (<=3)", "thin delegate methods"},
 	},
 	// ── Smells ──
-	{
-		ID: "god_component", Name: "God Component", Kind: PatternKindSmell,
-		Category: "smell", Description: "Component doing too much",
-		Indicators:  []string{"high fan-in AND fan-out", "LOC > 1000", "symbol count > 30"},
-		Remediation: "Extract responsibilities into focused packages",
-		Steps: []string{
-			"Identify distinct responsibilities by grouping exported symbols that share call targets",
-			"For each group, create a new package with a clear domain name",
-			"Move types and functions to the new package, preserving exported names",
-			"Update import paths in all consumers (use goimports or IDE rename)",
-			"If the original package's callers need polymorphism, introduce an interface at the boundary",
-			"Verify no circular imports with 'locus analysis action=cycles'",
-		},
-		Examples: []CodeExample{{
-			Label:  "Extract Module",
-			Before: "// pkg/engine — 2000 LOC, 40 symbols\nfunc ParseConfig() {}\nfunc RunPipeline() {}\nfunc RenderOutput() {}",
-			After:  "// pkg/engine/config — ParseConfig()\n// pkg/engine/pipeline — RunPipeline()\n// pkg/engine/render — RenderOutput()",
-		}},
-	},
-	{
-		ID: "feature_envy", Name: "Feature Envy", Kind: PatternKindSmell,
-		Category: "smell", Description: "Component uses another's data more than its own",
-		Indicators:  []string{"high call_sites to single target", "LOCSurface > own LOC"},
-		Remediation: "Move logic to the component whose data it uses",
-		Steps: []string{
-			"Identify the envious functions — those with >50% of calls targeting another package",
-			"Check if the function accesses state from its own package (receiver fields, package vars)",
-			"If no local state is used, move the function to the target package",
-			"If local state is needed, extract the remote-calling logic into a helper in the target, call it from the original",
-			"Update callers to import the new location",
-		},
-		Examples: []CodeExample{{
-			Label:  "Move Method",
-			Before: "// pkg/handler\nfunc (h *Handler) Process(r *repo.Record) {\n    repo.Validate(r)\n    repo.Normalize(r)\n    repo.Save(r)\n}",
-			After:  "// pkg/repo\nfunc ProcessRecord(r *Record) {\n    Validate(r)\n    Normalize(r)\n    Save(r)\n}",
-		}},
-	},
-	{
-		ID: "shotgun_surgery", Name: "Shotgun Surgery", Kind: PatternKindSmell,
-		Category: "smell", Description: "Changes require touching many files",
-		Indicators:  []string{"high churn AND high fan-in"},
-		Remediation: "Consolidate related logic to reduce change blast radius",
-		Steps: []string{
-			"Identify the repeated change pattern — what feature or concern triggers multi-file edits",
-			"Group the scattered logic by responsibility, not by layer",
-			"Move related functions into a single package that owns that concern",
-			"Introduce a Facade or Service if consumers need a stable entry point",
-			"Verify churn drops with 'locus analysis action=coupling view=hot_spots'",
-		},
-	},
-	{
-		ID: "inappropriate_intimacy", Name: "Inappropriate Intimacy", Kind: PatternKindSmell,
-		Category: "smell", Description: "Bidirectional coupling between components",
-		Indicators:  []string{"mutual edges between 2 components", "high weight both ways"},
-		Remediation: "Extract shared interface or merge components",
-		Steps: []string{
-			"Determine if the two components are genuinely separate concerns",
-			"If they are one concern: merge into a single package",
-			"If separate concerns: extract a shared interface (port) that both depend on",
-			"Move the interface to a neutral package (e.g., internal/port/)",
-			"Each component depends on the port, not on each other",
-		},
-		Examples: []CodeExample{{
-			Label:  "Dependency Inversion",
-			Before: "// A imports B, B imports A (cycle)\nimport \"project/internal/A\"\nimport \"project/internal/B\"",
-			After:  "// port/contract.go — shared interface\n// A imports port, B imports port\n// no cycle",
-		}},
-	},
-	{
-		ID: "lazy_component", Name: "Lazy Component", Kind: PatternKindSmell,
-		Category: "smell", Description: "Too little responsibility",
-		Indicators:  []string{"LOC < 20", "0-1 symbols", "0 fan-in"},
-		Remediation: "Merge into related component",
-		Steps: []string{
-			"Identify the nearest related package by import graph (highest edge weight)",
-			"Move all symbols into that package",
-			"Remove the empty package directory",
-			"Update imports in any consumers",
-		},
-	},
-	{
-		ID: "data_clump", Name: "Data Clump", Kind: PatternKindSmell,
-		Category: "smell", Description: "Groups of data that travel together",
-		Indicators:  []string{"multiple structs sharing 3+ field types"},
-		Remediation: "Extract common fields into shared struct",
-		Steps: []string{
-			"List the repeated parameter groups across function signatures",
-			"Create a named struct (Parameter Object) with those fields",
-			"Replace the individual parameters with the struct in all signatures",
-			"Add a constructor (New*) if validation is needed",
-		},
-		Examples: []CodeExample{{
-			Label:  "Extract Parameter Object",
-			Before: "func Query(host string, port int, user string, pass string) {}\nfunc Connect(host string, port int, user string, pass string) {}",
-			After:  "type ConnConfig struct {\n    Host string\n    Port int\n    User string\n    Pass string\n}\nfunc Query(c ConnConfig) {}\nfunc Connect(c ConnConfig) {}",
-		}},
-	},
-	{
-		ID: "long_parameter_list", Name: "Long Parameter List", Kind: PatternKindSmell,
-		Category: "smell", Description: "Functions with too many parameters",
-		Indicators:  []string{"methods with >5 parameters"},
-		Remediation: "Introduce parameter object or options struct",
-		Steps: []string{
-			"Group parameters by concern — which travel together?",
-			"Create an Options struct with sensible defaults",
-			"Replace the long parameter list with the struct",
-			"Add functional options (With*) if callers typically override only 1-2 fields",
-		},
-		Examples: []CodeExample{{
-			Label:  "Options Pattern",
-			Before: "func Scan(path string, depth int, churn int, ext bool, tests bool, cov bool) {}",
-			After:  "type ScanOpts struct {\n    Depth int\n    ChurnDays int\n    IncludeExternal bool\n}\nfunc Scan(path string, opts ScanOpts) {}",
-		}},
-	},
-	{
-		ID: "dead_code", Name: "Dead Code", Kind: PatternKindSmell,
-		Category: "smell", Description: "Exported symbols with zero callers",
-		Indicators:  []string{"exported symbol", "0 fan-in", "not in cmd/"},
-		Remediation: "Remove or unexport unused symbols",
-		Steps: []string{
-			"Verify the symbol truly has zero callers with 'locus analysis action=callers symbol=Name'",
-			"Check if it is part of an interface contract (may be required but uncalled)",
-			"If unused: unexport (lowercase) or delete entirely",
-			"If part of a public API: document why it exists or mark as deprecated",
-		},
-	},
-	{
-		ID: "circular_dependency", Name: "Circular Dependency", Kind: PatternKindSmell,
-		Category: "smell", Description: "Mutual dependency cycle",
-		Indicators:  []string{"cycle in dependency graph"},
-		Remediation: "Break cycle with dependency inversion",
-		Steps: []string{
-			"Identify the weakest edge in the cycle (fewest call sites)",
-			"Extract an interface for the symbols crossing that edge",
-			"Place the interface in the downstream package (consumer defines the port)",
-			"The upstream package implements the interface without importing the consumer",
-			"Verify with 'locus analysis action=cycles'",
-		},
-		Examples: []CodeExample{{
-			Label:  "Break Cycle via Port",
-			Before: "// A imports B, B imports A\npackage A; import \"B\"\npackage B; import \"A\"",
-			After:  "// A defines port, B implements it\npackage A; type Store interface { Get() }\npackage B; func (b *B) Get() {} // implements A.Store",
-		}},
-	},
-	{
-		ID: "coverage_gap", Name: "Coverage Gap", Kind: PatternKindSmell,
-		Category: "testing", Description: "Component has high fan-in but lacks cross-package test coverage",
-		Indicators:  []string{"has _test.go files", "no acceptance/ or integration/ test files reference this component"},
-		Remediation: "Add integration tests that exercise this component's boundaries with its dependencies",
-		Steps: []string{
-			"Identify the component's public contract (exported functions + interfaces)",
-			"Write integration tests that call through the real dependency chain",
-			"Focus on boundary cases: error paths, empty inputs, concurrent access",
-			"Use testcontainers or fixtures for external dependencies",
-		},
-	},
-	{
-		ID: "fragile_contract", Name: "Fragile Contract", Kind: PatternKindSmell,
-		Category: "reliability", Description: "Widely-used component without a constructor — callers must know hidden initialization rules",
-		Indicators:  []string{"high fan-in", "no New* constructor among exported symbols"},
-		Remediation: "Make preconditions explicit via constructor validation, Option pattern, or Builder",
-		Steps: []string{
-			"Identify the hidden initialization rules (required fields, order of calls)",
-			"Create a New* constructor that validates all preconditions",
-			"Return an error if preconditions are not met",
-			"Consider functional options (With*) for optional configuration",
-			"Make the struct fields unexported so callers must use the constructor",
-		},
-		Examples: []CodeExample{{
-			Label:  "Constructor Validation",
-			Before: "type Server struct {\n    Addr string // must not be empty\n    TLS  bool   // must match cert presence\n}\n// callers: s := Server{Addr: \":8080\"}",
-			After:  "func NewServer(addr string, opts ...Option) (*Server, error) {\n    if addr == \"\" {\n        return nil, errors.New(\"addr required\")\n    }\n    // ...\n}",
-		}},
-	},
+	{ID: "god_component", Name: "God Component", Kind: PatternKindSmell, Category: "smell", Description: "Component doing too much", Indicators: []string{"high fan-in AND fan-out", "LOC > 1000", "symbol count > 30"}},
+	{ID: "feature_envy", Name: "Feature Envy", Kind: PatternKindSmell, Category: "smell", Description: "Component uses another's data more than its own", Indicators: []string{"high call_sites to single target", "LOCSurface > own LOC"}},
+	{ID: "shotgun_surgery", Name: "Shotgun Surgery", Kind: PatternKindSmell, Category: "smell", Description: "Changes require touching many files", Indicators: []string{"high churn AND high fan-in"}},
+	{ID: "inappropriate_intimacy", Name: "Inappropriate Intimacy", Kind: PatternKindSmell, Category: "smell", Description: "Bidirectional coupling between components", Indicators: []string{"mutual edges between 2 components", "high weight both ways"}},
+	{ID: "lazy_component", Name: "Lazy Component", Kind: PatternKindSmell, Category: "smell", Description: "Too little responsibility", Indicators: []string{"LOC < 20", "0-1 symbols", "0 fan-in"}},
+	{ID: "data_clump", Name: "Data Clump", Kind: PatternKindSmell, Category: "smell", Description: "Groups of data that travel together", Indicators: []string{"multiple structs sharing 3+ field types"}},
+	{ID: "long_parameter_list", Name: "Long Parameter List", Kind: PatternKindSmell, Category: "smell", Description: "Functions with too many parameters", Indicators: []string{"methods with >5 parameters"}},
+	{ID: "dead_code", Name: "Dead Code", Kind: PatternKindSmell, Category: "smell", Description: "Exported symbols with zero callers", Indicators: []string{"exported symbol", "0 fan-in", "not in cmd/"}},
+	{ID: "circular_dependency", Name: "Circular Dependency", Kind: PatternKindSmell, Category: "smell", Description: "Mutual dependency cycle", Indicators: []string{"cycle in dependency graph"}},
+	{ID: "coverage_gap", Name: "Coverage Gap", Kind: PatternKindSmell, Category: "testing", Description: "Component has high fan-in but lacks test coverage", Indicators: []string{"high fan-in", "no test files reference this component"}},
+	{ID: "fragile_contract", Name: "Fragile Contract", Kind: PatternKindSmell, Category: "reliability", Description: "Widely-used component without a constructor", Indicators: []string{"high fan-in", "no New* constructor among exported symbols"}},
 }
 
 // ── Signal functions ──
@@ -931,16 +758,6 @@ func GetPatternCatalog(filter string) *PatternCatalogReport {
 				strings.Contains(strings.ToLower(e.Description), lower) {
 				entries = append(entries, *e)
 			}
-		}
-	}
-
-	// Only include verbose fields (Steps, Examples) when a single entry is matched
-	// by exact ID. Multi-entry listings stay concise for token budget compliance.
-	singleExactMatch := len(entries) == 1 && strings.EqualFold(entries[0].ID, filter)
-	if !singleExactMatch {
-		for i := range entries {
-			entries[i].Steps = nil
-			entries[i].Examples = nil
 		}
 	}
 
