@@ -6,11 +6,9 @@ import (
 	"strings"
 
 	"github.com/dpopsuev/oculus/v3/arch"
-	"github.com/dpopsuev/oculus/v3/clinic/hexa"
-	"github.com/dpopsuev/oculus/v3/clinic/solid"
 	"github.com/dpopsuev/oculus/v3/graph"
 	"github.com/dpopsuev/oculus/v3/port"
-	"github.com/dpopsuev/oculus/v3"
+	oculus "github.com/dpopsuev/oculus/v3"
 )
 
 // PatternKind distinguishes design patterns from code smells.
@@ -33,13 +31,13 @@ type CatalogEntry struct {
 
 // PatternDetection records a single detected pattern or smell in a component.
 type PatternDetection struct {
-	PatternID       string           `json:"pattern_id"`
-	PatternName     string           `json:"pattern_name"`
-	Kind            PatternKind      `json:"kind"`
-	Component       string           `json:"component"`
-	Confidence      port.Confidence  `json:"confidence"`
-	Evidence []string      `json:"evidence"`
-	Severity port.Severity `json:"severity"`
+	PatternID   string          `json:"pattern_id"`
+	PatternName string          `json:"pattern_name"`
+	Kind        PatternKind     `json:"kind"`
+	Component   string          `json:"component"`
+	Confidence  port.Confidence `json:"confidence"`
+	Evidence    []string        `json:"evidence"`
+	Severity    port.Severity   `json:"severity"`
 }
 
 // PatternScanReport is the result of scanning an architecture for patterns and smells.
@@ -56,410 +54,11 @@ type PatternCatalogReport struct {
 	Summary string         `json:"summary"`
 }
 
-const patternIDGodComponent = "god_component"
-
-// Threshold constants for signal functions.
-const (
-	thresholdGodLOC             = 1000
-	thresholdGodSymbols         = 30
-	thresholdGodFan             = 5
-	thresholdLazyLOC            = 20
-	thresholdLazyFanIn          = 1
-	thresholdShotgunChurn       = 10
-	thresholdShotgunFanIn       = 5
-	thresholdFeatureEnvyPct     = 0.5
-	thresholdStrategyImpls      = 2
-	fingerprintGodThreshold     = 0.5
-	fingerprintHighThreshold    = 0.9
-	thresholdCoverageGapFanIn   = 3
-	thresholdFragileContractFan = 5
-	thresholdMediatorFanOut     = 10
-	thresholdMediatorMaxFanIn   = 3
-	thresholdMediatorAvgLOC     = 30
-)
-
 // patternCatalog is the compile-time catalog of known patterns and smells.
+// Kept as reference metadata — the Book provides diagnostic reasoning.
 var patternCatalog = []CatalogEntry{
-	// ── Patterns ──
-	{
-		ID: "factory", Name: "Factory", Kind: PatternKindPattern,
-		Category: "creational", Description: "Creates objects without specifying exact types",
-		Indicators: []string{"New* functions returning interfaces", "constructor dispatching on type"},
-	},
-	{
-		ID: "strategy", Name: "Strategy", Kind: PatternKindPattern,
-		Category: "behavioral", Description: "Family of interchangeable algorithms",
-		Indicators: []string{"interface with 1-2 methods", "multiple implementations", "field of interface type on struct"},
-	},
-	{
-		ID: "state_machine_candidate", Name: "State Machine Candidate", Kind: PatternKindPattern,
-		Category: "behavioral", Description: "Struct with state/status field and methods that switch on it",
-		Indicators: []string{"field named state/status/phase/mode", "switch/if-else on state field in methods"},
-	},
-	{
-		ID: "mediator", Name: "Mediator", Kind: PatternKindPattern,
-		Category: "behavioral", Description: "Coordinates interactions between components without direct coupling",
-		Indicators: []string{"high fan-out (>10)", "low fan-in (<=3)", "thin delegate methods"},
-	},
-	// ── Smells ──
-	{ID: "god_component", Name: "God Component", Kind: PatternKindSmell, Category: "smell", Description: "Component doing too much", Indicators: []string{"high fan-in AND fan-out", "LOC > 1000", "symbol count > 30"}},
-	{ID: "feature_envy", Name: "Feature Envy", Kind: PatternKindSmell, Category: "smell", Description: "Component uses another's data more than its own", Indicators: []string{"high call_sites to single target", "LOCSurface > own LOC"}},
-	{ID: "shotgun_surgery", Name: "Shotgun Surgery", Kind: PatternKindSmell, Category: "smell", Description: "Changes require touching many files", Indicators: []string{"high churn AND high fan-in"}},
-	{ID: "inappropriate_intimacy", Name: "Inappropriate Intimacy", Kind: PatternKindSmell, Category: "smell", Description: "Bidirectional coupling between components", Indicators: []string{"mutual edges between 2 components", "high weight both ways"}},
-	{ID: "lazy_component", Name: "Lazy Component", Kind: PatternKindSmell, Category: "smell", Description: "Too little responsibility", Indicators: []string{"LOC < 20", "0-1 symbols", "0 fan-in"}},
-	{ID: "data_clump", Name: "Data Clump", Kind: PatternKindSmell, Category: "smell", Description: "Groups of data that travel together", Indicators: []string{"multiple structs sharing 3+ field types"}},
-	{ID: "long_parameter_list", Name: "Long Parameter List", Kind: PatternKindSmell, Category: "smell", Description: "Functions with too many parameters", Indicators: []string{"methods with >5 parameters"}},
-	{ID: "dead_code", Name: "Dead Code", Kind: PatternKindSmell, Category: "smell", Description: "Exported symbols with zero callers", Indicators: []string{"exported symbol", "0 fan-in", "not in cmd/"}},
 	{ID: "circular_dependency", Name: "Circular Dependency", Kind: PatternKindSmell, Category: "smell", Description: "Mutual dependency cycle", Indicators: []string{"cycle in dependency graph"}},
-	{ID: "coverage_gap", Name: "Coverage Gap", Kind: PatternKindSmell, Category: "testing", Description: "Component has high fan-in but lacks test coverage", Indicators: []string{"high fan-in", "no test files reference this component"}},
-	{ID: "fragile_contract", Name: "Fragile Contract", Kind: PatternKindSmell, Category: "reliability", Description: "Widely-used component without a constructor", Indicators: []string{"high fan-in", "no New* constructor among exported symbols"}},
-}
-
-// ── Signal functions ──
-// Each returns (detected, confidence, evidence).
-
-func signalHighFanIn(svcName string, edges []arch.ArchEdge, threshold int) (detected bool, confidence float64, evidence string) {
-	count := 0
-	for _, e := range edges {
-		if e.To == svcName {
-			count++
-		}
-	}
-	if count >= threshold {
-		conf := float64(count)/float64(threshold)*0.5 + 0.5
-		if conf > 1.0 {
-			conf = 1.0
-		}
-		return true, conf, fmt.Sprintf("fan-in=%d (threshold %d)", count, threshold)
-	}
-	return false, 0, ""
-}
-
-func signalHighFanOut(svcName string, edges []arch.ArchEdge, threshold int) (detected bool, confidence float64, evidence string) {
-	count := 0
-	for _, e := range edges {
-		if e.From == svcName {
-			count++
-		}
-	}
-	if count >= threshold {
-		conf := float64(count)/float64(threshold)*0.5 + 0.5
-		if conf > 1.0 {
-			conf = 1.0
-		}
-		return true, conf, fmt.Sprintf("fan-out=%d (threshold %d)", count, threshold)
-	}
-	return false, 0, ""
-}
-
-func signalHighLOC(svc arch.ArchService, threshold int) (detected bool, confidence float64, evidence string) {
-	if svc.LOC >= threshold {
-		conf := float64(svc.LOC)/float64(threshold)*0.5 + 0.5
-		if conf > 1.0 {
-			conf = 1.0
-		}
-		return true, conf, fmt.Sprintf("LOC=%d (threshold %d)", svc.LOC, threshold)
-	}
-	return false, 0, ""
-}
-
-func signalLowLOC(svc arch.ArchService, threshold int) (detected bool, confidence float64, evidence string) {
-	if svc.LOC > 0 && svc.LOC < threshold {
-		// Lower LOC → higher confidence
-		conf := 1.0 - float64(svc.LOC)/float64(threshold)
-		if conf < 0.5 {
-			conf = 0.5
-		}
-		return true, conf, fmt.Sprintf("LOC=%d (threshold %d)", svc.LOC, threshold)
-	}
-	return false, 0, ""
-}
-
-func signalHighChurn(svc arch.ArchService, threshold int) (detected bool, confidence float64, evidence string) {
-	if svc.Churn >= threshold {
-		conf := float64(svc.Churn)/float64(threshold)*0.5 + 0.5
-		if conf > 1.0 {
-			conf = 1.0
-		}
-		return true, conf, fmt.Sprintf("churn=%d (threshold %d)", svc.Churn, threshold)
-	}
-	return false, 0, ""
-}
-
-func signalHighSymbolCount(svc arch.ArchService, threshold int) (detected bool, confidence float64, evidence string) {
-	count := len(svc.Symbols)
-	if count >= threshold {
-		conf := float64(count)/float64(threshold)*0.5 + 0.5
-		if conf > 1.0 {
-			conf = 1.0
-		}
-		return true, conf, fmt.Sprintf("symbols=%d (threshold %d)", count, threshold)
-	}
-	return false, 0, ""
-}
-
-func signalCycleParticipant(svcName string, cycles []graph.Cycle) (detected bool, confidence float64, evidence string) {
-	for _, cycle := range cycles {
-		for _, node := range cycle {
-			if node == svcName {
-				return true, 1.0, fmt.Sprintf("participates in cycle: %s", strings.Join(cycle, " → "))
-			}
-		}
-	}
-	return false, 0, ""
-}
-
-func signalBidirectionalEdge(svcName string, edges []arch.ArchEdge) (detected bool, confidence float64, evidence string) {
-	outgoing := make(map[string]bool)
-	incoming := make(map[string]bool)
-	for _, e := range edges {
-		if e.From == svcName {
-			outgoing[e.To] = true
-		}
-		if e.To == svcName {
-			incoming[e.From] = true
-		}
-	}
-	for target := range outgoing {
-		if incoming[target] {
-			return true, 0.9, fmt.Sprintf("bidirectional edge: %s <-> %s", svcName, target)
-		}
-	}
-	return false, 0, ""
-}
-
-func signalNewFunctions(svc arch.ArchService) (detected bool, confidence float64, evidence string) {
-	count := 0
-	for _, sym := range svc.Symbols {
-		if strings.HasPrefix(sym.Name, "New") {
-			count++
-		}
-	}
-	if count > 0 {
-		conf := 0.6
-		if count >= 2 {
-			conf = 0.8
-		}
-		return true, conf, fmt.Sprintf("%d New* functions found", count)
-	}
-	return false, 0, ""
-}
-
-func signalSingleMethodInterface(classes []oculus.ClassInfo, pkg string) (detected bool, confidence float64, evidence string) {
-	for _, c := range classes {
-		if c.Package == pkg && c.Kind == hexa.ClassKindInterface && len(c.Methods) == 1 {
-			return true, 0.7, fmt.Sprintf("single-method interface: %s", c.Name)
-		}
-	}
-	return false, 0, ""
-}
-
-func signalMultipleImplementors(classes []oculus.ClassInfo, impls []oculus.ImplEdge, pkg string) (detected bool, confidence float64, evidence string) {
-	// Find interfaces in this package.
-	ifaces := make(map[string]bool)
-	for _, c := range classes {
-		if c.Package == pkg && c.Kind == hexa.ClassKindInterface {
-			ifaces[c.Name] = true
-		}
-	}
-	if len(ifaces) == 0 {
-		return false, 0, ""
-	}
-	// Count implementors per interface.
-	implCount := make(map[string]int, len(ifaces))
-	for _, edge := range impls {
-		if ifaces[edge.To] {
-			implCount[edge.To]++
-		}
-	}
-	for iface, count := range implCount {
-		if count >= thresholdStrategyImpls {
-			return true, 0.8, fmt.Sprintf("interface %s has %d implementors", iface, count)
-		}
-	}
-	return false, 0, ""
-}
-
-func signalLowFanIn(svcName string, edges []arch.ArchEdge, threshold int) (detected bool, confidence float64, evidence string) {
-	count := 0
-	for _, e := range edges {
-		if e.To == svcName {
-			count++
-		}
-	}
-	if count < threshold {
-		return true, 0.7, fmt.Sprintf("fan-in=%d (below threshold %d)", count, threshold)
-	}
-	return false, 0, ""
-}
-
-// signalNoConstructor checks whether a service has no New* constructor among its symbols.
-// Only flags if the package has stateful types (structs with fields) that need initialization.
-// Stateless utility packages (pure functions, interfaces) don't need constructors.
-func signalNoConstructor(svc arch.ArchService, classes []oculus.ClassInfo) (detected bool, confidence float64, evidence string) {
-	hasStatefulType := false
-	for _, c := range classes {
-		if c.Package == svc.Package && c.Kind == "struct" && len(c.Fields) > 0 {
-			hasStatefulType = true
-			break
-		}
-	}
-	if !hasStatefulType {
-		return false, 0, ""
-	}
-	for _, sym := range svc.Symbols {
-		if strings.HasPrefix(sym.Name, "New") {
-			return false, 0, ""
-		}
-	}
-	return true, 0.8, "no New* constructor found"
-}
-
-// stateFieldKeywords are substrings (case-insensitive) that indicate a state-like field.
-var stateFieldKeywords = []string{"state", "status", "phase", "mode"}
-
-// signalStateField checks whether any struct in the package has a field whose name
-// contains a state-like keyword (state, status, phase, mode). This is a heuristic
-// signal for state machine candidate detection.
-func signalStateField(classes []oculus.ClassInfo, pkg string) (detected bool, confidence float64, evidence string) {
-	for _, c := range classes {
-		if c.Package != pkg || c.Kind != "struct" {
-			continue
-		}
-		for _, f := range c.Fields {
-			lower := strings.ToLower(f.Name)
-			for _, kw := range stateFieldKeywords {
-				if strings.Contains(lower, kw) {
-					return true, 0.8, fmt.Sprintf("struct %s has state-like field: %s", c.Name, f.Name)
-				}
-			}
-		}
-	}
-	return false, 0, ""
-}
-
-// signalNoExternalTestImporter checks whether NO edge coming into svcName originates
-// from a test-related package (one whose name contains "test" or "acceptance").
-// Returns true when the component is only tested by its own co-located _test.go files.
-func signalNoExternalTestImporter(svcName string, edges []arch.ArchEdge) (detected bool, confidence float64, evidence string) {
-	for _, e := range edges {
-		if e.To != svcName {
-			continue
-		}
-		from := strings.ToLower(e.From)
-		if strings.HasSuffix(from, "_test") ||
-			strings.Contains(from, "test") ||
-			strings.Contains(from, "acceptance") ||
-			strings.Contains(from, "integration") {
-			return false, 0, ""
-		}
-	}
-	return true, 0.7, "no cross-package test imports"
-}
-
-// ── Fingerprint engine ──
-
-type fingerprintRule struct {
-	signal    string
-	weight    float64
-	threshold int
-}
-
-type patternFingerprint struct {
-	patternID string
-	rules     []fingerprintRule
-	threshold float64
-}
-
-var fingerprints = []patternFingerprint{
-	// ── Smells ──
-	{
-		patternID: "god_component",
-		rules: []fingerprintRule{
-			{signal: "highFanIn", weight: 0.25, threshold: thresholdGodFan},
-			{signal: "highFanOut", weight: 0.25, threshold: thresholdGodFan},
-			{signal: "highLOC", weight: 0.25, threshold: thresholdGodLOC},
-			{signal: "highSymbolCount", weight: 0.25, threshold: thresholdGodSymbols},
-		},
-		threshold: fingerprintGodThreshold,
-	},
-	{
-		patternID: "circular_dependency",
-		rules: []fingerprintRule{
-			{signal: "cycleParticipant", weight: 1.0},
-		},
-		threshold: 0.8,
-	},
-	{
-		patternID: "inappropriate_intimacy",
-		rules: []fingerprintRule{
-			{signal: "bidirectionalEdge", weight: 1.0},
-		},
-		threshold: 0.8,
-	},
-	{
-		patternID: "lazy_component",
-		rules: []fingerprintRule{
-			{signal: "lowLOC", weight: 0.5, threshold: thresholdLazyLOC},
-			{signal: "lowFanIn", weight: 0.5, threshold: thresholdLazyFanIn},
-		},
-		threshold: 0.5,
-	},
-	{
-		patternID: "shotgun_surgery",
-		rules: []fingerprintRule{
-			{signal: "highChurn", weight: 0.5, threshold: thresholdShotgunChurn},
-			{signal: "highFanIn", weight: 0.5, threshold: thresholdShotgunFanIn},
-		},
-		threshold: 0.6,
-	},
-	// feature_envy handled as special case in evaluateFeatureEnvy
-	{
-		patternID: "coverage_gap",
-		rules: []fingerprintRule{
-			{signal: "highFanIn", weight: 0.5, threshold: thresholdCoverageGapFanIn},
-			{signal: "noExternalTestImporter", weight: 0.5},
-		},
-		threshold: 0.6,
-	},
-	{
-		patternID: "fragile_contract",
-		rules: []fingerprintRule{
-			{signal: "highFanIn", weight: 0.5, threshold: thresholdFragileContractFan},
-			{signal: "noConstructor", weight: 0.5},
-		},
-		threshold: 0.6,
-	},
-
-	// ── Patterns ──
-	{
-		patternID: "factory",
-		rules: []fingerprintRule{
-			{signal: "newFunctions", weight: 0.6},
-			{signal: "singleMethodInterface", weight: 0.4},
-		},
-		threshold: 0.5,
-	},
-	{
-		patternID: "strategy",
-		rules: []fingerprintRule{
-			{signal: "singleMethodInterface", weight: 0.4},
-			{signal: "multipleImplementors", weight: 0.6},
-		},
-		threshold: 0.6,
-	},
-	{
-		patternID: "state_machine_candidate",
-		rules: []fingerprintRule{
-			{signal: "stateField", weight: 0.5},
-			{signal: "highSymbolCount", weight: 0.5, threshold: 5},
-		},
-		threshold: 0.6,
-	},
-	// Smells disabled until proper AST signals are implemented (BUG-21).
-	{patternID: "data_clump", rules: []fingerprintRule{{signal: "highSymbolCount", weight: 1.0, threshold: 20}}, threshold: 1.1},
-	{patternID: "long_parameter_list", rules: []fingerprintRule{{signal: "highSymbolCount", weight: 1.0, threshold: 15}}, threshold: 1.1},
-	{patternID: "dead_code", rules: []fingerprintRule{{signal: "lowFanIn", weight: 1.0, threshold: 1}}, threshold: fingerprintHighThreshold},
+	{ID: "inappropriate_intimacy", Name: "Inappropriate Intimacy", Kind: PatternKindSmell, Category: "smell", Description: "Bidirectional coupling between components", Indicators: []string{"mutual edges between 2 components"}},
 }
 
 // catalogByID provides O(1) lookup into the catalog.
@@ -472,268 +71,107 @@ func init() {
 	}
 }
 
-// evaluateSignal dispatches a rule to the appropriate signal function and returns
-// the detection result.
-func evaluateSignal(
-	rule fingerprintRule,
-	svc arch.ArchService,
-	edges []arch.ArchEdge,
-	cycles []graph.Cycle,
-	classes []oculus.ClassInfo,
-	impls []oculus.ImplEdge,
-) (detected bool, confidence float64, evidence string) {
-	switch rule.signal {
-	case "highFanIn":
-		return signalHighFanIn(svc.Name, edges, rule.threshold)
-	case "highFanOut":
-		return signalHighFanOut(svc.Name, edges, rule.threshold)
-	case "highLOC":
-		return signalHighLOC(svc, rule.threshold)
-	case "lowLOC":
-		return signalLowLOC(svc, rule.threshold)
-	case "highChurn":
-		return signalHighChurn(svc, rule.threshold)
-	case "highSymbolCount":
-		return signalHighSymbolCount(svc, rule.threshold)
-	case "cycleParticipant":
-		return signalCycleParticipant(svc.Name, cycles)
-	case "bidirectionalEdge":
-		return signalBidirectionalEdge(svc.Name, edges)
-	case "newFunctions":
-		return signalNewFunctions(svc)
-	case "singleMethodInterface":
-		return signalSingleMethodInterface(classes, svc.Package)
-	case "multipleImplementors":
-		return signalMultipleImplementors(classes, impls, svc.Package)
-	case "lowFanIn":
-		return signalLowFanIn(svc.Name, edges, rule.threshold)
-	case "noConstructor":
-		return signalNoConstructor(svc, classes)
-	case "noExternalTestImporter":
-		return signalNoExternalTestImporter(svc.Name, edges)
-	case "stateField":
-		return signalStateField(classes, svc.Package)
-	default:
-		return false, 0, ""
-	}
-}
-
-// evaluateFingerprint checks a single fingerprint against a service and returns
-// a detection if the weighted score meets the threshold.
-// roleMultiplier scales integer thresholds in rules (>1.0 = more lenient).
-func evaluateFingerprint(
-	fp patternFingerprint,
-	svc arch.ArchService,
-	edges []arch.ArchEdge,
-	cycles []graph.Cycle,
-	classes []oculus.ClassInfo,
-	impls []oculus.ImplEdge,
-	roleMultiplier float64,
-) *PatternDetection {
-	entry := catalogByID[fp.patternID]
-	if entry == nil {
-		return nil
-	}
-
-	var weightedSum float64
-	evidence := make([]string, 0, len(fp.rules))
-	for _, rule := range fp.rules {
-		// Scale integer thresholds by role multiplier for smell fingerprints.
-		scaledRule := rule
-		if roleMultiplier != 1.0 && scaledRule.threshold > 0 && entry.Kind == PatternKindSmell {
-			scaledRule.threshold = int(float64(scaledRule.threshold) * roleMultiplier)
-		}
-		detected, conf, ev := evaluateSignal(scaledRule, svc, edges, cycles, classes, impls)
-		if detected {
-			weightedSum += rule.weight * conf
-			evidence = append(evidence, ev)
-		}
-	}
-
-	if weightedSum < fp.threshold {
-		return nil
-	}
-
-	severity := port.SeverityWarning
-	if entry.Kind == PatternKindPattern {
-		severity = port.SeverityInfo
-	}
-
-	return &PatternDetection{
-		PatternID:   entry.ID,
-		PatternName: entry.Name,
-		Kind:        entry.Kind,
-		Component:   svc.Name,
-		Confidence:  port.Confidence(weightedSum),
-		Evidence:    evidence,
-		Severity:    severity,
-	}
-}
-
-// evaluateFeatureEnvy checks for the feature envy smell using a special heuristic:
-// if >50% of a component's outgoing CallSites go to a single target.
-func evaluateFeatureEnvy(svc arch.ArchService, edges []arch.ArchEdge) *PatternDetection {
-	entry := catalogByID["feature_envy"]
-	if entry == nil {
-		return nil
-	}
-
-	totalCallSites := 0
-	targetCallSites := make(map[string]int)
-	for _, e := range edges {
-		if e.From == svc.Name && e.CallSites > 0 {
-			totalCallSites += e.CallSites
-			targetCallSites[e.To] += e.CallSites
-		}
-	}
-	if totalCallSites == 0 {
-		return nil
-	}
-
-	for target, cs := range targetCallSites {
-		ratio := float64(cs) / float64(totalCallSites)
-		if ratio > thresholdFeatureEnvyPct {
-			return &PatternDetection{
-				PatternID:   entry.ID,
-				PatternName: entry.Name,
-				Kind:        entry.Kind,
-				Component:   svc.Name,
-				Confidence:  port.Confidence(ratio),
-				Evidence:    []string{fmt.Sprintf("%.0f%% of call sites target %s", ratio*100, target)},
-				Severity:    port.SeverityWarning,
-			}
-		}
-	}
-	return nil
-}
-
-
-
-// reclassifyMediators checks god_component detections for Mediator structural role.
-// A component with high fan-out (>10), low fan-in (<=3), and low average LOC per
-// symbol (<30) is a Mediator — it coordinates others rather than doing too much.
-// The god_component smell is replaced with a Mediator pattern (info severity).
-func reclassifyMediators(detections []PatternDetection, services []arch.ArchService, edges []arch.ArchEdge) []PatternDetection {
-	mediatorEntry := catalogByID["mediator"]
-	if mediatorEntry == nil {
-		return detections
-	}
-
-	fanIn := graph.FanIn(edges)
-	fanOut := graph.FanOut(edges)
-	svcLOC := make(map[string]int, len(services))
-	svcSymbols := make(map[string]int, len(services))
-	for i := range services {
-		svcLOC[services[i].Name] = services[i].LOC
-		svcSymbols[services[i].Name] = len(services[i].Symbols)
-	}
-
-	result := make([]PatternDetection, 0, len(detections))
-	for i := range detections {
-		d := &detections[i]
-		if d.PatternID != patternIDGodComponent {
-			result = append(result, *d)
-			continue
-		}
-		fo := fanOut[d.Component]
-		fi := fanIn[d.Component]
-		syms := svcSymbols[d.Component]
-		loc := svcLOC[d.Component]
-		avgLOC := 0
-		if syms > 0 {
-			avgLOC = loc / syms
-		}
-		if fo >= thresholdMediatorFanOut && fi <= thresholdMediatorMaxFanIn && avgLOC <= thresholdMediatorAvgLOC {
-			result = append(result, PatternDetection{
-				PatternID:   mediatorEntry.ID,
-				PatternName: mediatorEntry.Name,
-				Kind:        PatternKindPattern,
-				Component:   d.Component,
-				Confidence:  d.Confidence,
-				Evidence: append(d.Evidence,
-					fmt.Sprintf("mediator: fan-out=%d (>%d), fan-in=%d (<=%d), avg LOC/symbol=%d (<=%d)",
-						fo, thresholdMediatorFanOut, fi, thresholdMediatorMaxFanIn, avgLOC, thresholdMediatorAvgLOC)),
-				Severity: port.SeverityInfo,
-			})
-		} else {
-			result = append(result, *d)
-		}
-	}
-	return result
-}
-
-// ComputePatternScan evaluates all fingerprints against the provided architecture
-// data and returns a report of detected patterns and smells.
-// Thresholds for smell fingerprints are scaled by role multiplier; accepted
-// violations (matched by pattern_id as principle) are suppressed.
+// ComputePatternScan performs only deterministic structural checks:
+// cycle participation and bidirectional edges. All heuristic detection
+// is delegated to the agent via the Book.
 func ComputePatternScan(
 	services []arch.ArchService,
 	edges []arch.ArchEdge,
 	cycles []graph.Cycle,
 	classes []oculus.ClassInfo,
 	impls []oculus.ImplEdge,
-	roles map[string]hexa.HexaRole,
+	_ any,
 	accepted []port.AcceptedViolation,
 ) *PatternScanReport {
 	var detections []PatternDetection
 
-	for i := range services {
-		svc := &services[i]
-		mult := hexa.RoleMultiplier(roles[svc.Name])
-		// Evaluate each fingerprint against this service.
-		for _, fp := range fingerprints {
-			det := evaluateFingerprint(fp, *svc, edges, cycles, classes, impls, mult)
-			if det != nil {
-				if !solid.IsAccepted(accepted, det.Component, det.PatternID) {
-					detections = append(detections, *det)
+	// Deterministic: cycle participation.
+	cycleEntry := catalogByID["circular_dependency"]
+	if cycleEntry != nil {
+		cycleMembers := make(map[string][]string)
+		for _, cycle := range cycles {
+			for _, node := range cycle {
+				cycleMembers[node] = cycle
+			}
+		}
+		for comp, cycle := range cycleMembers {
+			if !isAccepted(accepted, comp, "circular_dependency") {
+				detections = append(detections, PatternDetection{
+					PatternID:   cycleEntry.ID,
+					PatternName: cycleEntry.Name,
+					Kind:        PatternKindSmell,
+					Component:   comp,
+					Confidence:  1.0,
+					Evidence:    []string{fmt.Sprintf("participates in cycle: %s", strings.Join(cycle, " → "))},
+					Severity:    port.SeverityWarning,
+				})
+			}
+		}
+	}
+
+	// Deterministic: bidirectional edges.
+	intimacyEntry := catalogByID["inappropriate_intimacy"]
+	if intimacyEntry != nil {
+		outgoing := make(map[string]map[string]bool)
+		for _, e := range edges {
+			if outgoing[e.From] == nil {
+				outgoing[e.From] = make(map[string]bool)
+			}
+			outgoing[e.From][e.To] = true
+		}
+		seen := make(map[string]bool)
+		for _, e := range edges {
+			if outgoing[e.To] != nil && outgoing[e.To][e.From] {
+				key := e.From + "↔" + e.To
+				if e.From > e.To {
+					key = e.To + "↔" + e.From
+				}
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				if !isAccepted(accepted, e.From, "inappropriate_intimacy") {
+					detections = append(detections, PatternDetection{
+						PatternID:   intimacyEntry.ID,
+						PatternName: intimacyEntry.Name,
+						Kind:        PatternKindSmell,
+						Component:   e.From,
+						Confidence:  0.9,
+						Evidence:    []string{fmt.Sprintf("bidirectional edge: %s ↔ %s", e.From, e.To)},
+						Severity:    port.SeverityWarning,
+					})
 				}
 			}
 		}
-		// Special case: feature envy.
-		if det := evaluateFeatureEnvy(*svc, edges); det != nil {
-			if !solid.IsAccepted(accepted, det.Component, det.PatternID) {
-				detections = append(detections, *det)
-			}
-		}
 	}
 
-	// Post-processing: reclassify god_component as Mediator when structural role matches.
-	detections = reclassifyMediators(detections, services, edges)
-
-	// Sort: smells before patterns, then by confidence descending.
 	sort.Slice(detections, func(i, j int) bool {
-		if detections[i].Kind != detections[j].Kind {
-			return detections[i].Kind == PatternKindSmell
-		}
 		return detections[i].Confidence > detections[j].Confidence
 	})
 
-	patternsFound := 0
-	smellsFound := 0
-	for i := range detections {
-		if detections[i].Kind == PatternKindPattern {
-			patternsFound++
-		} else {
-			smellsFound++
-		}
-	}
-
-	summary := "No patterns or smells detected"
-	if patternsFound > 0 || smellsFound > 0 {
-		summary = fmt.Sprintf("%d pattern(s) detected, %d smell(s) flagged", patternsFound, smellsFound)
+	smellsFound := len(detections)
+	summary := "No structural issues detected"
+	if smellsFound > 0 {
+		summary = fmt.Sprintf("%d structural issue(s) detected", smellsFound)
 	}
 
 	return &PatternScanReport{
-		Detections:    detections,
-		PatternsFound: patternsFound,
-		SmellsFound:   smellsFound,
-		Summary:       summary,
+		Detections:  detections,
+		SmellsFound: smellsFound,
+		Summary:     summary,
 	}
 }
 
-// GetPatternCatalog returns catalog entries, optionally filtered by kind or substring.
-// Steps and Examples are only included when the filter matches exactly one entry by ID,
-// keeping multi-entry responses within token budgets.
+func isAccepted(accepted []port.AcceptedViolation, component, principle string) bool {
+	for _, a := range accepted {
+		if a.Component == component && a.Principle == principle {
+			return true
+		}
+	}
+	return false
+}
+
+// GetPatternCatalog returns catalog entries, optionally filtered.
 func GetPatternCatalog(filter string) *PatternCatalogReport {
 	var entries []CatalogEntry
 

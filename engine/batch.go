@@ -169,9 +169,6 @@ func (p *Engine) batchClinic(ctx context.Context, path, cacheKey string, a Batch
 	case "vocab_map":
 		r, err := p.GetVocabMap(ctx, path, cacheKey)
 		return r, err, true
-	case "bloater_scan":
-		r, err := p.GetBloaterScan(ctx, path, cacheKey)
-		return r, err, true
 	default:
 		return nil, nil, false
 	}
