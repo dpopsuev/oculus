@@ -1821,13 +1821,6 @@ func (p *Engine) GetPatternScan(ctx context.Context, path string, cacheKey ...st
 	desired, _ := p.db.GetDesiredState(ctx, path)
 	roles, accepted := resolveRolesAndAccepted(hexaClass, desired)
 	patternReport := clinic.ComputePatternScan(report.Architecture.Services, report.Architecture.Edges, report.Cycles, classes, impls, roles, accepted)
-
-	// Enrich with call graph if available (Feature Envy move targets, God Component split suggestions).
-	da := analyzer.CachedDeepFallback(path, p.pool)
-	if cg, cgErr := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth}); cgErr == nil && cg != nil {
-		clinic.EnrichWithCallGraph(patternReport, cg.Edges)
-	}
-
 	return patternReport, nil
 }
 

@@ -49,8 +49,7 @@ type Violation struct {
 	Component  string   `json:"component"`
 	Rule       string   `json:"rule"`
 	Severity   string   `json:"severity"` // "error", "warning", "critical", "info"
-	Detail     string   `json:"detail"`
-	Suggestion string   `json:"suggestion,omitempty"`
+	Detail string `json:"detail"`
 }
 
 // Report is the unified lint output.
@@ -253,7 +252,6 @@ func runSOLID(
 			Rule:       string(sv.Principle),
 			Severity:   string(sv.Severity),
 			Detail:     sv.Detail,
-			Suggestion: sv.Suggestion,
 		})
 	}
 	return violations
@@ -322,7 +320,6 @@ func runSymbol(services []arch.ArchService, edges []arch.ArchEdge) []Violation {
 			Rule:       si.Issue,
 			Severity:   string(si.Severity),
 			Detail:     fmt.Sprintf("symbol %q: %s", si.Symbol, si.Issue),
-			Suggestion: si.Suggestion,
 		})
 	}
 	return violations

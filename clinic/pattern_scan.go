@@ -38,10 +38,8 @@ type PatternDetection struct {
 	Kind            PatternKind      `json:"kind"`
 	Component       string           `json:"component"`
 	Confidence      port.Confidence  `json:"confidence"`
-	Evidence        []string         `json:"evidence"`
-	Severity        port.Severity    `json:"severity"`
-	MoveTargets     []MoveTarget     `json:"move_targets,omitempty"`
-	SplitSuggestion *SplitSuggestion `json:"split_suggestion,omitempty"`
+	Evidence []string      `json:"evidence"`
+	Severity port.Severity `json:"severity"`
 }
 
 // PatternScanReport is the result of scanning an architecture for patterns and smells.
@@ -57,6 +55,8 @@ type PatternCatalogReport struct {
 	Entries []CatalogEntry `json:"entries"`
 	Summary string         `json:"summary"`
 }
+
+const patternIDGodComponent = "god_component"
 
 // Threshold constants for signal functions.
 const (

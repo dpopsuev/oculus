@@ -30,9 +30,6 @@ func TestComputeSymbolQuality_Abbreviation(t *testing.T) {
 	if issue.Severity != port.SeverityWarning {
 		t.Errorf("expected severity %s, got %s", port.SeverityWarning, issue.Severity)
 	}
-	if !strings.Contains(issue.Suggestion, "Config") {
-		t.Errorf("suggestion should mention Config, got %q", issue.Suggestion)
-	}
 }
 
 func TestComputeSymbolQuality_AbbreviationSuffix(t *testing.T) {

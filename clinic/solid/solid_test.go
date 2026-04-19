@@ -1,6 +1,7 @@
 package solid
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/dpopsuev/oculus/v3/clinic/hexa"
@@ -97,12 +98,12 @@ func TestComputeSRPViolations_DomainDiversity(t *testing.T) {
 
 	found := false
 	for _, v := range violations {
-		if v.Suggestion == "Component touches too many domains" {
+		if strings.Contains(v.Detail, "domains") {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected 'Component touches too many domains' suggestion")
+		t.Error("expected domain diversity violation in Detail")
 	}
 }
 

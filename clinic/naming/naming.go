@@ -19,9 +19,8 @@ type SymbolIssue struct {
 	Symbol     string        `json:"symbol"`
 	Package    string        `json:"package"`
 	Issue      string        `json:"issue"` // "abbreviation", "generic_name", "verbless_export"
-	Severity   port.Severity `json:"severity"`
-	FanIn      int           `json:"fan_in"`
-	Suggestion string        `json:"suggestion,omitempty"`
+	Severity port.Severity `json:"severity"`
+	FanIn    int           `json:"fan_in"`
 }
 
 // SymbolQualityReport summarizes naming quality across all exported symbols.
@@ -155,7 +154,7 @@ func buildFanInMap(edges []arch.ArchEdge) map[string]int {
 
 // checkAbbreviation flags symbols that use common abbreviations instead of full words.
 func checkAbbreviation(sym, pkg string, svcFanIn int, idioms map[string]bool) []SymbolIssue {
-	for abbr, expansion := range badAbbreviations {
+	for abbr := range badAbbreviations {
 		if sym == abbr || strings.HasSuffix(sym, abbr) {
 			if idioms[sym] {
 				continue
@@ -166,8 +165,7 @@ func checkAbbreviation(sym, pkg string, svcFanIn int, idioms map[string]bool) []
 				Issue:      "abbreviation",
 				Severity:   port.SeverityWarning,
 				FanIn:      svcFanIn,
-				Suggestion: fmt.Sprintf("Use full word: %s → %s", abbr, expansion),
-			}}
+				}}
 		}
 	}
 	return nil
@@ -185,8 +183,7 @@ func checkGenericName(sym, pkg string, svcFanIn int) []SymbolIssue {
 					Issue:      "generic_name",
 					Severity:   port.SeverityWarning,
 					FanIn:      svcFanIn,
-					Suggestion: "Add domain-specific prefix",
-				}}
+					}}
 			}
 		}
 	}
@@ -207,8 +204,7 @@ func checkVerblessExport(sym, kind, pkg string, svcFanIn int, rules lang.Rules) 
 		Issue:      "verbless_export",
 		Severity:   port.SeverityInfo,
 		FanIn:      svcFanIn,
-		Suggestion: "Consider adding a verb prefix for clarity",
-	}}
+		}}
 }
 
 // symbolSeverityOrder returns a numeric rank for sorting: error(0) < warning(1) < info(2).

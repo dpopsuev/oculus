@@ -55,8 +55,7 @@ type SOLIDViolation struct {
 	Principle  SOLIDPrinciple `json:"principle"`
 	Component  string         `json:"component"`
 	Detail     string         `json:"detail"`
-	Severity   port.Severity  `json:"severity"`
-	Suggestion string         `json:"suggestion"`
+	Severity port.Severity `json:"severity"`
 }
 
 // SOLIDReport summarizes SOLID compliance across all principles.
@@ -126,16 +125,14 @@ func ComputeSRPViolations(services []arch.ArchService, edges []arch.ArchEdge, ro
 				Component:  svc.Name,
 				Detail:     fmt.Sprintf("%s has %d LOC and fan-out %d (fan-in %d)", svc.Name, svc.LOC, fo, fi),
 				Severity:   port.SeverityWarning,
-				Suggestion: "Split into focused packages by responsibility",
-			})
+				})
 		case svc.LOC > locWarning && fo > foWarning:
 			violations = append(violations, SOLIDViolation{
 				Principle:  PrincipleSRP,
 				Component:  svc.Name,
 				Detail:     fmt.Sprintf("%s has %d LOC and fan-out %d (fan-in %d)", svc.Name, svc.LOC, fo, fi),
 				Severity:   port.SeverityWarning,
-				Suggestion: "Consider extracting related functionality",
-			})
+				})
 		}
 
 		// Check fan-out domain diversity.
@@ -146,8 +143,7 @@ func ComputeSRPViolations(services []arch.ArchService, edges []arch.ArchEdge, ro
 				Component:  svc.Name,
 				Detail:     fmt.Sprintf("%s touches %d domains with %d symbols (fan-in %d)", svc.Name, diversity, len(svc.Symbols), fi),
 				Severity:   port.SeverityWarning,
-				Suggestion: "Component touches too many domains",
-			})
+				})
 		}
 	}
 
@@ -236,8 +232,7 @@ func ComputeISPViolations(classes []oculus.ClassInfo, impls []oculus.ImplEdge, a
 			Component:  c.Name,
 			Detail:     detail,
 			Severity:   severity,
-			Suggestion: "Split into smaller role-specific interfaces",
-		})
+			})
 	}
 
 	return violations
@@ -320,8 +315,7 @@ func findTypeSwitchViolations(path string) []SOLIDViolation {
 			Component:  relPath,
 			Detail:     fmt.Sprintf("type switch in %s has %d cases", funcName, cases),
 			Severity:   severity,
-			Suggestion: "Consider replacing with interface dispatch",
-		})
+			})
 
 		return true
 	})
@@ -412,16 +406,14 @@ func ComputeDIPViolations(
 				Component:  e.From,
 				Detail:     fmt.Sprintf("%s (%s) depends on %s (%s)", e.From, fromRole, e.To, toRole),
 				Severity:   port.SeverityError,
-				Suggestion: "Introduce an interface in the domain layer",
-			})
+				})
 		case fromRole == hexa.HexaRoleApp && toRole == hexa.HexaRoleAdapter:
 			violations = append(violations, SOLIDViolation{
 				Principle:  PrincipleDIP,
 				Component:  e.From,
 				Detail:     fmt.Sprintf("%s (%s) depends on %s (%s)", e.From, fromRole, e.To, toRole),
 				Severity:   port.SeverityWarning,
-				Suggestion: "Introduce an interface in the domain layer",
-			})
+				})
 		}
 	}
 
