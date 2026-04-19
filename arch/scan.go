@@ -153,15 +153,11 @@ func ScanAndBuild(ctx context.Context, root string, opts ScanOpts) (*ContextRepo
 	}
 
 	if grouped {
-		groups, _ := LoadComponentGroups(root)
-		if len(groups) == 0 {
-			d := depth
-			if d == 0 {
-				d = DefaultGroupingDepth
-			}
-			groups = InferDefaultGroups(proj, modPath, d)
+		d := depth
+		if d == 0 {
+			d = DefaultGroupingDepth
 		}
-		syncOpts.Groups = groups
+		syncOpts.Groups = InferDefaultGroups(proj, modPath, d)
 	}
 
 	// Churn is only computed at L2+.

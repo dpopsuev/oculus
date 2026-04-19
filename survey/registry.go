@@ -65,11 +65,11 @@ func DetectFromMarkers(root string) model.Language {
 }
 
 // ScannerFromRegistry creates a scanner for the given language using the registry.
-// Returns nil if the language is not registered.
+// Falls back to CtagsScanner for unregistered languages.
 func ScannerFromRegistry(lang model.Language, root string) Scanner {
 	ls := GetLanguageSupport(lang)
 	if ls == nil || ls.ScannerFactory == nil {
-		return nil
+		return &CtagsScanner{}
 	}
 	return ls.ScannerFactory(root)
 }

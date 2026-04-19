@@ -62,7 +62,7 @@ func (s *AutoScanner) resolve(root string) Scanner {
 
 	// For languages with dedicated scanners, use the shared registry.
 	if lang != model.LangUnknown {
-		return ScannerForLang(lang)
+		return ScannerFromRegistry(lang, root)
 	}
 
 	// Unknown language: try LSP, fall back to ctags.

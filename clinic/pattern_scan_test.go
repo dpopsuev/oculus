@@ -290,10 +290,10 @@ func TestComputePatternScan_EmptyInput(t *testing.T) {
 func TestGetPatternCatalog_All(t *testing.T) {
 	report := GetPatternCatalog("")
 
-	if len(report.Entries) != 25 {
-		t.Fatalf("expected 25 entries, got %d", len(report.Entries))
+	if len(report.Entries) != 15 {
+		t.Fatalf("expected 15 entries, got %d", len(report.Entries))
 	}
-	if report.Summary != "25 catalog entries" {
+	if report.Summary != "15 catalog entries" {
 		t.Errorf("unexpected summary: %s", report.Summary)
 	}
 }
@@ -301,8 +301,8 @@ func TestGetPatternCatalog_All(t *testing.T) {
 func TestGetPatternCatalog_FilterSmells(t *testing.T) {
 	report := GetPatternCatalog("smell")
 
-	if len(report.Entries) != 13 {
-		t.Fatalf("expected 13 smell entries, got %d", len(report.Entries))
+	if len(report.Entries) != 11 {
+		t.Fatalf("expected 11 smell entries, got %d", len(report.Entries))
 	}
 	for _, e := range report.Entries {
 		if e.Kind != PatternKindSmell {
@@ -314,8 +314,8 @@ func TestGetPatternCatalog_FilterSmells(t *testing.T) {
 func TestGetPatternCatalog_FilterPatterns(t *testing.T) {
 	report := GetPatternCatalog("pattern")
 
-	if len(report.Entries) != 12 {
-		t.Fatalf("expected 12 pattern entries, got %d", len(report.Entries))
+	if len(report.Entries) != 4 {
+		t.Fatalf("expected 4 pattern entries, got %d", len(report.Entries))
 	}
 	for _, e := range report.Entries {
 		if e.Kind != PatternKindPattern {
@@ -341,9 +341,9 @@ func TestGetPatternCatalog_FilterByName(t *testing.T) {
 func TestGetPatternCatalog_FilterByCategory(t *testing.T) {
 	report := GetPatternCatalog("creational")
 
-	// factory, builder, singleton are creational
-	if len(report.Entries) != 3 {
-		t.Fatalf("expected 3 creational entries, got %d", len(report.Entries))
+	// factory is the remaining creational pattern (builder, singleton sacked)
+	if len(report.Entries) != 1 {
+		t.Fatalf("expected 1 creational entry, got %d", len(report.Entries))
 	}
 	for _, e := range report.Entries {
 		if e.Category != "creational" {
@@ -588,77 +588,6 @@ func TestStateMachineCandidate_NoStateField(t *testing.T) {
 	}
 }
 
-func TestMissingPattern(t *testing.T) {
-	// High churn component with no patterns detected → missing_pattern smell emitted.
-	services := []arch.ArchService{
-		{
-			Name:    "pkg/churn",
-			Package: "example.com/pkg/churn",
-			LOC:     300,
-			Churn:   15,
-			Symbols: makeSymbols(10),
-		},
-	}
-
-	report := ComputePatternScan(services, nil, nil, nil, nil, nil, nil)
-
-	found := false
-	for _, d := range report.Detections {
-		if d.PatternID == "missing_pattern" && d.Component == "pkg/churn" {
-			found = true
-			if d.Kind != PatternKindSmell {
-				t.Errorf("expected smell kind, got %s", d.Kind)
-			}
-			if len(d.Evidence) < 2 {
-				t.Errorf("expected at least 2 evidence items, got %d", len(d.Evidence))
-			}
-		}
-	}
-	if !found {
-		t.Fatal("missing_pattern not detected for high-churn component with no patterns")
-	}
-}
-
-func TestMissingPattern_WithPattern(t *testing.T) {
-	// High churn but Strategy pattern detected → no missing_pattern.
-	services := []arch.ArchService{
-		{
-			Name:    "pkg/sorter",
-			Package: "example.com/pkg/sorter",
-			LOC:     200,
-			Churn:   15,
-		},
-	}
-	classes := []oculus.ClassInfo{
-		{
-			Name: "Sorter", Package: "example.com/pkg/sorter", Kind: "interface",
-			Methods:  []oculus.MethodInfo{{Name: "Sort", Signature: "Sort([]int)", Exported: true}},
-			Exported: true,
-		},
-		{Name: "QuickSort", Package: "example.com/pkg/sorter", Kind: "struct", Exported: true},
-		{Name: "MergeSort", Package: "example.com/pkg/sorter", Kind: "struct", Exported: true},
-	}
-	impls := []oculus.ImplEdge{
-		{From: "QuickSort", To: "Sorter", Kind: "implements"},
-		{From: "MergeSort", To: "Sorter", Kind: "implements"},
-	}
-
-	report := ComputePatternScan(services, nil, nil, classes, impls, nil, nil)
-
-	// Strategy should be detected.
-	strategyFound := false
-	for _, d := range report.Detections {
-		if d.PatternID == "strategy" && d.Component == "pkg/sorter" {
-			strategyFound = true
-		}
-		if d.PatternID == "missing_pattern" && d.Component == "pkg/sorter" {
-			t.Error("missing_pattern should NOT be detected when Strategy pattern is present")
-		}
-	}
-	if !strategyFound {
-		t.Fatal("strategy pattern should be detected for pkg/sorter")
-	}
-}
 
 // ── Helpers ──
 

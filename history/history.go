@@ -35,17 +35,7 @@ const (
 	Remote Source = "remote"
 )
 
-// Entry is the full record written per scan (includes the report for GetReport).
-type Entry struct {
-	Timestamp  time.Time `json:"timestamp"`
-	HeadSHA    string    `json:"head_sha"`
-	Source     Source    `json:"source"`
-	RepoPath   string    `json:"repo_path"`
-	Components int       `json:"components"`
-	Edges      int       `json:"edges"`
-}
-
-// EntrySummary is a lightweight view of an Entry for listing.
+// EntrySummary is the record written per scan and returned for listing.
 type EntrySummary struct {
 	Timestamp  time.Time `json:"timestamp"`
 	HeadSHA    string    `json:"head_sha"`
@@ -71,7 +61,7 @@ func Record(sc CacheReadWriter, historyDir string, source Source, repoPath, head
 		return fmt.Errorf("cache report: %w", err)
 	}
 
-	entry := Entry{
+	entry := EntrySummary{
 		Timestamp:  time.Now(),
 		HeadSHA:    headSHA,
 		Source:     source,
@@ -146,7 +136,7 @@ func GetReport(sc CacheReadWriter, historyDir, repoPath string, index int) (*ocu
 	return report, nil
 }
 
-func readEntries(historyDir, repoPath string) ([]Entry, error) {
+func readEntries(historyDir, repoPath string) ([]EntrySummary, error) {
 	p := historyPath(historyDir, repoPath)
 	f, err := os.Open(p)
 	if err != nil {
@@ -157,11 +147,11 @@ func readEntries(historyDir, repoPath string) ([]Entry, error) {
 	}
 	defer f.Close()
 
-	var entries []Entry
+	var entries []EntrySummary
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		var e Entry
+		var e EntrySummary
 		if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
 			continue
 		}

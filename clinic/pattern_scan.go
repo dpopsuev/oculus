@@ -102,46 +102,6 @@ var patternCatalog = []CatalogEntry{
 		Indicators: []string{"interface with 1-2 methods", "multiple implementations", "field of interface type on struct"},
 	},
 	{
-		ID: "observer", Name: "Observer", Kind: PatternKindPattern,
-		Category: "behavioral", Description: "One-to-many dependency notification",
-		Indicators: []string{"Register/Subscribe methods", "Notify/Publish methods", "listener slice or channel field"},
-	},
-	{
-		ID: "decorator", Name: "Decorator", Kind: PatternKindPattern,
-		Category: "structural", Description: "Wraps objects to add behavior",
-		Indicators: []string{"struct embedding interface it implements", "method forwarding to wrapped field"},
-	},
-	{
-		ID: "adapter", Name: "Adapter", Kind: PatternKindPattern,
-		Category: "structural", Description: "Converts one interface to another",
-		Indicators: []string{"struct wrapping external type", "implements internal interface via delegation"},
-	},
-	{
-		ID: "repository", Name: "Repository", Kind: PatternKindPattern,
-		Category: "architectural", Description: "Abstracts data persistence",
-		Indicators: []string{"Store/Repository interface", "CRUD method set", "domain types in signatures"},
-	},
-	{
-		ID: "middleware", Name: "Middleware", Kind: PatternKindPattern,
-		Category: "structural", Description: "Wraps handler chains",
-		Indicators: []string{"func(Handler) Handler signature", "http.Handler wrapping"},
-	},
-	{
-		ID: "builder", Name: "Builder", Kind: PatternKindPattern,
-		Category: "creational", Description: "Constructs complex objects step by step",
-		Indicators: []string{"With* methods returning same type", "Build() terminal method"},
-	},
-	{
-		ID: "singleton", Name: "Singleton", Kind: PatternKindPattern,
-		Category: "creational", Description: "Ensures single instance",
-		Indicators: []string{"sync.Once usage", "package-level var with init/Get"},
-	},
-	{
-		ID: "composite", Name: "Composite", Kind: PatternKindPattern,
-		Category: "structural", Description: "Tree structure with uniform interface",
-		Indicators: []string{"interface field holding slice of same interface", "recursive method calls"},
-	},
-	{
 		ID: "state_machine_candidate", Name: "State Machine Candidate", Kind: PatternKindPattern,
 		Category: "behavioral", Description: "Struct with state/status field and methods that switch on it",
 		Indicators: []string{"field named state/status/phase/mode", "switch/if-else on state field in methods"},
@@ -279,18 +239,6 @@ var patternCatalog = []CatalogEntry{
 		},
 	},
 	{
-		ID: "unstable_interface", Name: "Unstable Interface", Kind: PatternKindSmell,
-		Category: "smell", Description: "Interface that changes frequently",
-		Indicators:  []string{"interface package with high churn", "many implementors affected"},
-		Remediation: "Freeze interface, version with new type",
-		Steps: []string{
-			"Freeze the current interface — no new methods",
-			"Create a V2 interface with the new methods if evolution is needed",
-			"Use embedding to compose V1 into V2 for backward compatibility",
-			"Migrate implementors incrementally to V2",
-		},
-	},
-	{
 		ID: "circular_dependency", Name: "Circular Dependency", Kind: PatternKindSmell,
 		Category: "smell", Description: "Mutual dependency cycle",
 		Indicators:  []string{"cycle in dependency graph"},
@@ -337,18 +285,6 @@ var patternCatalog = []CatalogEntry{
 			Before: "type Server struct {\n    Addr string // must not be empty\n    TLS  bool   // must match cert presence\n}\n// callers: s := Server{Addr: \":8080\"}",
 			After:  "func NewServer(addr string, opts ...Option) (*Server, error) {\n    if addr == \"\" {\n        return nil, errors.New(\"addr required\")\n    }\n    // ...\n}",
 		}},
-	},
-	{
-		ID: "missing_pattern", Name: "Missing Pattern", Kind: PatternKindSmell,
-		Category: "smell", Description: "High-churn component with no recognized design pattern — may benefit from Strategy, Observer, or Facade",
-		Indicators:  []string{"churn > threshold", "no positive pattern detected"},
-		Remediation: "Analyze the change reasons — if multiple axes of change, introduce Strategy. If many dependents react to changes, introduce Observer.",
-		Steps: []string{
-			"Run 'git log --oneline path/to/package' to identify recurring change themes",
-			"If changes are along multiple axes (e.g., format + transport): introduce Strategy",
-			"If many consumers react to internal changes: introduce Observer or event bus",
-			"If the component is a grab-bag of utilities: split by domain into focused packages",
-		},
 	},
 }
 
@@ -685,15 +621,6 @@ var fingerprints = []patternFingerprint{
 		},
 		threshold: 0.6,
 	},
-	// Patterns with high thresholds (rarely trigger without deep analysis)
-	{patternID: "observer", rules: []fingerprintRule{{signal: "highFanIn", weight: 1.0, threshold: 8}}, threshold: fingerprintHighThreshold},
-	{patternID: "decorator", rules: []fingerprintRule{{signal: "singleMethodInterface", weight: 1.0}}, threshold: fingerprintHighThreshold},
-	{patternID: "adapter", rules: []fingerprintRule{{signal: "singleMethodInterface", weight: 1.0}}, threshold: fingerprintHighThreshold},
-	{patternID: "repository", rules: []fingerprintRule{{signal: "multipleImplementors", weight: 1.0}}, threshold: fingerprintHighThreshold},
-	{patternID: "middleware", rules: []fingerprintRule{{signal: "singleMethodInterface", weight: 1.0}}, threshold: fingerprintHighThreshold},
-	{patternID: "builder", rules: []fingerprintRule{{signal: "newFunctions", weight: 1.0}}, threshold: fingerprintHighThreshold},
-	{patternID: "singleton", rules: []fingerprintRule{{signal: "highFanIn", weight: 1.0, threshold: 10}}, threshold: fingerprintHighThreshold},
-	{patternID: "composite", rules: []fingerprintRule{{signal: "singleMethodInterface", weight: 1.0}}, threshold: fingerprintHighThreshold},
 	{
 		patternID: "state_machine_candidate",
 		rules: []fingerprintRule{
@@ -706,7 +633,6 @@ var fingerprints = []patternFingerprint{
 	{patternID: "data_clump", rules: []fingerprintRule{{signal: "highSymbolCount", weight: 1.0, threshold: 20}}, threshold: 1.1},
 	{patternID: "long_parameter_list", rules: []fingerprintRule{{signal: "highSymbolCount", weight: 1.0, threshold: 15}}, threshold: 1.1},
 	{patternID: "dead_code", rules: []fingerprintRule{{signal: "lowFanIn", weight: 1.0, threshold: 1}}, threshold: fingerprintHighThreshold},
-	{patternID: "unstable_interface", rules: []fingerprintRule{{signal: "highChurn", weight: 1.0, threshold: 15}}, threshold: fingerprintHighThreshold},
 }
 
 // catalogByID provides O(1) lookup into the catalog.
@@ -863,59 +789,6 @@ func severityForDetection(kind PatternKind, confidence float64) port.Severity {
 	return port.SeverityWarning
 }
 
-// detectMissingPattern is a post-processing step that flags high-churn components
-// with no recognized design pattern. If a component has churn > thresholdShotgunChurn
-// and no positive pattern (Kind == PatternKindPattern) was detected, it emits a
-// missing_pattern smell suggesting the component may benefit from a structural pattern.
-func detectMissingPattern(
-	services []arch.ArchService,
-	detections []PatternDetection,
-	accepted []port.AcceptedViolation,
-) []PatternDetection {
-	entry := catalogByID["missing_pattern"]
-	if entry == nil {
-		return nil
-	}
-
-	// Build a set of components that already have a positive pattern detected.
-	hasPattern := make(map[string]bool)
-	for i := range detections {
-		if detections[i].Kind == PatternKindPattern {
-			hasPattern[detections[i].Component] = true
-		}
-	}
-
-	extra := make([]PatternDetection, 0, len(services))
-	for i := range services {
-		svc := &services[i]
-		if svc.Churn < thresholdShotgunChurn {
-			continue
-		}
-		if hasPattern[svc.Name] {
-			continue
-		}
-		if solid.IsAccepted(accepted, svc.Name, "missing_pattern") {
-			continue
-		}
-		conf := float64(svc.Churn) / float64(thresholdShotgunChurn) * 0.5
-		if conf > 1.0 {
-			conf = 1.0
-		}
-		extra = append(extra, PatternDetection{
-			PatternID:   entry.ID,
-			PatternName: entry.Name,
-			Kind:        entry.Kind,
-			Component:   svc.Name,
-			Confidence:  port.Confidence(conf),
-			Evidence: []string{
-				fmt.Sprintf("churn=%d (threshold %d)", svc.Churn, thresholdShotgunChurn),
-				"no positive design pattern detected",
-			},
-			Severity: severityForDetection(entry.Kind, conf),
-		})
-	}
-	return extra
-}
 
 // reclassifyMediators checks god_component detections for Mediator structural role.
 // A component with high fan-out (>10), low fan-in (<=3), and low average LOC per
@@ -1007,9 +880,6 @@ func ComputePatternScan(
 
 	// Post-processing: reclassify god_component as Mediator when structural role matches.
 	detections = reclassifyMediators(detections, services, edges)
-
-	// Post-processing: flag high-churn components with no recognized pattern.
-	detections = append(detections, detectMissingPattern(services, detections, accepted)...)
 
 	// Sort: smells before patterns, then by confidence descending.
 	sort.Slice(detections, func(i, j int) bool {

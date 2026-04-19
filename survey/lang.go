@@ -8,14 +8,8 @@ import (
 // LanguageMarker is re-exported from oculus/lang for backward compatibility.
 type LanguageMarker = lang.LanguageMarker
 
-// LanguageMarkers delegates to oculus/lang.
-var LanguageMarkers = lang.LanguageMarkers
-
 // RootProjectMarkers delegates to oculus/lang.
 var RootProjectMarkers = lang.RootProjectMarkers
-
-// CommonSkipDirs delegates to oculus/lang.
-var CommonSkipDirs = lang.CommonSkipDirs
 
 // PythonSkipDirs delegates to oculus/lang.
 var PythonSkipDirs = lang.PythonSkipDirs
@@ -40,24 +34,6 @@ var DefaultLSPServers = map[model.Language]string{
 	model.LangTypeScript: lang.DefaultLSPServer(lang.TypeScript),
 	model.LangC:          lang.DefaultLSPServer(lang.C),
 	model.LangCpp:        lang.DefaultLSPServer(lang.Cpp),
-}
-
-// ScannerForLang returns the appropriate scanner for a detected language.
-func ScannerForLang(l model.Language) Scanner {
-	switch l {
-	case model.LangGo:
-		return &PackagesScanner{Fallback: &GoScanner{}}
-	case model.LangRust:
-		return &RustScanner{}
-	case model.LangTypeScript:
-		return &TypeScriptScanner{}
-	case model.LangPython:
-		return &PythonScanner{}
-	case model.LangC, model.LangCpp:
-		return &CtagsScanner{}
-	default:
-		return &CtagsScanner{}
-	}
 }
 
 // ToOculusLanguage converts a model.Language to an oculus/lang.Language.

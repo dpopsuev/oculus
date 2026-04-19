@@ -40,7 +40,7 @@ func (s *CompositeScanner) Scan(root string) (*model.Project, error) {
 
 	for _, sub := range subs {
 		subRoot := filepath.Join(absRoot, sub.relPath)
-		sc := ScannerForLang(sub.lang)
+		sc := ScannerFromRegistry(sub.lang, subRoot)
 		subProj, err := sc.Scan(subRoot)
 		if err != nil {
 			continue

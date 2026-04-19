@@ -10,16 +10,6 @@ import (
 	"github.com/dpopsuev/oculus/v3/model"
 )
 
-// ContainsAny returns true if s contains any of the given substrings.
-func ContainsAny(s string, subs ...string) bool {
-	for _, sub := range subs {
-		if strings.Contains(s, sub) {
-			return true
-		}
-	}
-	return false
-}
-
 // ArchService, ArchEdge, ArchForbidden, ArchModel — moved to root package.
 // Type aliases in arch/compat.go provide backward compatibility.
 
@@ -242,70 +232,6 @@ func shortImportPath(modPath, importPath string) string {
 	return importPath
 }
 
-// LoadComponentGroups reads component_group blocks from config. With DSL removed,
-// returns nil (no groups) so InferDefaultGroups is used when --grouped is set.
-func LoadComponentGroups(root string) ([]ComponentGroup, error) {
-	return nil, nil
-}
-
-// RenderArchMos serializes an ArchModel into Locus DSL format.
-func RenderArchMos(m ArchModel) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "architecture %q {\n", m.Title)
-	res := m.Resolution
-	if res == "" {
-		res = "package"
-	}
-	fmt.Fprintf(&b, "  resolution = %q\n", res)
-	fmt.Fprintf(&b, "  title = %q\n", m.Title)
-	fmt.Fprintf(&b, "  status = %q\n", "active")
-	b.WriteString("\n")
-
-	for i := range m.Services {
-		s := &m.Services[i]
-		fmt.Fprintf(&b, "  component %q {\n", s.Name)
-		if s.Package != "" {
-			fmt.Fprintf(&b, "    package = %q\n", s.Package)
-		}
-		if len(s.Symbols) > 0 {
-			names := make([]string, len(s.Symbols))
-			for i, sym := range s.Symbols {
-				names[i] = sym.Name
-			}
-			fmt.Fprintf(&b, "    symbols = %q\n", strings.Join(names, ", "))
-		}
-		if s.Churn > 0 {
-			fmt.Fprintf(&b, "    churn = %d\n", s.Churn)
-		}
-		b.WriteString("  }\n\n")
-	}
-
-	for _, e := range m.Edges {
-		fmt.Fprintf(&b, "  edge %q {\n", e.From+" -> "+e.To)
-		fmt.Fprintf(&b, "    from = %q\n", e.From)
-		fmt.Fprintf(&b, "    to = %q\n", e.To)
-		if e.Protocol != "" {
-			fmt.Fprintf(&b, "    protocol = %q\n", e.Protocol)
-		}
-		if e.Weight > 0 {
-			fmt.Fprintf(&b, "    weight = %d\n", e.Weight)
-		}
-		b.WriteString("  }\n\n")
-	}
-
-	for _, f := range m.Forbidden {
-		fmt.Fprintf(&b, "  forbidden %q {\n", f.Name)
-		fmt.Fprintf(&b, "    from = %q\n", f.From)
-		fmt.Fprintf(&b, "    to = %q\n", f.To)
-		if f.Reason != "" {
-			fmt.Fprintf(&b, "    reason = %q\n", f.Reason)
-		}
-		b.WriteString("  }\n\n")
-	}
-
-	b.WriteString("}\n")
-	return b.String()
-}
 
 // RenderArchMarkdown generates an ARCHITECTURE.md from an ArchModel.
 func RenderArchMarkdown(m ArchModel) string {
