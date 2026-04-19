@@ -14,11 +14,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
 
 	"github.com/dpopsuev/oculus/v3/arch"
+	"github.com/dpopsuev/oculus/v3/book"
 	archgit "github.com/dpopsuev/oculus/v3/arch/git"
 	"github.com/dpopsuev/oculus/v3/clinic"
 	clinichexa "github.com/dpopsuev/oculus/v3/clinic/hexa"
@@ -82,7 +84,9 @@ type HealthCheckable interface {
 type Engine struct {
 	db         Store
 	workspaces []string
-	pool       lsp.Pool // optional LSP connection pool (nil = cold-start per request)
+	pool       lsp.Pool       // optional LSP connection pool (nil = cold-start per request)
+	bookOnce   sync.Once
+	bookGraph  *book.BookGraph
 }
 
 // New creates a Protocol with the given store, workspace roots, and optional
@@ -1826,6 +1830,18 @@ func (p *Engine) GetPatternScan(ctx context.Context, path string, cacheKey ...st
 
 func (p *Engine) GetPatternCatalog(filter string) *clinic.PatternCatalogReport {
 	return clinic.GetPatternCatalog(filter)
+}
+
+// QueryBook returns knowledge entries relevant to the given keywords,
+// traversing the Book graph up to hops steps from the best-matching entries.
+func (p *Engine) QueryBook(keywords []string, hops int) (*book.BookResult, error) {
+	p.bookOnce.Do(func() {
+		p.bookGraph, _ = book.LoadEmbedded()
+	})
+	if p.bookGraph == nil {
+		return nil, fmt.Errorf("book not available")
+	}
+	return p.bookGraph.Query(keywords, hops), nil
 }
 
 // Workspaces returns the configured workspace root paths.

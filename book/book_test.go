@@ -17,6 +17,25 @@ func bookDir(t *testing.T) string {
 	return filepath.Dir(file)
 }
 
+func TestLoadEmbedded(t *testing.T) {
+	g, err := LoadEmbedded()
+	if err != nil {
+		t.Fatalf("LoadEmbedded: %v", err)
+	}
+	if len(g.Nodes) < 20 {
+		t.Errorf("expected at least 20 nodes, got %d", len(g.Nodes))
+	}
+	result := g.Query([]string{"god", "component"}, 0)
+	if len(result.Entries) == 0 {
+		t.Fatal("embedded query returned no entries")
+	}
+	for _, e := range result.Entries {
+		if e.ID == "god-component" && e.Content == "" {
+			t.Error("expected content loaded from embedded FS")
+		}
+	}
+}
+
 func TestLoad(t *testing.T) {
 	g, err := Load(bookDir(t))
 	if err != nil {

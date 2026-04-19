@@ -1,5 +1,7 @@
 package book
 
+import "io/fs"
+
 // BookNode is a knowledge entry in the graph.
 type BookNode struct {
 	ID       string   `json:"id" yaml:"id"`
@@ -24,9 +26,9 @@ func (e BookEdge) Target() string { return e.To }
 
 // BookGraph is the knowledge mesh.
 type BookGraph struct {
-	Nodes   map[string]BookNode `json:"nodes"`
-	Edges   []BookEdge          `json:"edges"`
-	bookDir string
+	Nodes map[string]BookNode `json:"nodes"`
+	Edges []BookEdge          `json:"edges"`
+	fsys fs.FS
 }
 
 // BookResult is the query response — a subgraph neighborhood.

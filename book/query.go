@@ -72,8 +72,8 @@ func (g *BookGraph) Query(keywords []string, hops int) *BookResult {
 	var entries []BookNode
 	for id := range included {
 		if node, ok := g.Nodes[id]; ok {
-			if node.Content == "" && g.bookDir != "" {
-				g.LoadContent(g.bookDir, id)
+			if node.Content == "" && g.fsys != nil {
+				g.LoadContent(id)
 				node = g.Nodes[id]
 			}
 			entries = append(entries, node)
