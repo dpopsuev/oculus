@@ -189,6 +189,49 @@ func TestConvergence_NoOverlap(t *testing.T) {
 	}
 }
 
+// --- Islands ---
+
+func TestFindIslands_WithIsolatedNode(t *testing.T) {
+	sg := testkit.FixtureGraph()
+	entries := []string{"pkg1.A", "pkg4.G"}
+	r := oculus.FindIslands(sg, entries)
+	if r == nil {
+		t.Fatal("expected non-nil IslandResult")
+	}
+	found := false
+	for _, fqn := range r.Unreachable {
+		if fqn == "pkg5.H" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected H to be unreachable from entry points A and G")
+	}
+}
+
+func TestFindIslands_AllReachable(t *testing.T) {
+	sg := testkit.FixtureGraph()
+	entries := []string{"pkg1.A", "pkg4.G", "pkg5.H"}
+	r := oculus.FindIslands(sg, entries)
+	if r == nil {
+		t.Fatal("expected non-nil IslandResult")
+	}
+	if len(r.Unreachable) != 0 {
+		t.Errorf("expected 0 unreachable, got %d: %v", len(r.Unreachable), r.Unreachable)
+	}
+}
+
+func TestFindIslands_EmptyEntries(t *testing.T) {
+	sg := testkit.FixtureGraph()
+	r := oculus.FindIslands(sg, nil)
+	if r == nil {
+		t.Fatal("expected non-nil IslandResult")
+	}
+	if len(r.Unreachable) != len(sg.Nodes) {
+		t.Errorf("expected all %d nodes unreachable with no entries, got %d", len(sg.Nodes), len(r.Unreachable))
+	}
+}
+
 // --- Isolate ---
 
 func TestIsolate_Leaf(t *testing.T) {

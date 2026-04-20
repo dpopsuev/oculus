@@ -116,6 +116,71 @@ func (c *ScanCache) Put(repoPath, sha string, report *oculus.ContextReport) erro
 	return os.Rename(tmp.Name(), p)
 }
 
+// GetGraph returns a cached SymbolGraph for the given repo at the given SHA.
+func (c *ScanCache) GetGraph(repoPath, sha string) (*oculus.SymbolGraph, bool, error) {
+	if sha == "" {
+		return nil, false, nil
+	}
+	p := c.graphPath(repoPath, sha)
+	f, err := os.Open(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	defer f.Close()
+
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return nil, false, nil
+	}
+	defer gz.Close()
+
+	var sg oculus.SymbolGraph
+	if err := json.NewDecoder(gz).Decode(&sg); err != nil {
+		return nil, false, nil
+	}
+	return &sg, true, nil
+}
+
+// PutGraph stores a SymbolGraph keyed by (repo, sha). Atomic write.
+func (c *ScanCache) PutGraph(repoPath, sha string, sg *oculus.SymbolGraph) error {
+	if sha == "" {
+		return ErrEmptySHA
+	}
+	p := c.graphPath(repoPath, sha)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(p), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		tmp.Close()
+		os.Remove(tmp.Name())
+	}()
+
+	gz := gzip.NewWriter(tmp)
+	if err := json.NewEncoder(gz).Encode(sg); err != nil {
+		return err
+	}
+	if err := gz.Close(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), p)
+}
+
+func (c *ScanCache) graphPath(repoPath, sha string) string {
+	vHash := fmt.Sprintf("%x", sha256.Sum256([]byte(c.version)))[:8]
+	return filepath.Join(c.root, RepoHash(repoPath), sha+"-"+vHash+".graph.json.gz")
+}
+
 // Invalidate removes all cached entries for a repo.
 func (c *ScanCache) Invalidate(repoPath string) error {
 	dir := filepath.Join(c.root, RepoHash(repoPath))

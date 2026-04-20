@@ -88,6 +88,7 @@ type Engine struct {
 	pool       lsp.Pool       // optional LSP connection pool (nil = cold-start per request)
 	bookOnce   sync.Once
 	bookGraph  *book.BookGraph
+	sgCache    sync.Map // path@sha → *oculus.SymbolGraph
 }
 
 // New creates a Protocol with the given store, workspace roots, and optional
@@ -997,6 +998,14 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 	defer cancel()
 
 	path = p.resolvePath(path)
+
+	sha := p.db.ResolveHEAD(path)
+	if sha != "" {
+		if cached, ok := p.sgCache.Load(path + "@" + sha); ok {
+			return cached.(*oculus.SymbolGraph), nil
+		}
+	}
+
 	da := analyzer.CachedDeepFallback(path, p.pool)
 
 	cgOpts := oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth}
@@ -1044,6 +1053,11 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 		slog.Int("nodes", len(sg.Nodes)),
 		slog.Int("edges", len(sg.Edges)),
 	)
+
+	if sha != "" {
+		p.sgCache.Store(path+"@"+sha, sg)
+	}
+
 	return sg, nil
 }
 
@@ -1872,6 +1886,15 @@ func (p *Engine) IsolateSymbol(ctx context.Context, path, symbol string) (*oculu
 		return nil, err
 	}
 	return oculus.Isolate(sg, symbol), nil
+}
+
+// FindIslands identifies symbols unreachable from declared entry points.
+func (p *Engine) FindIslands(ctx context.Context, path string, entryPoints []string) (*oculus.IslandResult, error) {
+	sg, err := p.GetSymbolGraph(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	return oculus.FindIslands(sg, entryPoints), nil
 }
 
 // Workspaces returns the configured workspace root paths.

@@ -54,6 +54,14 @@ type ConvergenceResult struct {
 	Edges   []SymbolEdge      `json:"edges"`
 }
 
+// IslandResult shows symbols unreachable from declared entry points.
+type IslandResult struct {
+	EntryPoints []string `json:"entry_points"`
+	Reachable   int      `json:"reachable"`
+	Total       int      `json:"total"`
+	Unreachable []string `json:"unreachable"`
+}
+
 // IsolateResult shows what disconnects when a symbol is removed from the graph.
 type IsolateResult struct {
 	Symbol           string     `json:"symbol"`

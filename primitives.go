@@ -259,6 +259,42 @@ func componentsWith(edges []SymbolEdge, nodes map[string]bool) int {
 	return count
 }
 
+// FindIslands identifies symbols unreachable from the given entry points.
+func FindIslands(sg *SymbolGraph, entryPoints []string) *IslandResult {
+	if sg == nil {
+		return nil
+	}
+
+	allNodes := make(map[string]bool, len(sg.Nodes))
+	for _, n := range sg.Nodes {
+		allNodes[n.FQN()] = true
+	}
+
+	fwd := buildFwdAdj(sg.Edges)
+
+	reachable := make(map[string]bool)
+	for _, entry := range entryPoints {
+		for fqn := range bfsAll(entry, fwd) {
+			reachable[fqn] = true
+		}
+	}
+
+	var unreachable []string
+	for fqn := range allNodes {
+		if !reachable[fqn] {
+			unreachable = append(unreachable, fqn)
+		}
+	}
+	sort.Strings(unreachable)
+
+	return &IslandResult{
+		EntryPoints: entryPoints,
+		Reachable:   len(reachable),
+		Total:       len(allNodes),
+		Unreachable: unreachable,
+	}
+}
+
 // --- helpers ---
 
 func buildNodeIndex(sg *SymbolGraph) map[string]Symbol {
