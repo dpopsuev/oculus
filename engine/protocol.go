@@ -1897,6 +1897,31 @@ func (p *Engine) FindIslands(ctx context.Context, path string, entryPoints []str
 	return oculus.FindIslands(sg, entryPoints), nil
 }
 
+// Diagnose probes a symbol and queries the Book with signal-derived keywords.
+func (p *Engine) Diagnose(ctx context.Context, path, symbol string) (*oculus.DiagnoseResult, error) {
+	sg, err := p.GetSymbolGraph(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	p.bookOnce.Do(func() {
+		p.bookGraph, _ = book.LoadEmbedded()
+	})
+	return oculus.Diagnose(sg, p.bookGraph, symbol), nil
+}
+
+// DiffSymbolGraphs compares symbol graphs at two points in time.
+func (p *Engine) DiffSymbolGraphs(ctx context.Context, pathBefore, pathAfter string) (*oculus.SymbolDiff, error) {
+	before, err := p.GetSymbolGraph(ctx, pathBefore)
+	if err != nil {
+		return nil, fmt.Errorf("before graph: %w", err)
+	}
+	after, err := p.GetSymbolGraph(ctx, pathAfter)
+	if err != nil {
+		return nil, fmt.Errorf("after graph: %w", err)
+	}
+	return oculus.DiffSymbolGraphs(before, after), nil
+}
+
 // Workspaces returns the configured workspace root paths.
 func (p *Engine) Workspaces() []string {
 	return p.workspaces
