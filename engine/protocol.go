@@ -1867,7 +1867,7 @@ func (p *Engine) GetScenario(ctx context.Context, path, symbol string, depth int
 	if err != nil {
 		return nil, err
 	}
-	return oculus.TraceScenario(sg, symbol, depth, stress), nil
+	return oculus.TraceScenario(sg, symbol, depth, stress, 0), nil
 }
 
 // GetConvergence finds where N symbols' downstream call trees overlap.
@@ -1876,7 +1876,7 @@ func (p *Engine) GetConvergence(ctx context.Context, path string, symbols []stri
 	if err != nil {
 		return nil, err
 	}
-	return oculus.FindConvergence(sg, symbols), nil
+	return oculus.FindConvergence(sg, symbols, 0), nil
 }
 
 // IsolateSymbol removes a symbol and reports what disconnects.

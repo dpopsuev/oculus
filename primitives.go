@@ -1,6 +1,10 @@
 package oculus
 
 import (
+	"bufio"
+	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -14,6 +18,7 @@ func Probe(sg *SymbolGraph, symbol string) *ProbeResult {
 	}
 
 	idx := buildNodeIndex(sg)
+	symbol = resolveSymbol(sg, symbol)
 	sym, ok := idx[symbol]
 	if !ok {
 		return nil
@@ -74,12 +79,13 @@ func Probe(sg *SymbolGraph, symbol string) *ProbeResult {
 }
 
 // TraceScenario traces upstream to entry points and downstream to leaves.
-func TraceScenario(sg *SymbolGraph, symbol string, maxDepth int, stress bool) *ScenarioResult {
+func TraceScenario(sg *SymbolGraph, symbol string, maxDepth int, stress bool, topN int) *ScenarioResult {
 	if sg == nil || maxDepth <= 0 {
 		return nil
 	}
 
 	idx := buildNodeIndex(sg)
+	symbol = resolveSymbol(sg, symbol)
 	if _, ok := idx[symbol]; !ok {
 		return nil
 	}
@@ -113,6 +119,9 @@ func TraceScenario(sg *SymbolGraph, symbol string, maxDepth int, stress bool) *S
 		downNodes = append(downNodes, n)
 	}
 	sort.Slice(downNodes, func(i, j int) bool { return downNodes[i].Depth < downNodes[j].Depth })
+	if topN > 0 && len(downNodes) > topN {
+		downNodes = downNodes[:topN]
+	}
 
 	var upNodes []ScenarioNode
 	for fqn, depth := range upstream {
@@ -140,9 +149,13 @@ func TraceScenario(sg *SymbolGraph, symbol string, maxDepth int, stress bool) *S
 }
 
 // FindConvergence finds where N symbols' downstream call trees overlap.
-func FindConvergence(sg *SymbolGraph, symbols []string) *ConvergenceResult {
+func FindConvergence(sg *SymbolGraph, symbols []string, topN int) *ConvergenceResult {
 	if sg == nil || len(symbols) < 2 {
 		return &ConvergenceResult{Symbols: symbols}
+	}
+
+	for i, sym := range symbols {
+		symbols[i] = resolveSymbol(sg, sym)
 	}
 
 	fwd := buildFwdAdj(sg.Edges)
@@ -179,6 +192,9 @@ func FindConvergence(sg *SymbolGraph, symbols []string) *ConvergenceResult {
 		}
 		return nodes[i].FQN < nodes[j].FQN
 	})
+	if topN > 0 && len(nodes) > topN {
+		nodes = nodes[:topN]
+	}
 
 	var edges []SymbolEdge
 	for _, e := range sg.Edges {
@@ -259,10 +275,42 @@ func componentsWith(edges []SymbolEdge, nodes map[string]bool) int {
 	return count
 }
 
+// DetectEntryPoints finds all exported nodes with zero incoming call edges.
+// Isolated nodes (no outgoing edges either) are excluded — they are islands,
+// not entry points.
+func DetectEntryPoints(sg *SymbolGraph) []string {
+	if sg == nil {
+		return nil
+	}
+
+	rev := make(map[string]bool)
+	fwd := make(map[string]bool)
+	for _, e := range sg.Edges {
+		if e.Kind == "call" {
+			rev[e.TargetFQN] = true
+			fwd[e.SourceFQN] = true
+		}
+	}
+
+	var entries []string
+	for _, n := range sg.Nodes {
+		fqn := n.FQN()
+		if n.Exported && !rev[fqn] && fwd[fqn] {
+			entries = append(entries, fqn)
+		}
+	}
+	sort.Strings(entries)
+	return entries
+}
+
 // FindIslands identifies symbols unreachable from the given entry points.
 func FindIslands(sg *SymbolGraph, entryPoints []string) *IslandResult {
 	if sg == nil {
 		return nil
+	}
+
+	if len(entryPoints) == 0 {
+		entryPoints = DetectEntryPoints(sg)
 	}
 
 	allNodes := make(map[string]bool, len(sg.Nodes))
@@ -377,4 +425,72 @@ func appendUniq(s []string, v string) []string {
 		}
 	}
 	return append(s, v)
+}
+
+// resolveSymbol resolves a partial symbol name to a full FQN.
+// Tries exact match first, then suffix match, then substring match.
+// Returns "" if no match is found.
+func resolveSymbol(sg *SymbolGraph, partial string) string {
+	if sg == nil || partial == "" {
+		return partial
+	}
+
+	// 1. Exact FQN match.
+	for _, n := range sg.Nodes {
+		if n.FQN() == partial {
+			return partial
+		}
+	}
+
+	// 2. Suffix match (partial = "ScanAndBuild" matches "arch.ScanAndBuild").
+	for _, n := range sg.Nodes {
+		fqn := n.FQN()
+		if strings.HasSuffix(fqn, "."+partial) {
+			return fqn
+		}
+	}
+
+	// 3. Substring match.
+	for _, n := range sg.Nodes {
+		fqn := n.FQN()
+		if strings.Contains(fqn, partial) {
+			return fqn
+		}
+	}
+
+	return ""
+}
+
+// ExplainEdge reads the source file and extracts lines around the edge location.
+func ExplainEdge(rootPath string, edge SymbolEdge, contextLines int) string {
+	if edge.File == "" || edge.Line <= 0 {
+		return ""
+	}
+
+	fpath := filepath.Join(rootPath, edge.File)
+	f, err := os.Open(fpath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	startLine := edge.Line - contextLines
+	if startLine < 1 {
+		startLine = 1
+	}
+	endLine := edge.Line + contextLines
+
+	scanner := bufio.NewScanner(f)
+	lineNum := 0
+	var buf strings.Builder
+	for scanner.Scan() {
+		lineNum++
+		if lineNum > endLine {
+			break
+		}
+		if lineNum >= startLine {
+			fmt.Fprintf(&buf, "%d\t%s\n", lineNum, scanner.Text())
+		}
+	}
+	return buf.String()
 }

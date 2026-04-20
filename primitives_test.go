@@ -61,7 +61,7 @@ func TestProbe_UnknownSymbol(t *testing.T) {
 
 func TestScenario_Downstream(t *testing.T) {
 	sg := testkit.FixtureGraph()
-	r := oculus.TraceScenario(sg, "pkg1.A", 10, false)
+	r := oculus.TraceScenario(sg, "pkg1.A", 10, false, 0)
 	if r == nil {
 		t.Fatal("expected non-nil ScenarioResult")
 	}
@@ -78,7 +78,7 @@ func TestScenario_Downstream(t *testing.T) {
 
 func TestScenario_Upstream(t *testing.T) {
 	sg := testkit.FixtureGraph()
-	r := oculus.TraceScenario(sg, "pkg2.D", 10, false)
+	r := oculus.TraceScenario(sg, "pkg2.D", 10, false, 0)
 	if r == nil {
 		t.Fatal("expected non-nil ScenarioResult")
 	}
@@ -95,7 +95,7 @@ func TestScenario_Upstream(t *testing.T) {
 
 func TestScenario_Bidirectional(t *testing.T) {
 	sg := testkit.FixtureGraph()
-	r := oculus.TraceScenario(sg, "pkg1.B", 10, false)
+	r := oculus.TraceScenario(sg, "pkg1.B", 10, false, 0)
 	if r == nil {
 		t.Fatal("expected non-nil ScenarioResult")
 	}
@@ -109,7 +109,7 @@ func TestScenario_Bidirectional(t *testing.T) {
 
 func TestScenario_DepthLimit(t *testing.T) {
 	sg := testkit.FixtureGraph()
-	r := oculus.TraceScenario(sg, "pkg1.A", 1, false)
+	r := oculus.TraceScenario(sg, "pkg1.A", 1, false, 0)
 	if r == nil {
 		t.Fatal("expected non-nil ScenarioResult")
 	}
@@ -122,7 +122,7 @@ func TestScenario_DepthLimit(t *testing.T) {
 
 func TestScenario_Stress(t *testing.T) {
 	sg := testkit.FixtureGraph()
-	r := oculus.TraceScenario(sg, "pkg1.A", 10, true)
+	r := oculus.TraceScenario(sg, "pkg1.A", 10, true, 0)
 	if r == nil {
 		t.Fatal("expected non-nil ScenarioResult")
 	}
@@ -135,7 +135,7 @@ func TestScenario_Stress(t *testing.T) {
 
 func TestScenario_Edges(t *testing.T) {
 	sg := testkit.FixtureGraph()
-	r := oculus.TraceScenario(sg, "pkg1.A", 10, false)
+	r := oculus.TraceScenario(sg, "pkg1.A", 10, false, 0)
 	if r == nil {
 		t.Fatal("expected non-nil ScenarioResult")
 	}
@@ -148,7 +148,7 @@ func TestScenario_Edges(t *testing.T) {
 
 func TestConvergence_TwoSymbols(t *testing.T) {
 	sg := testkit.FixtureGraph()
-	r := oculus.FindConvergence(sg, []string{"pkg1.A", "pkg4.G"})
+	r := oculus.FindConvergence(sg, []string{"pkg1.A", "pkg4.G"}, 0)
 	if r == nil {
 		t.Fatal("expected non-nil ConvergenceResult")
 	}
@@ -165,7 +165,7 @@ func TestConvergence_TwoSymbols(t *testing.T) {
 
 func TestConvergence_NSymbols(t *testing.T) {
 	sg := testkit.FixtureGraph()
-	r := oculus.FindConvergence(sg, []string{"pkg1.A", "pkg4.G", "pkg2.D"})
+	r := oculus.FindConvergence(sg, []string{"pkg1.A", "pkg4.G", "pkg2.D"}, 0)
 	if r == nil {
 		t.Fatal("expected non-nil ConvergenceResult")
 	}
@@ -180,7 +180,7 @@ func TestConvergence_NSymbols(t *testing.T) {
 
 func TestConvergence_NoOverlap(t *testing.T) {
 	sg := testkit.FixtureGraph()
-	r := oculus.FindConvergence(sg, []string{"pkg1.A", "pkg5.H"})
+	r := oculus.FindConvergence(sg, []string{"pkg1.A", "pkg5.H"}, 0)
 	if r == nil {
 		t.Fatal("expected non-nil ConvergenceResult")
 	}
@@ -227,8 +227,9 @@ func TestFindIslands_EmptyEntries(t *testing.T) {
 	if r == nil {
 		t.Fatal("expected non-nil IslandResult")
 	}
-	if len(r.Unreachable) != len(sg.Nodes) {
-		t.Errorf("expected all %d nodes unreachable with no entries, got %d", len(sg.Nodes), len(r.Unreachable))
+	// With auto-detected entry points, only truly isolated nodes are unreachable.
+	if len(r.EntryPoints) == 0 {
+		t.Error("expected auto-detected entry points when nil is passed")
 	}
 }
 
@@ -267,5 +268,82 @@ func TestIsolate_Unknown(t *testing.T) {
 	}
 	if r.ComponentsAfter != r.ComponentsBefore {
 		t.Error("removing unknown symbol should not change components")
+	}
+}
+
+// --- Fuzzy Symbol Lookup (TSK-165) ---
+
+func TestProbe_PartialName(t *testing.T) {
+	sg := testkit.FixtureGraph()
+	r := oculus.Probe(sg, "A")
+	if r == nil {
+		t.Fatal("expected Probe to resolve partial name 'A' to 'pkg1.A'")
+	}
+	if r.FQN != "pkg1.A" {
+		t.Errorf("FQN = %q, want pkg1.A", r.FQN)
+	}
+}
+
+func TestScenario_PartialName(t *testing.T) {
+	sg := testkit.FixtureGraph()
+	r := oculus.TraceScenario(sg, "B", 10, false, 0)
+	if r == nil {
+		t.Fatal("expected Scenario to resolve partial name 'B'")
+	}
+	if r.Symbol != "pkg1.B" {
+		t.Errorf("Symbol = %q, want pkg1.B", r.Symbol)
+	}
+}
+
+// --- Top-N (TSK-166) ---
+
+func TestConvergence_TopN(t *testing.T) {
+	sg := testkit.FixtureGraph()
+	r := oculus.FindConvergence(sg, []string{"pkg1.A", "pkg4.G"}, 2)
+	if r == nil {
+		t.Fatal("expected non-nil ConvergenceResult")
+	}
+	if len(r.Nodes) > 2 {
+		t.Errorf("expected max 2 nodes with topN=2, got %d", len(r.Nodes))
+	}
+}
+
+// --- Auto Entry Points (TSK-169) ---
+
+func TestDetectEntryPoints(t *testing.T) {
+	sg := testkit.FixtureGraph()
+	entries := oculus.DetectEntryPoints(sg)
+	if len(entries) == 0 {
+		t.Fatal("expected entry points")
+	}
+	entrySet := make(map[string]bool)
+	for _, e := range entries {
+		entrySet[e] = true
+	}
+	if !entrySet["pkg1.A"] {
+		t.Error("expected A as entry point (no callers)")
+	}
+	if !entrySet["pkg4.G"] {
+		t.Error("expected G as entry point (no callers)")
+	}
+}
+
+func TestFindIslands_AutoEntryPoints(t *testing.T) {
+	sg := testkit.FixtureGraph()
+	r := oculus.FindIslands(sg, nil)
+	if r == nil {
+		t.Fatal("expected non-nil IslandResult")
+	}
+	if len(r.EntryPoints) == 0 {
+		t.Error("expected auto-detected entry points")
+	}
+	found := false
+	for _, fqn := range r.Unreachable {
+		if fqn == "pkg5.H" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected H unreachable even with auto-detected entry points")
 	}
 }
