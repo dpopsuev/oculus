@@ -107,6 +107,50 @@ nodes:
     keywords: [factory, constructor, new, creation, dispatch, polymorphic]
     about: "Creates objects without specifying exact types — New* functions returning interfaces"
 
+  # Fowler 2018 smells
+  - id: mutable-data
+    path: smells/mutable-data.md
+    kind: smell
+    keywords: [mutable, global state, shared data, concurrent, mutation, var]
+    about: "Global mutable state accessed from multiple packages — race condition risk"
+  - id: loops
+    path: smells/loops.md
+    kind: smell
+    keywords: [loops, imperative, pipeline, iterator, for, range, accumulation]
+    about: "Imperative loops replaceable with declarative pipelines or iterators"
+  - id: global-data
+    path: smells/global-data.md
+    kind: smell
+    keywords: [global, package-level, var, exported, singleton, shared state]
+    about: "Package-level variables accessed from multiple packages"
+  - id: insider-trading
+    path: smells/insider-trading.md
+    kind: smell
+    keywords: [insider trading, back channel, reflection, context value, shared state]
+    about: "Modules exchanging data through back channels instead of defined interfaces"
+  - id: mysterious-name
+    path: smells/mysterious-name.md
+    kind: smell
+    keywords: [mysterious, naming, unclear, abbreviation, single letter, intent]
+    about: "Symbols whose names don't reveal intent"
+
+  # Architecture diagnostics
+  - id: hexagonal-diagnostic
+    path: principles/hexagonal-diagnostic.md
+    kind: principle
+    keywords: [hexagonal, ports, adapters, domain purity, boundary, import direction, dip]
+    about: "How to verify hexagonal architecture from structural signals"
+  - id: coupling-diagnosis
+    path: principles/coupling-diagnosis.md
+    kind: principle
+    keywords: [coupling, afferent, efferent, instability, abstractness, distance, main sequence, zone of pain]
+    about: "Martin's Ca/Ce/I/A/D framework for quantifying component coupling"
+  - id: cohesion-diagnosis
+    path: principles/cohesion-diagnosis.md
+    kind: principle
+    keywords: [cohesion, lcom, common closure, common reuse, co-change, methods, fields]
+    about: "How to assess whether a component's internals belong together"
+
 edges:
   # Smell → Principle (violates)
   - {from: god-component, to: srp, kind: violates}
@@ -145,3 +189,20 @@ edges:
   - {from: ocp, to: dip, kind: part_of}
   - {from: lsp, to: dip, kind: part_of}
   - {from: isp, to: dip, kind: part_of}
+
+  # Fowler 2018 smell edges
+  - {from: mutable-data, to: global-data, kind: part_of}
+  - {from: global-data, to: dip, kind: violates}
+  - {from: insider-trading, to: dip, kind: violates}
+  - {from: mysterious-name, to: srp, kind: measured_by}
+
+  # Architecture diagnostic edges
+  - {from: hexagonal-diagnostic, to: dip, kind: part_of}
+  - {from: hexagonal-diagnostic, to: fan-in, kind: measured_by}
+  - {from: hexagonal-diagnostic, to: fan-out, kind: measured_by}
+  - {from: coupling-diagnosis, to: fan-in, kind: feeds}
+  - {from: coupling-diagnosis, to: fan-out, kind: feeds}
+  - {from: coupling-diagnosis, to: instability, kind: feeds}
+  - {from: coupling-diagnosis, to: distance-main-sequence, kind: feeds}
+  - {from: cohesion-diagnosis, to: lcom, kind: feeds}
+  - {from: cohesion-diagnosis, to: srp, kind: measured_by}
