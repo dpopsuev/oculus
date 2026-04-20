@@ -1835,6 +1835,44 @@ func (p *Engine) QueryBook(keywords []string, hops int) (*book.BookResult, error
 	return p.bookGraph.Query(keywords, hops), nil
 }
 
+// --- Symbol primitives ---
+
+// ProbeSymbol returns all vitals for a single symbol.
+func (p *Engine) ProbeSymbol(ctx context.Context, path, symbol string) (*oculus.ProbeResult, error) {
+	sg, err := p.GetSymbolGraph(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	return oculus.Probe(sg, symbol), nil
+}
+
+// GetScenario traces a symbol upstream to entry points and downstream to leaves.
+func (p *Engine) GetScenario(ctx context.Context, path, symbol string, depth int, stress bool) (*oculus.ScenarioResult, error) {
+	sg, err := p.GetSymbolGraph(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	return oculus.TraceScenario(sg, symbol, depth, stress), nil
+}
+
+// GetConvergence finds where N symbols' downstream call trees overlap.
+func (p *Engine) GetConvergence(ctx context.Context, path string, symbols []string) (*oculus.ConvergenceResult, error) {
+	sg, err := p.GetSymbolGraph(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	return oculus.FindConvergence(sg, symbols), nil
+}
+
+// IsolateSymbol removes a symbol and reports what disconnects.
+func (p *Engine) IsolateSymbol(ctx context.Context, path, symbol string) (*oculus.IsolateResult, error) {
+	sg, err := p.GetSymbolGraph(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	return oculus.Isolate(sg, symbol), nil
+}
+
 // Workspaces returns the configured workspace root paths.
 func (p *Engine) Workspaces() []string {
 	return p.workspaces
