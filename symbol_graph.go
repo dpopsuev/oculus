@@ -36,6 +36,7 @@ func MergeSymbolGraph(cg *CallGraph, classes []ClassInfo, impls []ImplEdge, refs
 					SourceFQN: src, TargetFQN: tgt, Kind: "call",
 					File: e.File, Line: e.Line, EndLine: e.EndLine,
 					ParamTypes: e.ParamTypes, ReturnTypes: e.ReturnTypes,
+					Layer: cg.Layer,
 				}
 			}
 		}
