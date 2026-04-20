@@ -1,12 +1,13 @@
 package git
 
 import (
-	"fmt"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
 const (
@@ -44,57 +45,49 @@ func RecentCommits(root string, days int, modPath string) []PackageCommit {
 		return nil
 	}
 
-	sinceArg := fmt.Sprintf("--since=%d.days.ago", days)
-	cmd := exec.Command("git", "log", "--format=%H|%an|%aI|%s", "--name-only", sinceArg)
-	cmd.Dir = root
-	out, err := cmd.Output()
+	repo, err := gogit.PlainOpen(root)
+	if err != nil {
+		return nil
+	}
+
+	since := time.Now().AddDate(0, 0, -days)
+	iter, err := repo.Log(&gogit.LogOptions{Since: &since})
 	if err != nil {
 		return nil
 	}
 
 	absRoot, _ := filepath.Abs(root)
-	lines := strings.Split(string(out), "\n")
-	commits := make([]PackageCommit, 0, len(lines))
-	var currentHash, currentAuthor, currentMsg string
-	var currentDate time.Time
+	var commits []PackageCommit
 
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
+	_ = iter.ForEach(func(c *object.Commit) error {
+		hash := c.Hash.String()[:8]
+		author := c.Author.Name
+		date := c.Author.When
+		msg := strings.SplitN(c.Message, "\n", 2)[0]
 
-		if parts := strings.SplitN(line, "|", 4); len(parts) == 4 && len(parts[0]) == 40 {
-			currentHash = parts[0]
-			currentAuthor = parts[1]
-			currentDate, _ = time.Parse(time.RFC3339, parts[2])
-			currentMsg = parts[3]
-			continue
-		}
+		files := commitChangedFiles(c)
+		for _, f := range files {
+			dir := filepath.Dir(f)
+			if dir == "." {
+				continue
+			}
+			full := filepath.Join(absRoot, dir)
+			rel, err := filepath.Rel(absRoot, full)
+			if err != nil {
+				continue
+			}
+			pkg := filepath.ToSlash(rel)
 
-		if currentHash == "" {
-			continue
+			commits = append(commits, PackageCommit{
+				Package: pkg,
+				Hash:    hash,
+				Author:  author,
+				Date:    date,
+				Message: msg,
+			})
 		}
-
-		dir := filepath.Dir(line)
-		if dir == "." {
-			continue
-		}
-		full := filepath.Join(absRoot, dir)
-		rel, err := filepath.Rel(absRoot, full)
-		if err != nil {
-			continue
-		}
-		pkg := filepath.ToSlash(rel)
-
-		commits = append(commits, PackageCommit{
-			Package: pkg,
-			Hash:    currentHash[:8],
-			Author:  currentAuthor,
-			Date:    currentDate,
-			Message: currentMsg,
-		})
-	}
+		return nil
+	})
 
 	seen := make(map[string]bool)
 	deduped := make([]PackageCommit, 0, len(commits))
@@ -113,48 +106,41 @@ func RecentCommits(root string, days int, modPath string) []PackageCommit {
 
 // AuthorOwnership returns per-package top contributors from git history.
 func AuthorOwnership(root, modPath string) map[string][]Author {
-	cmd := exec.Command("git", "log", "--format=%an", "--name-only")
-	cmd.Dir = root
-	out, err := cmd.Output()
+	repo, err := gogit.PlainOpen(root)
+	if err != nil {
+		return nil
+	}
+
+	iter, err := repo.Log(&gogit.LogOptions{})
 	if err != nil {
 		return nil
 	}
 
 	absRoot, _ := filepath.Abs(root)
 	pkgAuthors := make(map[string]map[string]int)
-	var currentAuthor string
 
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
+	_ = iter.ForEach(func(c *object.Commit) error {
+		author := c.Author.Name
+		files := commitChangedFiles(c)
+		for _, f := range files {
+			dir := filepath.Dir(f)
+			if dir == "." {
+				continue
+			}
+			full := filepath.Join(absRoot, dir)
+			rel, err := filepath.Rel(absRoot, full)
+			if err != nil {
+				continue
+			}
+			pkg := filepath.ToSlash(rel)
 
-		if !strings.Contains(line, "/") && !strings.Contains(line, ".") {
-			currentAuthor = line
-			continue
+			if pkgAuthors[pkg] == nil {
+				pkgAuthors[pkg] = make(map[string]int)
+			}
+			pkgAuthors[pkg][author]++
 		}
-
-		if currentAuthor == "" {
-			continue
-		}
-
-		dir := filepath.Dir(line)
-		if dir == "." {
-			continue
-		}
-		full := filepath.Join(absRoot, dir)
-		rel, err := filepath.Rel(absRoot, full)
-		if err != nil {
-			continue
-		}
-		pkg := filepath.ToSlash(rel)
-
-		if pkgAuthors[pkg] == nil {
-			pkgAuthors[pkg] = make(map[string]int)
-		}
-		pkgAuthors[pkg][currentAuthor]++
-	}
+		return nil
+	})
 
 	result := make(map[string][]Author, len(pkgAuthors))
 	for pkg, authors := range pkgAuthors {
@@ -177,23 +163,26 @@ func FileHotSpots(root string, days int) []HotFile {
 		return nil
 	}
 
-	sinceArg := fmt.Sprintf("--since=%d.days.ago", days)
-	cmd := exec.Command("git", "log", "--format=", "--name-only", sinceArg)
-	cmd.Dir = root
-	out, err := cmd.Output()
+	repo, err := gogit.PlainOpen(root)
+	if err != nil {
+		return nil
+	}
+
+	since := time.Now().AddDate(0, 0, -days)
+	iter, err := repo.Log(&gogit.LogOptions{Since: &since})
 	if err != nil {
 		return nil
 	}
 
 	absRoot, _ := filepath.Abs(root)
 	fileCounts := make(map[string]int)
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+
+	_ = iter.ForEach(func(c *object.Commit) error {
+		for _, f := range commitChangedFiles(c) {
+			fileCounts[f]++
 		}
-		fileCounts[line]++
-	}
+		return nil
+	})
 
 	files := make([]HotFile, 0, len(fileCounts))
 	for path, count := range fileCounts {

@@ -1,9 +1,6 @@
 package engine
 
 import (
-	"github.com/dpopsuev/oculus/v3/analyzer"
-	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,16 +9,21 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/storer"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/analyzer"
 	"github.com/dpopsuev/oculus/v3/arch"
-	"github.com/dpopsuev/oculus/v3/book"
 	archgit "github.com/dpopsuev/oculus/v3/arch/git"
+	"github.com/dpopsuev/oculus/v3/book"
 	"github.com/dpopsuev/oculus/v3/clinic"
 	clinichexa "github.com/dpopsuev/oculus/v3/clinic/hexa"
 	clinicnaming "github.com/dpopsuev/oculus/v3/clinic/naming"
@@ -32,13 +34,12 @@ import (
 	"github.com/dpopsuev/oculus/v3/graph"
 	"github.com/dpopsuev/oculus/v3/history"
 	"github.com/dpopsuev/oculus/v3/impact"
+	"github.com/dpopsuev/oculus/v3/lang"
+	"github.com/dpopsuev/oculus/v3/lsp"
 	"github.com/dpopsuev/oculus/v3/port"
 	presetpkg "github.com/dpopsuev/oculus/v3/preset"
 	"github.com/dpopsuev/oculus/v3/remote"
 	"github.com/dpopsuev/oculus/v3/survey"
-	"github.com/dpopsuev/oculus/v3"
-	"github.com/dpopsuev/oculus/v3/lang"
-	"github.com/dpopsuev/oculus/v3/lsp"
 )
 
 // Error messages used across protocol methods.
@@ -2000,22 +2001,37 @@ func (p *Engine) resolvePath(path string) string {
 }
 
 func getCurrentBranch(dir string) string {
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	cmd.Dir = dir
-	out, err := cmd.Output()
+	repo, err := gogit.PlainOpen(dir)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	ref, err := repo.Head()
+	if err != nil {
+		return ""
+	}
+	return ref.Name().Short()
 }
 
 func checkoutRef(dir, ref string) error {
-	cmd := exec.Command("git", "checkout", ref)
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git checkout %s: %s: %w", ref, string(out), err)
+	repo, err := gogit.PlainOpen(dir)
+	if err != nil {
+		return fmt.Errorf("git checkout %s: open repo: %w", ref, err)
 	}
-	return nil
+	wt, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("git checkout %s: worktree: %w", ref, err)
+	}
+
+	// Try as a full SHA first.
+	if h, err := repo.ResolveRevision(plumbing.Revision(ref)); err == nil {
+		return wt.Checkout(&gogit.CheckoutOptions{Hash: *h, Force: true})
+	}
+
+	// Fall back to branch name.
+	return wt.Checkout(&gogit.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName(ref),
+		Force:  true,
+	})
 }
 
 // --- Health ---
@@ -2099,12 +2115,7 @@ func checkDir(name, path string) HealthCheck {
 }
 
 func checkGit() HealthCheck {
-	cmd := exec.Command("git", "--version")
-	out, err := cmd.Output()
-	if err != nil {
-		return HealthCheck{Name: "git", OK: false, Detail: "git not found on PATH"}
-	}
-	return HealthCheck{Name: "git", OK: true, Detail: strings.TrimSpace(string(out))}
+	return HealthCheck{Name: "git", OK: true, Detail: "go-git (compiled-in)"}
 }
 
 // --- Evolution ---
@@ -2147,42 +2158,65 @@ type CommitMeta struct {
 }
 
 // listCommits enumerates commits in a range or the last N commits.
-// Range mode (oldest != ""): git log --reverse oldest^..newest (inclusive both ends).
-// Steps mode (limit > 0): git log --reverse -n limit newest.
+// Range mode (oldest != ""): commits from oldest to newest (inclusive both ends).
+// Steps mode (limit > 0): last N commits up to newest.
+// Results are returned in chronological (oldest-first) order.
 func listCommits(repoPath, oldest, newest string, limit int) ([]CommitMeta, error) {
 	if newest == "" {
 		newest = "HEAD"
 	}
-	args := []string{"log", "--reverse", "--format=%H||%aI||%s"}
-	switch {
-	case oldest != "":
-		args = append(args, oldest+"^.."+newest)
-	case limit > 0:
-		args = append(args, "-n", strconv.Itoa(limit), newest)
-	default:
+	if oldest == "" && limit <= 0 {
 		return nil, ErrOldestOrStepsRequired
 	}
 
-	cmd := exec.Command("git", args...)
-	cmd.Dir = repoPath
-	out, err := cmd.Output()
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("git log: open repo: %w", err)
+	}
+
+	newestHash, err := repo.ResolveRevision(plumbing.Revision(newest))
+	if err != nil {
+		return nil, fmt.Errorf("git log: resolve %q: %w", newest, err)
+	}
+
+	iter, err := repo.Log(&gogit.LogOptions{From: *newestHash})
 	if err != nil {
 		return nil, fmt.Errorf("git log: %w", err)
 	}
 
-	var commits []CommitMeta
-	scanner := bufio.NewScanner(bytes.NewReader(out))
-	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.SplitN(line, "||", 3)
-		if len(parts) < 3 {
-			continue
+	var oldestHash plumbing.Hash
+	if oldest != "" {
+		h, err := repo.ResolveRevision(plumbing.Revision(oldest))
+		if err != nil {
+			return nil, fmt.Errorf("git log: resolve %q: %w", oldest, err)
 		}
+		oldestHash = *h
+	}
+
+	var commits []CommitMeta
+	err = iter.ForEach(func(c *object.Commit) error {
 		commits = append(commits, CommitMeta{
-			SHA:     parts[0],
-			Message: parts[2],
-			Date:    parts[1][:10], // YYYY-MM-DD from ISO 8601
+			SHA:     c.Hash.String(),
+			Message: strings.SplitN(c.Message, "\n", 2)[0], // subject line
+			Date:    c.Author.When.Format("2006-01-02"),
 		})
+		// In range mode, stop after we've reached the oldest commit (inclusive).
+		if oldest != "" && c.Hash == oldestHash {
+			return storer.ErrStop
+		}
+		// In steps mode, stop after collecting enough commits.
+		if oldest == "" && limit > 0 && len(commits) >= limit {
+			return storer.ErrStop
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("git log: %w", err)
+	}
+
+	// go-git iterates newest-first; reverse to chronological order.
+	for i, j := 0, len(commits)-1; i < j; i, j = i+1, j-1 {
+		commits[i], commits[j] = commits[j], commits[i]
 	}
 	return commits, nil
 }

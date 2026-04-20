@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/dpopsuev/oculus/v3/arch"
 )
@@ -77,33 +80,58 @@ func ScanRemote(ctx context.Context, repoURL string, opts Opts) (*Result, error)
 }
 
 func shallowClone(ctx context.Context, repoURL, ref, dir string) error {
+	normalizedURL := NormalizeURL(repoURL)
+
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-		fetchCmd := exec.CommandContext(ctx, "git", "fetch", "--depth", "1", "origin", ref)
-		fetchCmd.Dir = dir
-		if out, err := fetchCmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("git fetch: %s: %w", string(out), err)
+		// Existing clone — fetch the ref and check it out.
+		repo, err := gogit.PlainOpen(dir)
+		if err != nil {
+			return fmt.Errorf("git fetch: open repo: %w", err)
 		}
-		resetCmd := exec.CommandContext(ctx, "git", "reset", "--hard", "FETCH_HEAD")
-		resetCmd.Dir = dir
-		if out, err := resetCmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("git reset: %s: %w", string(out), err)
+
+		refSpec := config.RefSpec(fmt.Sprintf("+%s:refs/remotes/origin/FETCH_HEAD", ref))
+		if plumbing.IsHash(ref) || ref == "HEAD" {
+			refSpec = config.RefSpec(fmt.Sprintf("+refs/*:refs/remotes/origin/*"))
+		}
+
+		if err := repo.FetchContext(ctx, &gogit.FetchOptions{
+			Depth:    1,
+			RefSpecs: []config.RefSpec{refSpec},
+		}); err != nil && err != gogit.NoErrAlreadyUpToDate {
+			return fmt.Errorf("git fetch: %w", err)
+		}
+
+		// Resolve the ref to a hash, then force-checkout.
+		h, err := repo.ResolveRevision(plumbing.Revision(ref))
+		if err != nil {
+			return fmt.Errorf("git fetch: resolve %q: %w", ref, err)
+		}
+		wt, err := repo.Worktree()
+		if err != nil {
+			return fmt.Errorf("git reset: worktree: %w", err)
+		}
+		if err := wt.Checkout(&gogit.CheckoutOptions{Hash: *h, Force: true}); err != nil {
+			return fmt.Errorf("git reset: %w", err)
 		}
 		return nil
 	}
 
+	// Fresh clone.
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return err
 	}
 
-	args := []string{"clone", "--depth", "1"}
-	if ref != "HEAD" {
-		args = append(args, "--branch", ref)
+	cloneOpts := &gogit.CloneOptions{
+		URL:   normalizedURL,
+		Depth: 1,
 	}
-	args = append(args, NormalizeURL(repoURL), dir)
+	if ref != "HEAD" {
+		cloneOpts.ReferenceName = plumbing.NewBranchReferenceName(ref)
+		cloneOpts.SingleBranch = true
+	}
 
-	cmd := exec.CommandContext(ctx, "git", args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git clone: %s: %w", string(out), err)
+	if _, err := gogit.PlainCloneContext(ctx, dir, false, cloneOpts); err != nil {
+		return fmt.Errorf("git clone: %w", err)
 	}
 	return nil
 }
@@ -138,11 +166,13 @@ func CacheKey(repoURL, refSHA string) string {
 }
 
 func resolveHEAD(dir string) string {
-	cmd := exec.Command("git", "rev-parse", "HEAD")
-	cmd.Dir = dir
-	out, err := cmd.Output()
+	repo, err := gogit.PlainOpen(dir)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	ref, err := repo.Head()
+	if err != nil {
+		return ""
+	}
+	return ref.Hash().String()
 }

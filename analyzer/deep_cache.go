@@ -1,9 +1,9 @@
 package analyzer
 
 import (
-	"os/exec"
-	"strings"
 	"sync"
+
+	gogit "github.com/go-git/go-git/v5"
 
 	"github.com/dpopsuev/oculus/v3/lsp"
 )
@@ -12,7 +12,6 @@ var deepCache sync.Map // key: "path@sha" → *DeepFallbackAnalyzer
 
 // CachedDeepFallback returns a cached DeepFallbackAnalyzer for the given path.
 // The cache key is (path, HEAD SHA) — a new commit invalidates the cache.
-// Language-agnostic: works for any repo type.
 func CachedDeepFallback(path string, pool ...lsp.Pool) *DeepFallbackAnalyzer {
 	sha := resolveHead(path)
 	key := path + "@" + sha
@@ -31,11 +30,13 @@ func CachedDeepFallback(path string, pool ...lsp.Pool) *DeepFallbackAnalyzer {
 }
 
 func resolveHead(path string) string {
-	cmd := exec.Command("git", "rev-parse", "HEAD")
-	cmd.Dir = path
-	out, err := cmd.Output()
+	repo, err := gogit.PlainOpen(path)
 	if err != nil {
 		return "unknown"
 	}
-	return strings.TrimSpace(string(out))
+	ref, err := repo.Head()
+	if err != nil {
+		return "unknown"
+	}
+	return ref.Hash().String()
 }

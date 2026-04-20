@@ -1,14 +1,12 @@
 package arch
 
 import (
-	"github.com/dpopsuev/oculus/v3/analyzer"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -16,12 +14,14 @@ import (
 	"golang.org/x/mod/modfile"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/dpopsuev/oculus/v3/analyzer"
 	archanchors "github.com/dpopsuev/oculus/v3/arch/anchors"
 	archgit "github.com/dpopsuev/oculus/v3/arch/git"
+	oculusgit "github.com/dpopsuev/oculus/v3/git"
 	"github.com/dpopsuev/oculus/v3/graph"
+	olang "github.com/dpopsuev/oculus/v3/lang"
 	"github.com/dpopsuev/oculus/v3/model"
 	"github.com/dpopsuev/oculus/v3/survey"
-	olang "github.com/dpopsuev/oculus/v3/lang"
 )
 
 // ScanIntent controls what level of analysis to perform.
@@ -295,19 +295,14 @@ func incrementalScan(ctx context.Context, root string, opts ScanOpts, _ *survey.
 
 // changedPackages returns package directories with changes since the given git ref.
 func changedPackages(root, since string) []string {
-	cmd := exec.Command("git", "diff", "--name-only", since+"..HEAD") //nolint:gosec // since is a git ref from CLI input
-	cmd.Dir = root
-	out, err := cmd.Output()
+	files, err := oculusgit.ChangedFilesSince(root, since)
 	if err != nil {
 		return nil
 	}
 
 	pkgSet := make(map[string]bool)
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == "" {
-			continue
-		}
-		dir := filepath.Dir(line)
+	for _, f := range files {
+		dir := filepath.Dir(f)
 		if dir == "." {
 			dir = "(root)"
 		}

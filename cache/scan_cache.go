@@ -7,9 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
+
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 
 	oculus "github.com/dpopsuev/oculus/v3"
 )
@@ -139,22 +140,26 @@ func RepoHash(repoPath string) string {
 
 // ResolveHEAD returns the current HEAD SHA for a git repo, or "" if not a repo.
 func ResolveHEAD(repoPath string) string {
-	cmd := exec.Command("git", "rev-parse", "HEAD")
-	cmd.Dir = repoPath
-	out, err := cmd.Output()
+	repo, err := git.PlainOpen(repoPath)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	ref, err := repo.Head()
+	if err != nil {
+		return ""
+	}
+	return ref.Hash().String()
 }
 
 // ResolveBranch returns the SHA for a named branch/ref in a git repo.
-func ResolveBranch(repoPath, ref string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", ref)
-	cmd.Dir = repoPath
-	out, err := cmd.Output()
+func ResolveBranch(repoPath, refName string) (string, error) {
+	repo, err := git.PlainOpen(repoPath)
 	if err != nil {
-		return "", fmt.Errorf("resolve %q: %w", ref, err)
+		return "", fmt.Errorf("open repo: %w", err)
 	}
-	return strings.TrimSpace(string(out)), nil
+	h, err := repo.ResolveRevision(plumbing.Revision(refName))
+	if err != nil {
+		return "", fmt.Errorf("resolve %q: %w", refName, err)
+	}
+	return h.String(), nil
 }
