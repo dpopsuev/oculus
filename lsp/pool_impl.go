@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -168,9 +169,12 @@ func initialize(client *Client, root string) error {
 			},
 		},
 	}
-	if _, err := client.Request("initialize", params); err != nil {
+	initResult, err := client.Request("initialize", params)
+	if err != nil {
+		slog.Error("lsp pool: initialize failed", "root", root, "error", err)
 		return err
 	}
+	slog.Info("lsp pool: initialized", "root", root, "response_bytes", len(initResult))
 	return client.Notify("initialized", struct{}{})
 }
 

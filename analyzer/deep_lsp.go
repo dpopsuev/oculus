@@ -495,6 +495,7 @@ func lspExportedRoots(conn *lspConn) []string {
 		slog.LogAttrs(conn.ctx, slog.LevelInfo, "lsp: workspace/symbol empty, server may be indexing",
 			slog.Int("attempt", attempt+1),
 			slog.Int("max_retries", lspIndexingRetries),
+			slog.String("raw_response", string(result)),
 		)
 	}
 	seen := make(map[string]bool)
