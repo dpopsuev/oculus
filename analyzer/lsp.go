@@ -134,6 +134,11 @@ func (c *lspConn) initialize(root string) error {
 				"callHierarchy":  map[string]any{},
 				"implementation": map[string]any{},
 			},
+			"workspace": map[string]any{
+				"symbol": map[string]any{
+					"dynamicRegistration": false,
+				},
+			},
 		},
 	}
 	initResult, err := c.Client.Request("initialize", params)
