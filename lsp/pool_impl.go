@@ -174,7 +174,7 @@ func initialize(client *Client, root string) error {
 		slog.Error("lsp pool: initialize failed", "root", root, "error", err)
 		return err
 	}
-	slog.Info("lsp pool: initialized", "root", root, "response_bytes", len(initResult))
+	slog.Info("lsp pool: initialized", "root", root, "response_bytes", len(initResult), "capabilities", string(initResult))
 	return client.Notify("initialized", struct{}{})
 }
 
