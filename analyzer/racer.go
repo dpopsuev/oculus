@@ -9,7 +9,7 @@ import (
 
 // ErrNoQualifiedResult is returned when all analyzer attempts finish
 // but none meet the minimum quality threshold (e.g. no LSP server available).
-var ErrNoQualifiedResult = errors.New("no analyzer produced a result meeting the quality threshold — install the required LSP server (gopls, rust-analyzer, pyright, typescript-language-server)")
+var ErrNoQualifiedResult = errors.New("no analyzer met quality threshold")
 
 // QualityTier ranks analyzer output quality. Higher = more accurate.
 type QualityTier int

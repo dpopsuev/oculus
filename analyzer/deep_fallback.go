@@ -2,12 +2,15 @@ package analyzer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/lang"
 	"github.com/dpopsuev/oculus/v3/lsp"
+	"github.com/dpopsuev/oculus/v3/survey"
 )
 
 // DeepFallbackAnalyzer uses Racer to run DeepAnalyzers in parallel.
@@ -89,6 +92,13 @@ func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts 
 	elapsed := time.Since(start)
 
 	if err != nil {
+		if errors.Is(err, ErrNoQualifiedResult) {
+			detected := survey.DetectLanguage(f.root)
+			server := lang.DefaultLSPServer(lang.Language(detected.String()))
+			if server != "" {
+				return &oculus.CallGraph{}, fmt.Errorf("%w — %s repository requires: %s", err, detected, server)
+			}
+		}
 		return &oculus.CallGraph{}, err
 	}
 
