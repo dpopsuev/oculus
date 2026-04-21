@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	lspIndexingRetries = 10
-	lspIndexingBackoff = 500 * time.Millisecond
+	lspIndexingRetries = 30
+	lspIndexingBackoff = 2 * time.Second
 )
 
 // LSPConcurrency is the max number of concurrent call tree walks.
