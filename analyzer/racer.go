@@ -119,7 +119,7 @@ func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
 			remaining--
 
 			if res.err != nil {
-				slog.LogAttrs(ctx, slog.LevelWarn, "racer: attempt failed",
+				slog.LogAttrs(ctx, slog.LevelError, "racer: attempt failed",
 					slog.String("name", res.name),
 					slog.Int("quality", int(res.quality)),
 					slog.Any("error", res.err),
@@ -127,7 +127,7 @@ func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
 				continue
 			}
 			if r.isEmpty(res.value) || res.quality < r.minQuality {
-				slog.LogAttrs(ctx, slog.LevelDebug, "racer: attempt rejected",
+				slog.LogAttrs(ctx, slog.LevelError, "racer: attempt rejected",
 					slog.String("name", res.name),
 					slog.Int("quality", int(res.quality)),
 					slog.Bool("empty", r.isEmpty(res.value)),
