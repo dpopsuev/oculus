@@ -29,11 +29,6 @@ func Probe(sg *SymbolGraph, symbol string) *ProbeResult {
 	fi := fanIn[symbol]
 	fo := fanOut[symbol]
 
-	inst := 0.0
-	if fi+fo > 0 {
-		inst = float64(fo) / float64(fi+fo)
-	}
-
 	var crossPkg int
 	var boundaries []string
 	outSet := make(map[string]bool)
@@ -57,6 +52,44 @@ func Probe(sg *SymbolGraph, symbol string) *ProbeResult {
 		if inSet[out] {
 			circuits++
 		}
+	}
+
+	// TSK-177: for struct/interface kinds, aggregate metrics from methods.
+	// Method FQNs follow the pattern "{pkg}.{TypeName}.{MethodName}".
+	if sym.Kind == "struct" || sym.Kind == "interface" {
+		methodPrefix := symbol + "."
+		for fqn := range idx {
+			if !strings.HasPrefix(fqn, methodPrefix) {
+				continue
+			}
+			fi += fanIn[fqn]
+			fo += fanOut[fqn]
+			for _, e := range sg.Edges {
+				if e.SourceFQN == fqn {
+					targetPkg := pkgOf(e.TargetFQN)
+					if targetPkg != sym.Package {
+						crossPkg++
+					}
+					outSet[e.TargetFQN] = true
+					boundaries = appendUniq(boundaries, targetPkg)
+				}
+				if e.TargetFQN == fqn {
+					inSet[e.SourceFQN] = true
+				}
+			}
+		}
+		// Recompute circuits with aggregated edge sets.
+		circuits = 0
+		for out := range outSet {
+			if inSet[out] {
+				circuits++
+			}
+		}
+	}
+
+	inst := 0.0
+	if fi+fo > 0 {
+		inst = float64(fo) / float64(fi+fo)
 	}
 
 	return &ProbeResult{

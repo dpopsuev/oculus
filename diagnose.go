@@ -17,8 +17,13 @@ func Diagnose(sg *SymbolGraph, bg *book.BookGraph, symbol string) *DiagnoseResul
 
 	var keywords []string
 
+	isTypeKind := probe.Kind == "struct" || probe.Kind == "interface"
+
 	if probe.FanOut > 6 {
-		keywords = append(keywords, "fan-out", "god", "facade")
+		keywords = append(keywords, "fan-out")
+		if !isTypeKind {
+			keywords = append(keywords, "god", "facade")
+		}
 	}
 	if probe.FanIn > 8 {
 		keywords = append(keywords, "fan-in", "hub", "stability")
@@ -27,8 +32,14 @@ func Diagnose(sg *SymbolGraph, bg *book.BookGraph, symbol string) *DiagnoseResul
 		keywords = append(keywords, "circular", "coupling")
 	}
 
-	// Always add the symbol's kind.
-	if probe.Kind != "" {
+	// TSK-178: struct/interface-specific keywords instead of generic ones.
+	// Note: we intentionally do NOT add the raw kind "struct" because it
+	// substring-matches "constructor" in Jaccard scoring, producing false
+	// factory/constructor book hits for plain data types.
+	if isTypeKind {
+		keywords = append(keywords, "types", "cohesion", "data-class")
+	} else if probe.Kind != "" {
+		// Only add the symbol's kind for non-type symbols.
 		keywords = append(keywords, probe.Kind)
 	}
 

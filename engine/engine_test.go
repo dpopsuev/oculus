@@ -395,3 +395,63 @@ func TestSearchComponents(t *testing.T) {
 		t.Fatal("expected non-nil search result")
 	}
 }
+
+// --- TSK-176: Cache key must include intent ---
+
+func TestScanProject_DifferentIntentsGetDifferentCacheEntries(t *testing.T) {
+	// Build a mock store that records the SHA keys used for PutReport.
+	store := &intentMockStore{
+		mockStore: mockStore{
+			headSHA:   "abc123",
+			reportHit: false, // force scan path — no cached report
+		},
+		putKeys: make(map[string]bool),
+		getKeys: make(map[string]bool),
+	}
+	eng := New(store, []string{"/tmp"})
+
+	// First scan with intent "health".
+	_, _ = eng.ScanProject(context.Background(), "/tmp", ScanOpts{Intent: "health"})
+
+	// Second scan with intent "architecture".
+	_, _ = eng.ScanProject(context.Background(), "/tmp", ScanOpts{Intent: "architecture"})
+
+	// The two intents must produce different cache keys.
+	if len(store.putKeys) < 2 {
+		t.Errorf("expected 2 distinct cache keys for different intents, got %d: %v",
+			len(store.putKeys), store.putKeys)
+	}
+
+	// Verify the keys contain intent discriminator.
+	hasHealth := false
+	hasArch := false
+	for k := range store.putKeys {
+		if strings.Contains(k, "health") {
+			hasHealth = true
+		}
+		if strings.Contains(k, "architecture") {
+			hasArch = true
+		}
+	}
+	if !hasHealth || !hasArch {
+		t.Errorf("cache keys should contain intent names; got keys: %v", store.putKeys)
+	}
+}
+
+// intentMockStore extends mockStore to track cache key usage.
+type intentMockStore struct {
+	mockStore
+	putKeys map[string]bool
+	getKeys map[string]bool
+}
+
+func (m *intentMockStore) GetReport(_ context.Context, project, sha string) (*arch.ContextReport, bool, error) {
+	m.getKeys[sha] = true
+	return nil, false, nil
+}
+
+func (m *intentMockStore) PutReport(_ context.Context, project, sha string, _ *arch.ContextReport) error {
+	m.putKeys[sha] = true
+	m.putReportCalls++
+	return nil
+}

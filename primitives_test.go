@@ -347,3 +347,60 @@ func TestFindIslands_AutoEntryPoints(t *testing.T) {
 		t.Error("expected H unreachable even with auto-detected entry points")
 	}
 }
+
+// --- TSK-177: Probe aggregates method metrics for structs ---
+
+func TestProbe_StructAggregatesMethodMetrics(t *testing.T) {
+	// Build a graph with struct S and methods S.M1, S.M2.
+	// M1 has fan-out=2, M2 has fan-out=1.
+	// Probing "mypkg.S" should show fan-out=3 (aggregated from methods).
+	sg := &oculus.SymbolGraph{
+		Nodes: []oculus.Symbol{
+			{Name: "S", Package: "mypkg", Kind: "struct", Exported: true, File: "mypkg/s.go", Line: 1},
+			{Name: "S.M1", Package: "mypkg", Kind: "method", Exported: true, File: "mypkg/s.go", Line: 10},
+			{Name: "S.M2", Package: "mypkg", Kind: "method", Exported: true, File: "mypkg/s.go", Line: 20},
+			{Name: "Helper1", Package: "mypkg", Kind: "function", Exported: true, File: "mypkg/h.go", Line: 1},
+			{Name: "Helper2", Package: "mypkg", Kind: "function", Exported: true, File: "mypkg/h.go", Line: 10},
+			{Name: "Helper3", Package: "other", Kind: "function", Exported: true, File: "other/h.go", Line: 1},
+			{Name: "Caller", Package: "client", Kind: "function", Exported: true, File: "client/c.go", Line: 1},
+		},
+		Edges: []oculus.SymbolEdge{
+			// M1 calls Helper1 and Helper2 (fan-out=2)
+			{SourceFQN: "mypkg.S.M1", TargetFQN: "mypkg.Helper1", Kind: "call"},
+			{SourceFQN: "mypkg.S.M1", TargetFQN: "mypkg.Helper2", Kind: "call"},
+			// M2 calls Helper3 (fan-out=1, cross-pkg)
+			{SourceFQN: "mypkg.S.M2", TargetFQN: "other.Helper3", Kind: "call"},
+			// Caller calls M1 (fan-in=1 for M1)
+			{SourceFQN: "client.Caller", TargetFQN: "mypkg.S.M1", Kind: "call"},
+		},
+	}
+
+	r := oculus.Probe(sg, "mypkg.S")
+	if r == nil {
+		t.Fatal("expected non-nil ProbeResult for struct S")
+	}
+	if r.Kind != "struct" {
+		t.Errorf("Kind = %q, want struct", r.Kind)
+	}
+
+	// Aggregated fan-out from methods: M1(2) + M2(1) = 3
+	if r.FanOut != 3 {
+		t.Errorf("FanOut = %d, want 3 (aggregated from methods M1=2, M2=1)", r.FanOut)
+	}
+
+	// Aggregated fan-in from methods: M1(1) + M2(0) = 1
+	if r.FanIn != 1 {
+		t.Errorf("FanIn = %d, want 1 (aggregated from methods: M1=1, M2=0)", r.FanIn)
+	}
+
+	// Aggregated cross-pkg: M2→Helper3 crosses mypkg→other = 1
+	if r.CrossPkg != 1 {
+		t.Errorf("CrossPkg = %d, want 1 (M2→Helper3 crosses mypkg→other)", r.CrossPkg)
+	}
+
+	// Instability = fo/(fi+fo) = 3/(1+3) = 0.75
+	expectedInst := 0.75
+	if r.Instability < expectedInst-0.01 || r.Instability > expectedInst+0.01 {
+		t.Errorf("Instability = %f, want ~%f", r.Instability, expectedInst)
+	}
+}

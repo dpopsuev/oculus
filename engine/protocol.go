@@ -191,7 +191,15 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 	}
 
 	sha := p.db.ResolveHEAD(path)
-	if cached, hit, err := p.db.GetReport(ctx, path, sha); err == nil && hit {
+
+	// TSK-176: include intent in cache key so different intents produce
+	// different cached entries for the same SHA.
+	cacheKey := sha
+	if opts.Intent != "" {
+		cacheKey = sha + "-" + opts.Intent
+	}
+
+	if cached, hit, err := p.db.GetReport(ctx, path, cacheKey); err == nil && hit {
 		return &ScanResult{Report: cached, CacheKey: path + "@" + sha, SHA: sha}, nil
 	}
 
@@ -212,8 +220,8 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 		return nil, fmt.Errorf("%w: %w", ErrScanFailed, err)
 	}
 	if sha != "" {
-		_ = p.db.PutReport(ctx, path, sha, report)
-		_ = p.db.PutComponentMeta(ctx, path, sha, generateComponentMeta(report))
+		_ = p.db.PutReport(ctx, path, cacheKey, report)
+		_ = p.db.PutComponentMeta(ctx, path, cacheKey, generateComponentMeta(report))
 		abs, _ := filepath.Abs(path)
 		_ = p.db.RecordScan(ctx, string(history.Local), abs, sha, report)
 	}
