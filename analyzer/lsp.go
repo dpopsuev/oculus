@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -96,10 +97,19 @@ type lspConn struct {
 
 // request sends an LSP request using the connection-level context (if set).
 func (c *lspConn) request(method string, params any) (json.RawMessage, error) {
+	var result json.RawMessage
+	var err error
 	if c.ctx != nil {
-		return c.Client.RequestContext(c.ctx, method, params)
+		result, err = c.Client.RequestContext(c.ctx, method, params)
+	} else {
+		result, err = c.Client.Request(method, params)
 	}
-	return c.Client.Request(method, params)
+	slog.LogAttrs(context.Background(), slog.LevelInfo, "lsp: request",
+		slog.String("method", method),
+		slog.Int("response_bytes", len(result)),
+		slog.Any("error", err),
+	)
+	return result, err
 }
 
 // requestWith sends an LSP request using an explicit context.
@@ -126,9 +136,18 @@ func (c *lspConn) initialize(root string) error {
 			},
 		},
 	}
-	if _, err := c.Client.Request("initialize", params); err != nil {
+	initResult, err := c.Client.Request("initialize", params)
+	if err != nil {
+		slog.LogAttrs(context.Background(), slog.LevelError, "lsp: initialize failed",
+			slog.String("root", root),
+			slog.Any("error", err),
+		)
 		return err
 	}
+	slog.LogAttrs(context.Background(), slog.LevelInfo, "lsp: initialized",
+		slog.String("root", root),
+		slog.Int("response_bytes", len(initResult)),
+	)
 	return c.Notify("initialized", struct{}{})
 }
 
