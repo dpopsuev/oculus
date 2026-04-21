@@ -33,10 +33,11 @@ type CallEdge struct {
 
 // Config controls the mock server behavior.
 type Config struct {
-	Symbols       []Symbol      // workspace/symbol results
-	Edges         []CallEdge    // callHierarchy/outgoingCalls results
-	Latency       time.Duration // artificial delay per response
-	IndexingDelay time.Duration // workspace/symbol returns empty until this elapses (simulates server indexing)
+	Symbols                    []Symbol      // workspace/symbol results
+	Edges                      []CallEdge    // callHierarchy/outgoingCalls results
+	Latency                    time.Duration // artificial delay per response
+	IndexingDelay              time.Duration // workspace/symbol returns empty until this elapses (simulates server indexing)
+	RequireWorkspaceSymbolCap  bool          // if true, return null for workspace/symbol unless client advertised the capability
 }
 
 // Serve runs the mock LSP server on the given reader/writer pair.
@@ -44,6 +45,7 @@ type Config struct {
 func Serve(r io.Reader, w io.Writer, cfg Config) error {
 	reader := bufio.NewReader(r)
 	startTime := time.Now()
+	clientHasWorkspaceSymbol := false
 	for {
 		method, id, params, err := readRequest(reader)
 		if err != nil {
@@ -57,12 +59,23 @@ func Serve(r io.Reader, w io.Writer, cfg Config) error {
 		var result any
 		switch method {
 		case "initialize":
+			var initParams struct {
+				Capabilities struct {
+					Workspace struct {
+						Symbol json.RawMessage `json:"symbol"`
+					} `json:"workspace"`
+				} `json:"capabilities"`
+			}
+			if params != nil {
+				_ = json.Unmarshal(params, &initParams)
+			}
+			clientHasWorkspaceSymbol = len(initParams.Capabilities.Workspace.Symbol) > 0
 			result = map[string]any{
 				"capabilities": map[string]any{
-					"textDocumentSync": 1,
-					"callHierarchyProvider": true,
-					"workspaceSymbolProvider": true,
-					"hoverProvider": true,
+					"textDocumentSync":        1,
+					"callHierarchyProvider":    true,
+					"workspaceSymbolProvider":  true,
+					"hoverProvider":            true,
 				},
 			}
 		case "initialized":
@@ -72,7 +85,9 @@ func Serve(r io.Reader, w io.Writer, cfg Config) error {
 		case "exit":
 			return nil
 		case "workspace/symbol":
-			if cfg.IndexingDelay > 0 && time.Since(startTime) < cfg.IndexingDelay {
+			if cfg.RequireWorkspaceSymbolCap && !clientHasWorkspaceSymbol {
+				result = nil // simulate gopls: no results without capability
+			} else if cfg.IndexingDelay > 0 && time.Since(startTime) < cfg.IndexingDelay {
 				result = []any{} // empty during indexing
 			} else {
 				result = buildWorkspaceSymbols(cfg.Symbols)

@@ -163,6 +163,9 @@ func initialize(client *Client, root string) error {
 				"callHierarchy":  map[string]any{},
 				"implementation": map[string]any{},
 			},
+			"workspace": map[string]any{
+				"symbol": map[string]any{"dynamicRegistration": false},
+			},
 		},
 	}
 	if _, err := client.Request("initialize", params); err != nil {
