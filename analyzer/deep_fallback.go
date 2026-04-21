@@ -85,7 +85,7 @@ func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts 
 
 	racer := NewRacer(func(cg *oculus.CallGraph) bool {
 		return cg == nil || len(cg.Edges) == 0
-	}, attempts...).WithMinQuality(QualityLSP)
+	}, attempts...).WithMinQuality(QualityGoAST)
 
 	start := time.Now()
 	result, err := racer.Race(ctx)
