@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -117,7 +118,21 @@ func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
 		case res := <-ch:
 			remaining--
 
-			if res.err != nil || r.isEmpty(res.value) || res.quality < r.minQuality {
+			if res.err != nil {
+				slog.LogAttrs(ctx, slog.LevelWarn, "racer: attempt failed",
+					slog.String("name", res.name),
+					slog.Int("quality", int(res.quality)),
+					slog.Any("error", res.err),
+				)
+				continue
+			}
+			if r.isEmpty(res.value) || res.quality < r.minQuality {
+				slog.LogAttrs(ctx, slog.LevelDebug, "racer: attempt rejected",
+					slog.String("name", res.name),
+					slog.Int("quality", int(res.quality)),
+					slog.Bool("empty", r.isEmpty(res.value)),
+					slog.Int("min_quality", int(r.minQuality)),
+				)
 				continue
 			}
 
