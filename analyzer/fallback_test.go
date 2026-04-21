@@ -36,6 +36,7 @@ func TestFallback_NestingDepth(t *testing.T) {
 // TestPipelineFallback_CallGraph tests that NewPipelineFallback produces
 // call graphs via the SymbolPipeline path (bounded concurrent walk).
 func TestPipelineFallback_CallGraph(t *testing.T) {
+	t.Skip("requires LSP server (gopls) — WithMinQuality(QualityLSP) rejects non-LSP results")
 	dir := setupTestRepo(t)
 	fb := NewPipelineFallback(dir, nil)
 
@@ -110,6 +111,7 @@ impl Bar for Foo {
 }
 
 func TestGranularity_DefaultProducesEdges(t *testing.T) {
+	t.Skip("requires LSP server (gopls) — WithMinQuality(QualityLSP) rejects non-LSP results")
 	dir := setupTestRepo(t)
 	da := NewDeepFallback(dir, nil)
 

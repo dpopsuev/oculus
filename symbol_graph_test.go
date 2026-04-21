@@ -1,6 +1,9 @@
 package oculus
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestMergeSymbolGraph_CallEdgesOnly(t *testing.T) {
 	cg := &CallGraph{
@@ -113,6 +116,40 @@ func TestMergeSymbolGraph_FQNFormat(t *testing.T) {
 	}
 	if sg.Edges[0].Target() != "store.Get" {
 		t.Errorf("Target() = %q, want store.Get", sg.Edges[0].Target())
+	}
+}
+
+func TestMergeSymbolGraph_PointerReceiverNormalized(t *testing.T) {
+	cg := &CallGraph{
+		Nodes: []Symbol{
+			{Name: "*Engine.BatchQuery", Package: "engine"},
+			{Name: "*Engine.ScanProject", Package: "engine"},
+		},
+		Edges: []CallEdge{
+			{Caller: "*Engine.BatchQuery", CallerPkg: "engine", Callee: "*Engine.ScanProject", CalleePkg: "engine"},
+		},
+	}
+	classes := []ClassInfo{{
+		Name: "Engine", Package: "engine", Kind: "struct",
+		Methods: []MethodInfo{{Name: "ScanProject", Exported: true}},
+	}}
+	sg := MergeSymbolGraph(cg, classes, nil, nil)
+
+	count := 0
+	for _, n := range sg.Nodes {
+		if strings.Contains(n.Name, "ScanProject") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 1 ScanProject node, got %d (pointer receiver not normalized)", count)
+	}
+
+	// The edge should connect to the normalized node
+	for _, e := range sg.Edges {
+		if strings.Contains(e.SourceFQN, "*") || strings.Contains(e.TargetFQN, "*") {
+			t.Errorf("edge FQN contains '*': %s → %s", e.SourceFQN, e.TargetFQN)
+		}
 	}
 }
 

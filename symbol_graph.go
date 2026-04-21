@@ -1,5 +1,7 @@
 package oculus
 
+import "strings"
+
 // MergeSymbolGraph builds a unified SymbolGraph from call graph, type,
 // and reference data. Deduplicates nodes by FQN and edges by
 // (source, target, kind) triple.
@@ -9,6 +11,7 @@ func MergeSymbolGraph(cg *CallGraph, classes []ClassInfo, impls []ImplEdge, refs
 	edgeSet := make(map[edgeKey]SymbolEdge)
 
 	fqn := func(pkg, name string) string {
+		name = strings.TrimPrefix(name, "*")
 		if pkg == "" {
 			return name
 		}
