@@ -2,9 +2,14 @@ package analyzer
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
+
+// ErrNoQualifiedResult is returned when all analyzer attempts finish
+// but none meet the minimum quality threshold (e.g. no LSP server available).
+var ErrNoQualifiedResult = errors.New("no analyzer produced a result meeting the quality threshold — install the required LSP server (gopls, rust-analyzer, pyright, typescript-language-server)")
 
 // QualityTier ranks analyzer output quality. Higher = more accurate.
 type QualityTier int
@@ -164,6 +169,9 @@ func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
 	// All attempts empty or errored.
 	if winner == nil {
 		var zero T
+		if r.minQuality > 0 {
+			return &RaceResult[T]{Value: zero}, ErrNoQualifiedResult
+		}
 		return &RaceResult[T]{Value: zero}, nil
 	}
 	return winner, nil
