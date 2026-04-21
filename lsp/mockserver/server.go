@@ -33,15 +33,17 @@ type CallEdge struct {
 
 // Config controls the mock server behavior.
 type Config struct {
-	Symbols  []Symbol   // workspace/symbol results
-	Edges    []CallEdge // callHierarchy/outgoingCalls results
-	Latency  time.Duration // artificial delay per response
+	Symbols       []Symbol      // workspace/symbol results
+	Edges         []CallEdge    // callHierarchy/outgoingCalls results
+	Latency       time.Duration // artificial delay per response
+	IndexingDelay time.Duration // workspace/symbol returns empty until this elapses (simulates server indexing)
 }
 
 // Serve runs the mock LSP server on the given reader/writer pair.
 // Blocks until the reader is closed or exit is received.
 func Serve(r io.Reader, w io.Writer, cfg Config) error {
 	reader := bufio.NewReader(r)
+	startTime := time.Now()
 	for {
 		method, id, params, err := readRequest(reader)
 		if err != nil {
@@ -70,7 +72,11 @@ func Serve(r io.Reader, w io.Writer, cfg Config) error {
 		case "exit":
 			return nil
 		case "workspace/symbol":
-			result = buildWorkspaceSymbols(cfg.Symbols)
+			if cfg.IndexingDelay > 0 && time.Since(startTime) < cfg.IndexingDelay {
+				result = []any{} // empty during indexing
+			} else {
+				result = buildWorkspaceSymbols(cfg.Symbols)
+			}
 		case "textDocument/prepareCallHierarchy":
 			result = buildPrepareCallHierarchy(cfg.Symbols, params)
 		case "callHierarchy/outgoingCalls":

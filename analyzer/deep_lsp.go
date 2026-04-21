@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,11 @@ import (
 	"github.com/dpopsuev/oculus/v3/lang"
 	"github.com/dpopsuev/oculus/v3/lsp"
 	"golang.org/x/sync/errgroup"
+)
+
+const (
+	lspIndexingRetries = 10
+	lspIndexingBackoff = 500 * time.Millisecond
 )
 
 // LSPConcurrency is the max number of concurrent call tree walks.
@@ -467,18 +473,29 @@ func lspCallGraphRoots(opts oculus.CallGraphOpts, conn *lspConn, _ string) []str
 	return lspExportedRoots(conn)
 }
 
-// lspExportedRoots uses workspace/symbol to find all exported functions
-// in a single LSP call. O(1) instead of O(files).
+// lspExportedRoots uses workspace/symbol to find all exported functions.
+// Retries with backoff if the server returns empty (indexing in progress).
 func lspExportedRoots(conn *lspConn) []string {
-	// workspace/symbol with empty query returns all symbols.
-	// gopls supports this; pyright may not (falls back to documentSymbol).
-	result, err := conn.request("workspace/symbol", map[string]any{"query": ""})
-	if err != nil {
-		return nil
-	}
 	var symbols []workspaceSymbol
-	if json.Unmarshal(result, &symbols) != nil {
-		return nil
+
+	for attempt := range lspIndexingRetries {
+		if attempt > 0 {
+			time.Sleep(lspIndexingBackoff)
+		}
+		result, err := conn.request("workspace/symbol", map[string]any{"query": ""})
+		if err != nil {
+			return nil
+		}
+		if json.Unmarshal(result, &symbols) != nil {
+			return nil
+		}
+		if len(symbols) > 0 {
+			break
+		}
+		slog.LogAttrs(conn.ctx, slog.LevelInfo, "lsp: workspace/symbol empty, server may be indexing",
+			slog.Int("attempt", attempt+1),
+			slog.Int("max_retries", lspIndexingRetries),
+		)
 	}
 	seen := make(map[string]bool)
 	var roots []string
