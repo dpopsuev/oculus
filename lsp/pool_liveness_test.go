@@ -3,6 +3,11 @@ package lsp_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -95,5 +100,62 @@ func TestRealPool_ZombieReaping(t *testing.T) {
 	}
 	if client == nil {
 		t.Fatal("expected non-nil client")
+	}
+}
+
+func TestRealPool_ConcurrencyCap(t *testing.T) {
+	requireGopls(t)
+
+	pool := lsp.NewPool()
+	defer pool.Shutdown(context.Background())
+
+	// DefaultMaxActive is 3. Create 5 roots.
+	var roots []string
+	for i := range 5 {
+		dir := t.TempDir()
+		writeGoMod(t, dir, i)
+		roots = append(roots, dir)
+	}
+
+	var wg sync.WaitGroup
+	var succeeded atomic.Int32
+	var atCapacity atomic.Int32
+
+	for _, root := range roots {
+		wg.Add(1)
+		go func(r string) {
+			defer wg.Done()
+			_, err := pool.Get(lang.Go, r)
+			if err != nil {
+				if errors.Is(err, lsp.ErrPoolAtCapacity) {
+					atCapacity.Add(1)
+					return
+				}
+				t.Errorf("Get(%s): %v", r, err)
+				return
+			}
+			succeeded.Add(1)
+		}(root)
+	}
+
+	wg.Wait()
+
+	s := succeeded.Load()
+	c := atCapacity.Load()
+	t.Logf("succeeded=%d, at_capacity=%d", s, c)
+
+	if s > 3 {
+		t.Errorf("expected max 3 concurrent gopls (DefaultMaxActive), got %d", s)
+	}
+	if s+c != 5 {
+		t.Errorf("expected 5 total attempts, got succeeded=%d + capacity=%d = %d", s, c, s+c)
+	}
+}
+
+func writeGoMod(t *testing.T, dir string, i int) {
+	t.Helper()
+	content := fmt.Sprintf("module test%d\ngo 1.21\n", i)
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -34,14 +35,23 @@ type poolEntry struct {
 // DefaultTTL is how long an idle gopls stays alive before eviction.
 const DefaultTTL = 30 * time.Minute
 
+// DefaultMaxActive is the maximum number of concurrent gopls instances.
+// Each gopls ~400MB, so 3 = ~1.2GB max LSP memory.
+const DefaultMaxActive = 3
+
+// ErrPoolAtCapacity is returned when all LSP slots are occupied and
+// the wait timeout expires. Callers should fall back to non-LSP analyzers.
+var ErrPoolAtCapacity = errors.New("lsp pool: at capacity")
+
 // RealPool manages reusable LSP server connections keyed by (language, root).
-// Thread-safe via sync.Mutex.
+// Thread-safe via sync.Mutex. Concurrency bounded by semaphore.
 type RealPool struct {
 	mu      sync.Mutex
 	conns   map[poolKey]*poolEntry
 	stopped bool
 	ttl     time.Duration
 	done    chan struct{}
+	sem     chan struct{} // concurrency semaphore
 }
 
 // NewPool creates a new connection pool for long-running (serve) mode.
@@ -50,6 +60,7 @@ func NewPool() *RealPool {
 		conns: make(map[poolKey]*poolEntry),
 		ttl:   DefaultTTL,
 		done:  make(chan struct{}),
+		sem:   make(chan struct{}, DefaultMaxActive),
 	}
 	go p.reapLoop()
 	return p
@@ -79,12 +90,17 @@ func (p *RealPool) reapIdle() {
 			slog.Info("lsp pool: evicting idle server", slog.String("root", key.root), slog.Duration("idle", now.Sub(entry.lastUsed)))
 			shutdownEntry(entry)
 			delete(p.conns, key)
+			select {
+			case <-p.sem:
+			default:
+			}
 		}
 	}
 }
 
 // Get returns a warm LSP client for the given language and workspace root.
-// If no connection exists, one is lazily spawned.
+// If no connection exists, one is lazily spawned. Blocks up to 10s if the
+// pool is at capacity (memory bandwidth rate limiting).
 func (p *RealPool) Get(language lang.Language, root string) (*Client, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -93,9 +109,8 @@ func (p *RealPool) Get(language lang.Language, root string) (*Client, error) {
 	key := poolKey{lang: language, root: absRoot}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.stopped {
+		p.mu.Unlock()
 		return nil, ErrPoolShutDown
 	}
 
@@ -103,17 +118,35 @@ func (p *RealPool) Get(language lang.Language, root string) (*Client, error) {
 		if entry.dead.Load() {
 			slog.Warn("lsp pool: evicting dead server", slog.String("root", absRoot))
 			delete(p.conns, key)
+			// Release the semaphore slot held by the dead entry.
+			select {
+			case <-p.sem:
+			default:
+			}
 		} else {
 			entry.lastUsed = time.Now()
+			p.mu.Unlock()
 			return entry.client, nil
 		}
+	}
+	p.mu.Unlock()
+
+	// Acquire a concurrency slot — blocks FIFO if at capacity.
+	select {
+	case p.sem <- struct{}{}:
+	case <-time.After(10 * time.Second):
+		return nil, ErrPoolAtCapacity
 	}
 
 	entry, err := spawnServer(language, absRoot)
 	if err != nil {
+		<-p.sem // release slot on spawn failure
 		return nil, err
 	}
+
+	p.mu.Lock()
 	p.conns[key] = entry
+	p.mu.Unlock()
 	return entry.client, nil
 }
 
@@ -137,6 +170,10 @@ func (p *RealPool) Shutdown(_ context.Context) error {
 	for key, entry := range p.conns {
 		shutdownEntry(entry)
 		delete(p.conns, key)
+		select {
+		case <-p.sem:
+		default:
+		}
 	}
 	return nil
 }
