@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -153,29 +152,7 @@ func spawnServer(language lang.Language, absRoot string) (*poolEntry, error) {
 
 // initialize performs the LSP initialize/initialized handshake.
 func initialize(client *Client, root string) error {
-	rootURI := "file://" + root
-	params := map[string]any{
-		"processId": os.Getpid(),
-		"rootUri":   rootURI,
-		"capabilities": map[string]any{
-			"textDocument": map[string]any{
-				"documentSymbol": map[string]any{"hierarchicalDocumentSymbolSupport": true},
-				"typeHierarchy":  map[string]any{},
-				"callHierarchy":  map[string]any{},
-				"implementation": map[string]any{},
-			},
-			"workspace": map[string]any{
-				"symbol": map[string]any{"dynamicRegistration": false},
-			},
-		},
-	}
-	initResult, err := client.Request("initialize", params)
-	if err != nil {
-		slog.Error("lsp pool: initialize failed", "root", root, "error", err)
-		return err
-	}
-	slog.Info("lsp pool: initialized", "root", root, "response_bytes", len(initResult), "capabilities", string(initResult))
-	return client.Notify("initialized", struct{}{})
+	return Initialize(client, root)
 }
 
 // shutdownEntry sends LSP shutdown+exit and cleans up process resources.

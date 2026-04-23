@@ -36,7 +36,7 @@ func (s *LSPSymbolSource) Roots(ctx context.Context, query string) ([]oculus.Sym
 	}
 
 	// All exported roots via workspace/symbol.
-	result, err := s.conn.requestWith(ctx, "workspace/symbol", map[string]any{"query": ""})
+	result, err := s.conn.requestWith(ctx, "workspace/symbol", map[string]any{"query": "."})
 	if err != nil {
 		return nil, err
 	}

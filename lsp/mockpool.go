@@ -52,23 +52,11 @@ func (p *MockPool) Get(language lang.Language, root string) (*Client, error) {
 	}()
 
 	client := NewClient(cr, cw)
-	if _, err := client.Request("initialize", map[string]any{
-		"processId": nil,
-		"rootUri":   "file://" + root,
-		"capabilities": map[string]any{
-			"textDocument": map[string]any{
-				"callHierarchy": map[string]any{},
-			},
-			"workspace": map[string]any{
-				"symbol": map[string]any{"dynamicRegistration": false},
-			},
-		},
-	}); err != nil {
+	if err := Initialize(client, root); err != nil {
 		cw.Close()
 		sr.Close()
 		return nil, err
 	}
-	_ = client.Notify("initialized", struct{}{})
 
 	entry := &mockEntry{client: client, sr: sr, sw: sw, cw: cw, cr: cr}
 

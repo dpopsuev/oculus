@@ -123,37 +123,7 @@ func newLSPConn(r interface{ Read([]byte) (int, error) }, w interface{ Write([]b
 }
 
 func (c *lspConn) initialize(root string) error {
-	rootURI := pathToURI(root)
-	params := map[string]any{
-		"processId": os.Getpid(),
-		"rootUri":   rootURI,
-		"capabilities": map[string]any{
-			"textDocument": map[string]any{
-				"documentSymbol": map[string]any{"hierarchicalDocumentSymbolSupport": true},
-				"typeHierarchy":  map[string]any{},
-				"callHierarchy":  map[string]any{},
-				"implementation": map[string]any{},
-			},
-			"workspace": map[string]any{
-				"symbol": map[string]any{
-					"dynamicRegistration": false,
-				},
-			},
-		},
-	}
-	initResult, err := c.Client.Request("initialize", params)
-	if err != nil {
-		slog.LogAttrs(context.Background(), slog.LevelError, "lsp: initialize failed",
-			slog.String("root", root),
-			slog.Any("error", err),
-		)
-		return err
-	}
-	slog.LogAttrs(context.Background(), slog.LevelInfo, "lsp: initialized",
-		slog.String("root", root),
-		slog.Int("response_bytes", len(initResult)),
-	)
-	return c.Notify("initialized", struct{}{})
+	return lsp.Initialize(c.Client, root)
 }
 
 func (c *lspConn) shutdown() {

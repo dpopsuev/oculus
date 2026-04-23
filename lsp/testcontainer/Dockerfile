@@ -11,17 +11,24 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# System packages: build tools, Python 3, clangd
+# System packages: build tools, Python 3
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl git xz-utils \
+    ca-certificates curl git xz-utils gnupg \
     gcc g++ make cmake \
     python3 python3-venv \
-    clangd-18 \
-    && ln -sf /usr/bin/clangd-18 /usr/bin/clangd \
     && rm -rf /var/lib/apt/lists/*
 
+# clangd 20 from LLVM apt repo (18 lacks callHierarchy/outgoingCalls)
+ARG LLVM_VERSION=20
+RUN curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /usr/share/keyrings/llvm.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-${LLVM_VERSION} main" \
+      > /etc/apt/sources.list.d/llvm.list && \
+    apt-get update && apt-get install -y --no-install-recommends clangd-${LLVM_VERSION} && \
+    ln -sf /usr/bin/clangd-${LLVM_VERSION} /usr/bin/clangd && \
+    rm -rf /var/lib/apt/lists/*
+
 # Go + gopls
-ARG GO_VERSION=1.22.5
+ARG GO_VERSION=1.25.8
 RUN ARCH=$(dpkg --print-architecture) && \
     curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" | \
     tar -C /usr/local -xz
@@ -36,7 +43,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
     tar -C /usr/local --strip-components=1 -xJ
 
 # TypeScript LSP + Pyright
-RUN npm install -g typescript typescript-language-server pyright
+RUN npm install -g typescript@5 typescript-language-server pyright
 
 # Rust + rust-analyzer
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \

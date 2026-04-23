@@ -166,24 +166,7 @@ func (p *ContainerPool) spawnContainer(language lang.Language, absRoot string) (
 }
 
 func initializeLSP(client *lsp.Client, root string) error {
-	rootURI := "file://" + root
-	params := map[string]any{
-		"processId": nil,
-		"rootUri":   rootURI,
-		"capabilities": map[string]any{
-			"textDocument": map[string]any{
-				"documentSymbol": map[string]any{"hierarchicalDocumentSymbolSupport": true},
-				"typeHierarchy":  map[string]any{},
-				"callHierarchy":  map[string]any{},
-				"implementation": map[string]any{},
-				"hover":          map[string]any{},
-			},
-		},
-	}
-	if _, err := client.Request("initialize", params); err != nil {
-		return err
-	}
-	return client.Notify("initialized", struct{}{})
+	return lsp.Initialize(client, root)
 }
 
 func shutdownContainer(entry *containerEntry) {

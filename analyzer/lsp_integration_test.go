@@ -4,7 +4,10 @@ package analyzer
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/dpopsuev/oculus/v3"
 	"github.com/dpopsuev/oculus/v3/lang"
@@ -14,6 +17,7 @@ import (
 // containerLanguages maps fixture names to their lang.Language constants.
 // Only languages with LSP servers in the Docker image are listed.
 var containerLanguages = map[string]lang.Language{
+	"Go":         lang.Go,
 	"Python":     lang.Python,
 	"TypeScript": lang.TypeScript,
 	"JavaScript": lang.JavaScript,
@@ -22,19 +26,27 @@ var containerLanguages = map[string]lang.Language{
 	"C++":        lang.Cpp,
 }
 
-// Languages where we expect typed edges from LSP (proven working).
-// Others are measured but not gated.
-var typedEdgeExpected = map[string]bool{
-	"Python": true,
+type langExpectation struct {
+	typedEdges bool
+	indexWait  time.Duration
 }
 
-// TestLSPIntegration_CallGraph runs each language fixture through the full
-// analyzer chain backed by a Docker container pool. Verifies that LSP servers
-// produce call graphs with typed edges.
+var langExpectations = map[string]langExpectation{
+	"Go":         {typedEdges: true, indexWait: 8 * time.Second},
+	"Python":     {typedEdges: true, indexWait: 5 * time.Second},
+	"TypeScript": {typedEdges: true, indexWait: 5 * time.Second},
+	"JavaScript": {typedEdges: false, indexWait: 5 * time.Second},
+	"Rust":       {typedEdges: true, indexWait: 15 * time.Second},
+	"C":          {typedEdges: true, indexWait: 3 * time.Second},
+	"C++":        {typedEdges: true, indexWait: 3 * time.Second},
+}
+
+// TestLSPIntegration_ThreeLayer runs workspace/symbol, callHierarchy, and
+// hover enrichment for every language with a container LSP server.
 //
 // Requires: docker, oculus-lsp-test image (make docker-lsp)
-// Run: go test -tags integration -run TestLSPIntegration -timeout 300s ./analyzer/...
-func TestLSPIntegration_CallGraph(t *testing.T) {
+// Run: go test -tags integration -run TestLSPIntegration_ThreeLayer -timeout 600s ./analyzer/...
+func TestLSPIntegration_ThreeLayer(t *testing.T) {
 	if err := testcontainer.Available(""); err != nil {
 		t.Skipf("skipping LSP integration: %v", err)
 	}
@@ -49,98 +61,88 @@ func TestLSPIntegration_CallGraph(t *testing.T) {
 		}
 		t.Run(fix.name, func(t *testing.T) {
 			dir := setupFixture(t, fix.files)
+			expect := langExpectations[fix.name]
 
-			// Verify pool can connect for this language
+			// Layer 1: Pool connection.
 			client, err := pool.Get(langConst, dir)
 			if err != nil {
-				t.Fatalf("pool.Get(%v): %v", fix.name, err)
+				t.Fatalf("pool.Get(%s): %v", fix.name, err)
 			}
 			_ = client
 			pool.Release(langConst, dir)
 
-			// Run through the full analyzer chain with container pool
-			da := NewDeepFallback(dir, pool)
-			cg, err := da.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: fix.entry, Depth: 5})
+			// Layer 2: Full analyzer call graph.
+			timeout := max(30*time.Second, expect.indexWait*3)
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+
+			da := NewLSPDeepWithPool(dir, pool)
+			cg, err := da.CallGraph(ctx, dir, oculus.CallGraphOpts{Entry: fix.entry, Depth: 3})
 			if err != nil {
 				t.Fatalf("CallGraph: %v", err)
 			}
 
-			t.Logf("[%s] layer=%s, %d nodes, %d edges", fix.name, cg.Layer, len(cg.Nodes), len(cg.Edges))
+			t.Logf("[%s] layer=%s nodes=%d edges=%d", fix.name, cg.Layer, len(cg.Nodes), len(cg.Edges))
+
+			if len(cg.Nodes) == 0 {
+				t.Errorf("[%s] workspace/symbol returned 0 nodes", fix.name)
+			}
 
 			if len(cg.Edges) == 0 {
-				t.Logf("[%s] 0 edges (layer=%s) — LSP or fallback didn't produce call graph", fix.name, cg.Layer)
+				t.Logf("[%s] 0 edges — callHierarchy may not be supported or entry %q not resolved", fix.name, fix.entry)
 				return
 			}
 
-			// Check for expected callee
+			// Check for expected callee.
 			found := false
 			for _, e := range cg.Edges {
 				if e.Callee == fix.callee {
 					found = true
-					t.Logf("[%s] found edge: %s -> %s (params=%v returns=%v)",
-						fix.name, e.Caller, e.Callee, e.ParamTypes, e.ReturnTypes)
+					t.Logf("[%s] edge: %s -> %s (params=%v returns=%v)", fix.name, e.Caller, e.Callee, e.ParamTypes, e.ReturnTypes)
 				}
 			}
 			if !found {
-				t.Logf("[%s] callee %q not found in %d edges (may use different name)", fix.name, fix.callee, len(cg.Edges))
+				t.Logf("[%s] callee %q not in %d edges (LSP may use different name)", fix.name, fix.callee, len(cg.Edges))
 			}
 
-			// Check typed edges
+			// Layer 3: Hover enrichment (typed edges).
 			typed := countTyped(cg.Edges)
 			pct := float64(typed) / float64(len(cg.Edges)) * 100
 			t.Logf("[%s] typed edges: %d/%d (%.0f%%)", fix.name, typed, len(cg.Edges), pct)
 
-			// Only gate languages where we've proven typed edges work
-			if typedEdgeExpected[fix.name] && typed == 0 {
+			if expect.typedEdges && typed == 0 {
 				t.Errorf("[%s] expected typed edges but got 0", fix.name)
 			}
 		})
 	}
-}
 
-// TestLSPIntegration_HoverEnrichment tests the hover → signature → types
-// pipeline for each language independently of the call graph.
-func TestLSPIntegration_HoverEnrichment(t *testing.T) {
-	if err := testcontainer.Available(""); err != nil {
-		t.Skipf("skipping LSP integration: %v", err)
-	}
+	// Go uses testkit (multi-package), not inline fixture.
+	t.Run("Go", func(t *testing.T) {
+		dir := copyTestkitGo(t)
+		expect := langExpectations["Go"]
 
-	pool := testcontainer.NewPool("")
-	defer pool.Shutdown(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), max(30*time.Second, expect.indexWait*3))
+		defer cancel()
 
-	for _, fix := range languageFixtures {
-		_, supported := containerLanguages[fix.name]
-		if !supported {
-			continue
+		da := NewLSPDeepWithPool(dir, pool)
+		cg, err := da.CallGraph(ctx, dir, oculus.CallGraphOpts{Depth: 1})
+		if err != nil {
+			t.Fatalf("CallGraph: %v", err)
 		}
-		t.Run(fix.name, func(t *testing.T) {
-			dir := setupFixture(t, fix.files)
 
-			// Use LSP analyzer directly (not fallback chain)
-			a := NewLSPDeepWithPool(dir, pool)
+		t.Logf("[Go] layer=%s nodes=%d edges=%d", cg.Layer, len(cg.Nodes), len(cg.Edges))
 
-			// Get call graph — this exercises callHierarchy + hover enrichment
-			cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: fix.entry, Depth: 5})
-			if err != nil {
-				t.Fatalf("LSP CallGraph: %v", err)
-			}
+		if len(cg.Nodes) == 0 {
+			t.Fatal("[Go] workspace/symbol returned 0 nodes — BUG-54 regression")
+		}
 
-			t.Logf("[%s] LSP layer=%s, %d edges", fix.name, cg.Layer, len(cg.Edges))
-
-			if len(cg.Edges) == 0 {
-				t.Logf("[%s] LSP produced 0 edges — callHierarchy may not be supported", fix.name)
-				return
-			}
-
+		if len(cg.Edges) > 0 {
 			typed := countTyped(cg.Edges)
-			pct := float64(typed) / float64(len(cg.Edges)) * 100
-			t.Logf("[%s] hover enrichment: %d/%d typed (%.0f%%)", fix.name, typed, len(cg.Edges), pct)
-
-			if typedEdgeExpected[fix.name] && typed == 0 {
-				t.Errorf("[%s] expected typed edges from hover but got 0", fix.name)
-			}
-		})
-	}
+			t.Logf("[Go] typed edges: %d/%d", typed, len(cg.Edges))
+		} else {
+			t.Logf("[Go] 0 edges (callHierarchy pipeline issue, separate from BUG-54)")
+		}
+	})
 }
 
 // TestLSPIntegration_GoReference verifies that Go via container matches
@@ -155,14 +157,12 @@ func TestLSPIntegration_GoReference(t *testing.T) {
 
 	dir := setupContractFixture(t)
 
-	// Container LSP
 	lspDA := NewLSPDeepWithPool(dir, pool)
 	lspCG, err := lspDA.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatalf("LSP CallGraph: %v", err)
 	}
 
-	// Local GoAST
 	goastDA := NewGoASTDeep(dir)
 	goastCG, err := goastDA.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
@@ -177,5 +177,88 @@ func TestLSPIntegration_GoReference(t *testing.T) {
 	}
 	if countTyped(lspCG.Edges) == 0 {
 		t.Error("LSP produced 0 typed edges for Go reference fixture")
+	}
+}
+
+// TestLSPIntegration_WorkspaceSymbolBug54 reproduces LCS-BUG-54:
+// gopls workspace/symbol returns null/empty, causing probe/callgraph
+// to fail on a fully valid Go repo.
+func TestLSPIntegration_WorkspaceSymbolBug54(t *testing.T) {
+	if err := testcontainer.Available(""); err != nil {
+		t.Skipf("skipping LSP integration: %v", err)
+	}
+
+	pool := testcontainer.NewPool("")
+	defer pool.Shutdown(context.Background())
+
+	dir := copyTestkitGo(t)
+
+	da := NewLSPDeepWithPool(dir, pool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cg, err := da.CallGraph(ctx, dir, oculus.CallGraphOpts{Depth: 1})
+	if err != nil {
+		t.Fatalf("CallGraph on real Go testkit: %v", err)
+	}
+
+	t.Logf("layer=%s nodes=%d edges=%d", cg.Layer, len(cg.Nodes), len(cg.Edges))
+
+	if len(cg.Nodes) == 0 {
+		t.Fatal("LCS-BUG-54: workspace/symbol returned no symbols — call graph has 0 nodes")
+	}
+
+	t.Logf("LCS-BUG-54 fix verified: %d nodes discovered via workspace/symbol", len(cg.Nodes))
+
+	if len(cg.Edges) > 0 {
+		t.Logf("call hierarchy also working: %d edges", len(cg.Edges))
+	} else {
+		t.Logf("call hierarchy returned 0 edges (gopls callHierarchy may need didOpen — separate from BUG-54)")
+	}
+}
+
+func copyTestkitGo(t *testing.T) string {
+	t.Helper()
+	src := filepath.Join(findTestkitRoot(t), "testdata", "testkit", "go")
+	dst := t.TempDir()
+
+	err := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, path)
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+	if err != nil {
+		t.Fatalf("copy testkit/go: %v", err)
+	}
+	t.Logf("testkit/go copied to %s", dst)
+	return dst
+}
+
+func findTestkitRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("could not find repo root")
+		}
+		dir = parent
 	}
 }

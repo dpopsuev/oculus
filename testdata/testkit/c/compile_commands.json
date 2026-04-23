@@ -1,0 +1,12 @@
+[
+  {
+    "directory": ".",
+    "command": "gcc -I./include -c src/entity.c -o entity.o",
+    "file": "src/entity.c"
+  },
+  {
+    "directory": ".",
+    "command": "gcc -I./include -c src/main.c -o main.o",
+    "file": "src/main.c"
+  }
+]

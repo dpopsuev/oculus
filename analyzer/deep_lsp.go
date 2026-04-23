@@ -482,7 +482,7 @@ func lspExportedRoots(conn *lspConn) []string {
 		if attempt > 0 {
 			time.Sleep(lspIndexingBackoff)
 		}
-		result, err := conn.request("workspace/symbol", map[string]any{"query": ""})
+		result, err := conn.request("workspace/symbol", map[string]any{"query": "."})
 		if err != nil {
 			return nil
 		}
