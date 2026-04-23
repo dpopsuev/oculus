@@ -101,6 +101,29 @@ func New(s Store, workspaces []string, pool ...lsp.Pool) *Engine {
 	return p
 }
 
+// WarmLSP pre-warms the gopls index for a workspace root. Returns
+// an error if no LSP pool is configured or the pool doesn't support warm.
+func (p *Engine) WarmLSP(ctx context.Context, path string) error {
+	path = p.resolvePath(path)
+	if p.pool == nil {
+		return fmt.Errorf("no LSP pool configured")
+	}
+	rp, ok := p.pool.(*lsp.RealPool)
+	if !ok {
+		return fmt.Errorf("pool does not support warm")
+	}
+	language := p.detectLanguage(path)
+	return rp.Warm(language, path)
+}
+
+func (p *Engine) detectLanguage(path string) lang.Language {
+	report, err := p.getOrScan(context.Background(), path)
+	if err != nil || report == nil {
+		return lang.Go
+	}
+	return lang.Language(report.Scanner)
+}
+
 // ScanOpts controls a local scan.
 type ScanOpts struct {
 	Depth           int

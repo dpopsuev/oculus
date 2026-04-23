@@ -213,8 +213,6 @@ func spawnServer(language lang.Language, absRoot string) (*poolEntry, error) {
 		return nil, fmt.Errorf("lsp pool: initialize: %w", err)
 	}
 
-	prewarm(client, absRoot)
-
 	entry := &poolEntry{
 		client:   client,
 		cmd:      cmd,
@@ -238,8 +236,19 @@ func initialize(client *Client, root string) error {
 	return Initialize(client, root)
 }
 
-// prewarm forces gopls to index all Go files by sending textDocument/didOpen
-// for each. This shifts the lazy-indexing cost from query time to startup time.
+// Warm pre-warms the gopls index for a workspace root by sending
+// textDocument/didOpen for Go files. Call explicitly via MCP action —
+// not called automatically on spawn to avoid OOM on large workspaces.
+func (p *RealPool) Warm(language lang.Language, root string) error {
+	client, err := p.Get(language, root)
+	if err != nil {
+		return err
+	}
+	absRoot, _ := filepath.Abs(root)
+	prewarm(client, absRoot)
+	return nil
+}
+
 func prewarm(client *Client, root string) {
 	var files []string
 	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
