@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dpopsuev/oculus/v3/arch"
 	"github.com/dpopsuev/oculus/v3/port"
@@ -410,11 +411,14 @@ func TestScanProject_DifferentIntentsGetDifferentCacheEntries(t *testing.T) {
 	}
 	eng := New(store, []string{"/tmp"})
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	// First scan with intent "health".
-	_, _ = eng.ScanProject(context.Background(), "/tmp", ScanOpts{Intent: "health"})
+	_, _ = eng.ScanProject(ctx, "/tmp", ScanOpts{Intent: "health"})
 
 	// Second scan with intent "architecture".
-	_, _ = eng.ScanProject(context.Background(), "/tmp", ScanOpts{Intent: "architecture"})
+	_, _ = eng.ScanProject(ctx, "/tmp", ScanOpts{Intent: "architecture"})
 
 	// The two intents must produce different cache keys.
 	if len(store.putKeys) < 2 {

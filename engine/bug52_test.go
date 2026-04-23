@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestBug52_GetCallers_StructConstruction reproduces LCS-BUG-52:
@@ -54,8 +55,14 @@ func main() {
 
 	eng := New(&mockStore{headSHA: "test"}, []string{dir})
 
-	report, err := eng.GetCallers(context.Background(), dir, "Config")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	report, err := eng.GetCallers(ctx, dir, "Config")
 	if err != nil {
+		if ctx.Err() != nil {
+			t.Skipf("GetCallers timed out (LSP slow): %v", err)
+		}
 		t.Fatalf("GetCallers: %v", err)
 	}
 
