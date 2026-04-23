@@ -24,11 +24,15 @@ type poolKey struct {
 
 // poolEntry holds a live LSP server connection.
 type poolEntry struct {
-	client *Client
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	dead   atomic.Bool
+	client   *Client
+	cmd      *exec.Cmd
+	stdin    io.WriteCloser
+	dead     atomic.Bool
+	lastUsed time.Time
 }
+
+// DefaultTTL is how long an idle gopls stays alive before eviction.
+const DefaultTTL = 30 * time.Minute
 
 // RealPool manages reusable LSP server connections keyed by (language, root).
 // Thread-safe via sync.Mutex.
@@ -36,12 +40,46 @@ type RealPool struct {
 	mu      sync.Mutex
 	conns   map[poolKey]*poolEntry
 	stopped bool
+	ttl     time.Duration
+	done    chan struct{}
 }
 
 // NewPool creates a new connection pool for long-running (serve) mode.
 func NewPool() *RealPool {
-	return &RealPool{
+	p := &RealPool{
 		conns: make(map[poolKey]*poolEntry),
+		ttl:   DefaultTTL,
+		done:  make(chan struct{}),
+	}
+	go p.reapLoop()
+	return p
+}
+
+// reapLoop periodically evicts idle entries past TTL.
+func (p *RealPool) reapLoop() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-p.done:
+			return
+		case <-ticker.C:
+			p.reapIdle()
+		}
+	}
+}
+
+func (p *RealPool) reapIdle() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	now := time.Now()
+	for key, entry := range p.conns {
+		if entry.dead.Load() || now.Sub(entry.lastUsed) > p.ttl {
+			slog.Info("lsp pool: evicting idle server", slog.String("root", key.root), slog.Duration("idle", now.Sub(entry.lastUsed)))
+			shutdownEntry(entry)
+			delete(p.conns, key)
+		}
 	}
 }
 
@@ -66,6 +104,7 @@ func (p *RealPool) Get(language lang.Language, root string) (*Client, error) {
 			slog.Warn("lsp pool: evicting dead server", slog.String("root", absRoot))
 			delete(p.conns, key)
 		} else {
+			entry.lastUsed = time.Now()
 			return entry.client, nil
 		}
 	}
@@ -90,6 +129,11 @@ func (p *RealPool) Shutdown(_ context.Context) error {
 	defer p.mu.Unlock()
 
 	p.stopped = true
+	select {
+	case <-p.done:
+	default:
+		close(p.done)
+	}
 	for key, entry := range p.conns {
 		shutdownEntry(entry)
 		delete(p.conns, key)
@@ -169,10 +213,13 @@ func spawnServer(language lang.Language, absRoot string) (*poolEntry, error) {
 		return nil, fmt.Errorf("lsp pool: initialize: %w", err)
 	}
 
+	prewarm(client, absRoot)
+
 	entry := &poolEntry{
-		client: client,
-		cmd:    cmd,
-		stdin:  stdin,
+		client:   client,
+		cmd:      cmd,
+		stdin:    stdin,
+		lastUsed: time.Now(),
 	}
 
 	go func() {
@@ -189,6 +236,43 @@ func spawnServer(language lang.Language, absRoot string) (*poolEntry, error) {
 // initialize performs the LSP initialize/initialized handshake.
 func initialize(client *Client, root string) error {
 	return Initialize(client, root)
+}
+
+// prewarm forces gopls to index all Go files by sending textDocument/didOpen
+// for each. This shifts the lazy-indexing cost from query time to startup time.
+func prewarm(client *Client, root string) {
+	var files []string
+	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		name := d.Name()
+		if d.IsDir() && (name == "vendor" || name == "node_modules" || name == ".git" || name == "testdata") {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() && strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") {
+			files = append(files, path)
+		}
+		return nil
+	})
+
+	for _, f := range files {
+		content, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		uri := "file://" + f
+		_ = client.Notify("textDocument/didOpen", map[string]any{
+			"textDocument": map[string]any{
+				"uri":        uri,
+				"languageId": "go",
+				"version":    1,
+				"text":       string(content),
+			},
+		})
+	}
+
+	slog.Info("lsp pool: pre-warmed", slog.String("root", root), slog.Int("files", len(files)))
 }
 
 // shutdownEntry sends LSP shutdown+exit and cleans up process resources.
