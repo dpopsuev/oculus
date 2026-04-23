@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dpopsuev/oculus/v3/lang"
@@ -25,6 +27,7 @@ type poolEntry struct {
 	client *Client
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
+	dead   atomic.Bool
 }
 
 // RealPool manages reusable LSP server connections keyed by (language, root).
@@ -59,7 +62,12 @@ func (p *RealPool) Get(language lang.Language, root string) (*Client, error) {
 	}
 
 	if entry, ok := p.conns[key]; ok {
-		return entry.client, nil
+		if entry.dead.Load() {
+			slog.Warn("lsp pool: evicting dead server", slog.String("root", absRoot))
+			delete(p.conns, key)
+		} else {
+			return entry.client, nil
+		}
 	}
 
 	entry, err := spawnServer(language, absRoot)
@@ -105,6 +113,24 @@ func (p *RealPool) Status() PoolStatus {
 	}
 }
 
+// KillServer force-kills the LSP server for a given root. Test-only.
+func (p *RealPool) KillServer(language lang.Language, root string) error {
+	absRoot, _ := filepath.Abs(root)
+	key := poolKey{lang: language, root: absRoot}
+
+	p.mu.Lock()
+	entry, ok := p.conns[key]
+	p.mu.Unlock()
+
+	if !ok {
+		return fmt.Errorf("no server for %s", root)
+	}
+	if entry.cmd.Process != nil {
+		return entry.cmd.Process.Kill()
+	}
+	return fmt.Errorf("no process")
+}
+
 // spawnServer starts a new LSP server process and performs the initialize handshake.
 func spawnServer(language lang.Language, absRoot string) (*poolEntry, error) {
 	cmdStr := lang.DefaultLSPServer(language)
@@ -143,11 +169,21 @@ func spawnServer(language lang.Language, absRoot string) (*poolEntry, error) {
 		return nil, fmt.Errorf("lsp pool: initialize: %w", err)
 	}
 
-	return &poolEntry{
+	entry := &poolEntry{
 		client: client,
 		cmd:    cmd,
 		stdin:  stdin,
-	}, nil
+	}
+
+	go func() {
+		err := cmd.Wait()
+		entry.dead.Store(true)
+		if err != nil {
+			slog.Warn("lsp pool: server exited unexpectedly", slog.String("root", absRoot), slog.Any("error", err))
+		}
+	}()
+
+	return entry, nil
 }
 
 // initialize performs the LSP initialize/initialized handshake.
@@ -159,22 +195,23 @@ func initialize(client *Client, root string) error {
 // If the server doesn't exit within 3 seconds, it is force-killed to
 // prevent orphaned processes on the host.
 func shutdownEntry(entry *poolEntry) {
+	if entry.dead.Load() {
+		entry.stdin.Close()
+		return
+	}
 	_, _ = entry.client.Request("shutdown", nil)
 	_ = entry.client.Notify("exit", nil)
 	entry.stdin.Close()
 
-	done := make(chan struct{})
-	go func() {
-		_ = entry.cmd.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		if entry.cmd.Process != nil {
-			_ = entry.cmd.Process.Kill()
+	deadline := time.After(3 * time.Second)
+	for !entry.dead.Load() {
+		select {
+		case <-deadline:
+			if entry.cmd.Process != nil {
+				_ = entry.cmd.Process.Kill()
+			}
+			return
+		case <-time.After(100 * time.Millisecond):
 		}
-		<-done
 	}
 }

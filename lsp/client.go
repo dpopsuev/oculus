@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +17,10 @@ import (
 
 // ErrMissingContentLength is returned when an LSP message lacks the header.
 var ErrMissingContentLength = errors.New("missing Content-Length header")
+
+// ErrServerDead is returned when the LSP server process has exited or the
+// pipe is broken. The pool should evict and respawn on this error.
+var ErrServerDead = errors.New("lsp server dead")
 
 // Client implements the JSON-RPC 2.0 transport for LSP communication
 // over a stdin/stdout pipe pair.
@@ -93,6 +98,9 @@ func (c *Client) RequestContext(ctx context.Context, method string, params any) 
 	select {
 	case err := <-writeDone:
 		if err != nil {
+			if errors.Is(err, io.ErrClosedPipe) || errors.Is(err, os.ErrClosed) {
+				return nil, fmt.Errorf("lsp request %s: %w", method, ErrServerDead)
+			}
 			return nil, fmt.Errorf("lsp request %s: %w", method, err)
 		}
 	case <-ctx.Done():
@@ -167,6 +175,9 @@ func (c *Client) readMessage() (*JSONRPCResponse, error) {
 	for {
 		line, err := c.r.ReadString('\n')
 		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) {
+				return nil, fmt.Errorf("%w: %w", ErrServerDead, err)
+			}
 			return nil, fmt.Errorf("reading header: %w", err)
 		}
 		line = strings.TrimRight(line, "\r\n")
@@ -183,7 +194,7 @@ func (c *Client) readMessage() (*JSONRPCResponse, error) {
 	}
 
 	if contentLen < 0 {
-		return nil, ErrMissingContentLength
+		return nil, fmt.Errorf("%w: %w", ErrServerDead, ErrMissingContentLength)
 	}
 
 	body := make([]byte, contentLen)
