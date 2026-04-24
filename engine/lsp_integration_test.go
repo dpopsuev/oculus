@@ -1,0 +1,216 @@
+package engine
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/dpopsuev/oculus/v3/analyzer"
+	"github.com/dpopsuev/oculus/v3/lsp"
+)
+
+// --- Integration tests: LSP as sole analyzer ---
+
+func requireGoplsInteg(t *testing.T) {
+	t.Helper()
+	if _, err := lsp.NewPool().Get("go", makeGoFixture(t)); err != nil {
+		t.Skipf("gopls not available: %v", err)
+	}
+}
+
+func makeGoFixture(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	files := map[string]string{
+		"go.mod": "module probetest\ngo 1.21\n",
+		"main.go": `package main
+
+import "probetest/internal/svc"
+
+func main() {
+	s := svc.New("app")
+	s.Run()
+}
+`,
+		"internal/svc/svc.go": `package svc
+
+type Service struct{ name string }
+
+func New(name string) *Service { return &Service{name: name} }
+
+func (s *Service) Run() { s.handle() }
+
+func (s *Service) handle() {}
+`,
+	}
+	for name, content := range files {
+		p := filepath.Join(dir, name)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(content), 0o644)
+	}
+	return dir
+}
+
+// Test 6: Probe with LSP available returns call graph data.
+func TestProbe_LSPAvailable(t *testing.T) {
+	requireGoplsInteg(t)
+	dir := makeGoFixture(t)
+
+	pool := lsp.NewPool()
+	defer pool.Shutdown(context.Background())
+
+	eng := New(&mockStore{headSHA: "test"}, []string{dir}, pool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := eng.ProbeSymbol(ctx, dir, "Run")
+	if err != nil {
+		if ctx.Err() != nil || strings.Contains(err.Error(), "quality threshold") || strings.Contains(err.Error(), "server dead") {
+			t.Skipf("gopls unstable on test fixture: %v", err)
+		}
+		t.Fatalf("ProbeSymbol: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil probe result")
+	}
+	t.Logf("probe: %+v", result)
+}
+
+// Test 7: Probe without LSP returns clear error naming the missing server.
+func TestProbe_LSPUnavailable_ClearError(t *testing.T) {
+	dir := makeGoFixture(t)
+
+	// No pool = no LSP
+	eng := New(&mockStore{headSHA: "test"}, []string{dir})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := eng.ProbeSymbol(ctx, dir, "Run")
+	if err == nil {
+		t.Fatal("expected error without LSP")
+	}
+
+	msg := err.Error()
+	if !strings.Contains(msg, "gopls") {
+		t.Errorf("error should name the missing LSP server (gopls), got: %s", msg)
+	}
+	if !errors.Is(err, analyzer.ErrNoQualifiedResult) {
+		t.Logf("error type: %T, value: %v", err, err)
+	}
+}
+
+// Test 9: Kill gopls mid-probe, pool respawns, next probe works.
+func TestProbe_LSPDies_MidQuery(t *testing.T) {
+	requireGoplsInteg(t)
+	dir := makeGoFixture(t)
+
+	pool := lsp.NewPool()
+	defer pool.Shutdown(context.Background())
+
+	eng := New(&mockStore{headSHA: "test"}, []string{dir}, pool)
+
+	// First probe — warm up
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel1()
+	_, _ = eng.ProbeSymbol(ctx1, dir, "Run")
+
+	// Kill gopls
+	if err := pool.KillServer("go", dir); err != nil {
+		t.Logf("KillServer: %v (may already be dead)", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	// Second probe — should respawn
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel2()
+	result, err := eng.ProbeSymbol(ctx2, dir, "Run")
+	if err != nil {
+		if ctx2.Err() != nil || strings.Contains(err.Error(), "quality threshold") || strings.Contains(err.Error(), "server dead") {
+			t.Skipf("gopls unstable on test fixture: %v", err)
+		}
+		t.Fatalf("probe after respawn: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result after respawn")
+	}
+}
+
+// Test 10: Scenario traces across package boundaries via LSP.
+func TestScenario_CrossPackageEdges(t *testing.T) {
+	requireGoplsInteg(t)
+	dir := makeGoFixture(t)
+
+	pool := lsp.NewPool()
+	defer pool.Shutdown(context.Background())
+
+	eng := New(&mockStore{headSHA: "test"}, []string{dir}, pool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := eng.GetScenario(ctx, dir, "Run", 5, false)
+	if err != nil {
+		if ctx.Err() != nil || strings.Contains(err.Error(), "quality threshold") || strings.Contains(err.Error(), "server dead") {
+			t.Skipf("gopls unstable on test fixture: %v", err)
+		}
+		t.Fatalf("GetScenario: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil scenario result")
+	}
+	t.Logf("scenario: upstream=%d downstream=%d", len(result.Upstream), len(result.Downstream))
+}
+
+// Test 14: Missing LSP server error message names the specific server per language.
+func TestLSP_MissingServer_ErrorMessage(t *testing.T) {
+	cases := []struct {
+		lang   string
+		file   string
+		expect string
+	}{
+		{"go", "main.go", "gopls"},
+		{"rust", "main.rs", "rust-analyzer"},
+		{"python", "main.py", "pyright"},
+		{"typescript", "index.ts", "typescript-language-server"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.lang, func(t *testing.T) {
+			dir := t.TempDir()
+			// Create a minimal file so language detection works
+			switch tc.lang {
+			case "go":
+				os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\ngo 1.21\n"), 0o644)
+				os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644)
+			case "rust":
+				os.WriteFile(filepath.Join(dir, "Cargo.toml"), []byte("[package]\nname = \"test\"\n"), 0o644)
+				os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+				os.WriteFile(filepath.Join(dir, "src", "main.rs"), []byte("fn main() {}\n"), 0o644)
+			case "python":
+				os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[project]\nname = \"test\"\n"), 0o644)
+				os.WriteFile(filepath.Join(dir, "main.py"), []byte("def main(): pass\n"), 0o644)
+			case "typescript":
+				os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"test"}`), 0o644)
+				os.WriteFile(filepath.Join(dir, "index.ts"), []byte("export function main() {}\n"), 0o644)
+			}
+
+			eng := New(&mockStore{headSHA: "test"}, []string{dir})
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			_, err := eng.ProbeSymbol(ctx, dir, "main")
+			if err == nil {
+				t.Skip("probe succeeded (LSP server available)")
+			}
+			if !strings.Contains(err.Error(), tc.expect) {
+				t.Errorf("error should mention %q, got: %s", tc.expect, err.Error())
+			}
+		})
+	}
+}

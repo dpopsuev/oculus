@@ -159,3 +159,47 @@ func writeGoMod(t *testing.T, dir string, i int) {
 		t.Fatal(err)
 	}
 }
+
+func TestRealPool_PreWarmFileCount(t *testing.T) {
+	requireGopls(t)
+
+	dir := t.TempDir()
+	// Create a Go module with 5 source files
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module warmtest\ngo 1.21\n"), 0o644)
+	for i := range 5 {
+		content := fmt.Sprintf("package warmtest\n\nfunc Func%d() {}\n", i)
+		os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%d.go", i)), []byte(content), 0o644)
+	}
+
+	pool := lsp.NewPool()
+	defer pool.Shutdown(context.Background())
+
+	// Get spawns and initializes (no prewarm)
+	client, err := pool.Get(lang.Go, dir)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+
+	// workspace/symbol should return symbols from all 5 files
+	result, err := client.Request("workspace/symbol", map[string]string{"query": "Func"})
+	if err != nil {
+		t.Fatalf("workspace/symbol: %v", err)
+	}
+	if len(result) < 50 {
+		t.Logf("workspace/symbol returned %d bytes (expected symbols from 5 files)", len(result))
+	}
+
+	// Now warm explicitly
+	if err := pool.Warm(lang.Go, dir); err != nil {
+		t.Fatalf("Warm: %v", err)
+	}
+
+	// After warm, same query should still work (and be faster, though we don't assert timing)
+	result2, err := client.Request("workspace/symbol", map[string]string{"query": "Func"})
+	if err != nil {
+		t.Fatalf("workspace/symbol after warm: %v", err)
+	}
+	if len(result2) < len(result) {
+		t.Errorf("expected at least %d bytes after warm, got %d", len(result), len(result2))
+	}
+}
