@@ -112,16 +112,7 @@ func (p *Engine) WarmLSP(ctx context.Context, path string) error {
 	if !ok {
 		return fmt.Errorf("pool does not support warm")
 	}
-	language := p.detectLanguage(path)
-	return rp.Warm(language, path)
-}
-
-func (p *Engine) detectLanguage(path string) lang.Language {
-	report, err := p.getOrScan(context.Background(), path)
-	if err != nil || report == nil {
-		return lang.Go
-	}
-	return lang.Language(report.Scanner)
+	return rp.Warm(lang.DetectLanguage(path), path)
 }
 
 // ScanOpts controls a local scan.
