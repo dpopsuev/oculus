@@ -57,23 +57,25 @@ func format(s string) string { return "[" + s + "]" }
 }
 
 // Test 6: Probe with LSP available returns call graph data.
+// Uses Oculus itself as the fixture — a real multi-package Go repo.
 func TestProbe_LSPAvailable(t *testing.T) {
 	requireGoplsInteg(t)
-	dir := makeGoFixture(t)
+	root := oculusRoot(t)
 
 	pool := lsp.NewPool()
 	defer pool.Shutdown(context.Background())
 
-	eng := New(&mockStore{headSHA: "test"}, []string{dir}, pool)
+	eng := New(&mockStore{headSHA: "test"}, []string{root}, pool)
 
-	// Warm the LSP index — gopls needs time to build call hierarchy
-	_ = eng.WarmLSP(context.Background(), dir)
-	time.Sleep(2 * time.Second) // allow gopls to finish indexing
+	if err := eng.WarmLSP(context.Background(), root); err != nil {
+		t.Skipf("WarmLSP failed: %v", err)
+	}
+	time.Sleep(3 * time.Second)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	result, err := eng.ProbeSymbol(ctx, dir, "main")
+	result, err := eng.ProbeSymbol(ctx, root, "ScanAndBuild")
 	if err != nil {
 		if ctx.Err() != nil {
 			t.Skipf("probe timed out: %v", err)
@@ -84,6 +86,9 @@ func TestProbe_LSPAvailable(t *testing.T) {
 		t.Fatal("expected non-nil probe result")
 	}
 	t.Logf("probe: fqn=%s kind=%s fan_in=%d fan_out=%d", result.FQN, result.Kind, result.FanIn, result.FanOut)
+	if result.FanOut == 0 && result.FanIn == 0 {
+		t.Error("expected non-zero fan_in or fan_out for ScanAndBuild")
+	}
 }
 
 // Test 7: Probe without LSP returns clear error naming the missing server.
