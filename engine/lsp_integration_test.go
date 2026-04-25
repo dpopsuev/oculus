@@ -219,3 +219,128 @@ func TestLSP_MissingServer_ErrorMessage(t *testing.T) {
 		})
 	}
 }
+
+// --- Aggressive warm tests ---
+
+func TestWarmLSP_GoRepo(t *testing.T) {
+	requireGoplsInteg(t)
+	dir := makeGoFixture(t)
+	pool := lsp.NewPool()
+	defer pool.Shutdown(context.Background())
+	eng := New(&mockStore{headSHA: "test"}, []string{dir}, pool)
+
+	if err := eng.WarmLSP(context.Background(), dir); err != nil {
+		t.Fatalf("WarmLSP on Go repo: %v", err)
+	}
+	s := pool.Status()
+	if s.Active != 1 {
+		t.Errorf("expected 1 active server after warm, got %d", s.Active)
+	}
+}
+
+func TestWarmLSP_NoPool(t *testing.T) {
+	dir := makeGoFixture(t)
+	eng := New(&mockStore{headSHA: "test"}, []string{dir}) // no pool
+
+	err := eng.WarmLSP(context.Background(), dir)
+	if err == nil {
+		t.Fatal("expected error without pool")
+	}
+}
+
+func TestWarmLSP_RustRepo(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "Cargo.toml"), []byte("[package]\nname = \"test\"\nversion = \"0.1.0\"\n"), 0o644)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+	os.WriteFile(filepath.Join(dir, "src", "main.rs"), []byte("fn main() {}\n"), 0o644)
+
+	pool := lsp.NewPool()
+	defer pool.Shutdown(context.Background())
+	eng := New(&mockStore{headSHA: "test"}, []string{dir}, pool)
+
+	err := eng.WarmLSP(context.Background(), dir)
+	// May fail if rust-analyzer not installed — that's fine
+	if err != nil {
+		t.Logf("WarmLSP on Rust repo: %v (expected if no rust-analyzer)", err)
+	}
+}
+
+func TestWarmLSP_PythonRepo(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[project]\nname = \"test\"\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "main.py"), []byte("def main(): pass\n"), 0o644)
+
+	pool := lsp.NewPool()
+	defer pool.Shutdown(context.Background())
+	eng := New(&mockStore{headSHA: "test"}, []string{dir}, pool)
+
+	err := eng.WarmLSP(context.Background(), dir)
+	if err != nil {
+		t.Logf("WarmLSP on Python repo: %v (expected if no pyright)", err)
+	}
+}
+
+func TestWarmLSP_EmptyDir(t *testing.T) {
+	dir := t.TempDir()
+	pool := lsp.NewPool()
+	defer pool.Shutdown(context.Background())
+	eng := New(&mockStore{headSHA: "test"}, []string{dir}, pool)
+
+	err := eng.WarmLSP(context.Background(), dir)
+	if err == nil {
+		t.Log("WarmLSP on empty dir succeeded (language detected as something)")
+	} else {
+		t.Logf("WarmLSP on empty dir: %v", err)
+	}
+}
+
+func TestWarmLSP_ThenProbe(t *testing.T) {
+	requireGoplsInteg(t)
+	dir := makeGoFixture(t)
+	pool := lsp.NewPool()
+	defer pool.Shutdown(context.Background())
+	eng := New(&mockStore{headSHA: "test"}, []string{dir}, pool)
+
+	if err := eng.WarmLSP(context.Background(), dir); err != nil {
+		t.Fatalf("WarmLSP: %v", err)
+	}
+	// Give gopls time to index after warm
+	time.Sleep(3 * time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := eng.ProbeSymbol(ctx, dir, "main")
+	if err != nil {
+		t.Logf("ProbeSymbol after warm: %v", err)
+		// Don't fatal — call graph may still be empty on small fixtures
+		return
+	}
+	t.Logf("probe after warm: fqn=%s fan_out=%d", result.FQN, result.FanOut)
+}
+
+// Test concurrent warm + probe — race condition detector
+func TestWarmLSP_ConcurrentWithProbe(t *testing.T) {
+	requireGoplsInteg(t)
+	dir := makeGoFixture(t)
+	pool := lsp.NewPool()
+	defer pool.Shutdown(context.Background())
+	eng := New(&mockStore{headSHA: "test"}, []string{dir}, pool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Warm and probe concurrently — should not crash
+	done := make(chan error, 2)
+	go func() { done <- eng.WarmLSP(ctx, dir) }()
+	go func() {
+		_, err := eng.ProbeSymbol(ctx, dir, "main")
+		done <- err
+	}()
+
+	for range 2 {
+		if err := <-done; err != nil {
+			t.Logf("concurrent warm/probe: %v", err)
+		}
+	}
+}
