@@ -23,11 +23,14 @@ var ErrMissingContentLength = errors.New("missing Content-Length header")
 var ErrServerDead = errors.New("lsp server dead")
 
 // Client implements the JSON-RPC 2.0 transport for LSP communication
-// over a stdin/stdout pipe pair.
+// over a stdin/stdout pipe pair. Thread-safe: reads and writes are
+// serialized via separate mutexes to prevent pipe corruption.
 type Client struct {
 	w      io.Writer
 	r      *bufio.Reader
-	mu     sync.Mutex
+	mu     sync.Mutex // protects nextID
+	rmu    sync.Mutex // serializes reads
+	wmu    sync.Mutex // serializes writes
 	nextID int
 }
 
@@ -158,6 +161,8 @@ func (c *Client) Notify(method string, params any) error {
 }
 
 func (c *Client) writeMessage(msg any) error {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
 	body, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -171,6 +176,8 @@ func (c *Client) writeMessage(msg any) error {
 }
 
 func (c *Client) readMessage() (*JSONRPCResponse, error) {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
 	contentLen := -1
 	for {
 		line, err := c.r.ReadString('\n')

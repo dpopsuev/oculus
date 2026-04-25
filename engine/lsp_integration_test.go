@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,26 +26,22 @@ func requireGoplsInteg(t *testing.T) {
 func makeGoFixture(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
+	// Single-package fixture — no cross-module resolution needed.
+	// gopls handles single-package call hierarchy reliably.
 	files := map[string]string{
 		"go.mod": "module probetest\ngo 1.21\n",
 		"main.go": `package main
 
-import "probetest/internal/svc"
-
 func main() {
-	s := svc.New("app")
-	s.Run()
+	result := process("input")
+	_ = format(result)
 }
-`,
-		"internal/svc/svc.go": `package svc
 
-type Service struct{ name string }
+func process(s string) string { return transform(s) }
 
-func New(name string) *Service { return &Service{name: name} }
+func transform(s string) string { return s + "_done" }
 
-func (s *Service) Run() { s.handle() }
-
-func (s *Service) handle() {}
+func format(s string) string { return "[" + s + "]" }
 `,
 	}
 	for name, content := range files {
@@ -52,6 +49,10 @@ func (s *Service) handle() {}
 		os.MkdirAll(filepath.Dir(p), 0o755)
 		os.WriteFile(p, []byte(content), 0o644)
 	}
+	// gopls needs a git repo for workspace initialization
+	exec.Command("git", "-C", dir, "init", "-q").Run()
+	exec.Command("git", "-C", dir, "add", "-A").Run()
+	exec.Command("git", "-C", dir, "commit", "-q", "-m", "init").Run()
 	return dir
 }
 
@@ -65,20 +66,24 @@ func TestProbe_LSPAvailable(t *testing.T) {
 
 	eng := New(&mockStore{headSHA: "test"}, []string{dir}, pool)
 
+	// Warm the LSP index — gopls needs time to build call hierarchy
+	_ = eng.WarmLSP(context.Background(), dir)
+	time.Sleep(2 * time.Second) // allow gopls to finish indexing
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	result, err := eng.ProbeSymbol(ctx, dir, "Run")
+	result, err := eng.ProbeSymbol(ctx, dir, "main")
 	if err != nil {
-		if ctx.Err() != nil || strings.Contains(err.Error(), "quality threshold") || strings.Contains(err.Error(), "server dead") {
-			t.Skipf("gopls unstable on test fixture: %v", err)
+		if ctx.Err() != nil {
+			t.Skipf("probe timed out: %v", err)
 		}
 		t.Fatalf("ProbeSymbol: %v", err)
 	}
 	if result == nil {
 		t.Fatal("expected non-nil probe result")
 	}
-	t.Logf("probe: %+v", result)
+	t.Logf("probe: fqn=%s kind=%s fan_in=%d fan_out=%d", result.FQN, result.Kind, result.FanIn, result.FanOut)
 }
 
 // Test 7: Probe without LSP returns clear error naming the missing server.

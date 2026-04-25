@@ -679,7 +679,17 @@ func (c *lspConn) documentSymbols(file, _ string) ([]docSymbol, error) {
 		"textDocument": map[string]string{"uri": uri},
 	})
 	if err != nil {
-		return nil, err
+		if errors.Is(err, lsp.ErrServerDead) {
+			return nil, err
+		}
+		// gopls may not have finished indexing after didOpen — retry once.
+		time.Sleep(200 * time.Millisecond)
+		result, err = c.request("textDocument/documentSymbol", map[string]any{
+			"textDocument": map[string]string{"uri": uri},
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	var symbols []docSymbolEntry
 	if json.Unmarshal(result, &symbols) != nil {
