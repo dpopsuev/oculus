@@ -23,15 +23,17 @@ var ErrMissingContentLength = errors.New("missing Content-Length header")
 var ErrServerDead = errors.New("lsp server dead")
 
 // Client implements the JSON-RPC 2.0 transport for LSP communication
-// over a stdin/stdout pipe pair. Thread-safe: reads and writes are
-// serialized via separate mutexes to prevent pipe corruption.
+// over a stdin/stdout pipe pair. Thread-safe: a single reader goroutine
+// dispatches responses by request ID. Writes are serialized via mutex.
 type Client struct {
-	w      io.Writer
-	r      *bufio.Reader
-	mu     sync.Mutex // protects nextID
-	rmu    sync.Mutex // serializes reads
-	wmu    sync.Mutex // serializes writes
-	nextID int
+	w       io.Writer
+	r       *bufio.Reader
+	mu      sync.Mutex // protects nextID
+	wmu     sync.Mutex // serializes writes
+	nextID  int
+	pending sync.Map   // id → chan *JSONRPCResponse
+	readerOnce sync.Once
+	readerErr  error
 }
 
 // NewClient creates an LSP client from reader/writer pairs (typically
@@ -77,14 +79,49 @@ func (c *Client) Request(method string, params any) (json.RawMessage, error) {
 	return c.RequestContext(context.Background(), method, params)
 }
 
+// startReader launches the single reader goroutine that dispatches
+// responses to waiting callers by request ID.
+func (c *Client) startReader() {
+	c.readerOnce.Do(func() {
+		go func() {
+			for {
+				resp, err := c.readMessage()
+				if err != nil {
+					c.readerErr = err
+					// Notify all pending callers
+					c.pending.Range(func(key, value any) bool {
+						ch := value.(chan *JSONRPCResponse)
+						close(ch)
+						c.pending.Delete(key)
+						return true
+					})
+					return
+				}
+				if resp.ID == nil || resp.Method != "" {
+					continue // skip notifications
+				}
+				if ch, ok := c.pending.LoadAndDelete(*resp.ID); ok {
+					ch.(chan *JSONRPCResponse) <- resp
+				}
+			}
+		}()
+	})
+}
+
 // RequestContext sends a JSON-RPC request with context support.
-// Both write and read are async — if context expires, returns immediately.
-// The caller should close the connection to unblock any kernel-level I/O.
+// Writes are serialized. Reads are dispatched by the single reader goroutine.
 func (c *Client) RequestContext(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	c.startReader()
+
 	c.mu.Lock()
 	id := c.nextID
 	c.nextID++
 	c.mu.Unlock()
+
+	// Register pending response channel before writing
+	ch := make(chan *JSONRPCResponse, 1)
+	c.pending.Store(id, ch)
+	defer c.pending.Delete(id)
 
 	req := JSONRPCRequest{
 		JSONRPC: "2.0",
@@ -93,7 +130,7 @@ func (c *Client) RequestContext(ctx context.Context, method string, params any) 
 		Params:  params,
 	}
 
-	// Async write — unblocks if ctx expires even when pipe buffer is full.
+	// Serialized write
 	writeDone := make(chan error, 1)
 	go func() {
 		writeDone <- c.writeMessage(req)
@@ -110,41 +147,20 @@ func (c *Client) RequestContext(ctx context.Context, method string, params any) 
 		return nil, fmt.Errorf("lsp write %s: %w", method, ctx.Err())
 	}
 
-	// Async read — unblocks if ctx expires even when server is slow.
-	type result struct {
-		data json.RawMessage
-		err  error
-	}
-	ch := make(chan result, 1)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				ch <- result{nil, fmt.Errorf("lsp request %s: reader panic: %v", method, r)}
-			}
-		}()
-		for {
-			resp, err := c.readMessage()
-			if err != nil {
-				ch <- result{nil, fmt.Errorf("lsp response %s: %w", method, err)}
-				return
-			}
-			if resp.ID == nil || resp.Method != "" {
-				continue
-			}
-			if *resp.ID == id {
-				if resp.Error != nil {
-					ch <- result{nil, resp.Error}
-				} else {
-					ch <- result{resp.Result, nil}
-				}
-				return
-			}
-		}
-	}()
-
+	// Wait for response dispatched by reader goroutine
 	select {
-	case r := <-ch:
-		return r.data, r.err
+	case resp, ok := <-ch:
+		if !ok {
+			// Reader goroutine died
+			if c.readerErr != nil {
+				return nil, fmt.Errorf("lsp response %s: %w", method, c.readerErr)
+			}
+			return nil, fmt.Errorf("lsp response %s: %w", method, ErrServerDead)
+		}
+		if resp.Error != nil {
+			return nil, resp.Error
+		}
+		return resp.Result, nil
 	case <-ctx.Done():
 		return nil, fmt.Errorf("lsp read %s: %w", method, ctx.Err())
 	}
@@ -176,8 +192,6 @@ func (c *Client) writeMessage(msg any) error {
 }
 
 func (c *Client) readMessage() (*JSONRPCResponse, error) {
-	c.rmu.Lock()
-	defer c.rmu.Unlock()
 	contentLen := -1
 	for {
 		line, err := c.r.ReadString('\n')
