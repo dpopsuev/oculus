@@ -100,6 +100,7 @@ func Probe(sg *SymbolGraph, symbol string) *ProbeResult {
 		EndLine:     sym.EndLine,
 		Kind:        sym.Kind,
 		Exported:    sym.Exported,
+		Leaf:        fo == 0 && fi > 0,
 		Params:      sym.ParamTypes,
 		Returns:     sym.ReturnTypes,
 		FanIn:       fi,
@@ -174,10 +175,11 @@ func TraceScenario(sg *SymbolGraph, symbol string, maxDepth int, stress bool, to
 	}
 
 	return &ScenarioResult{
-		Symbol:     symbol,
-		Upstream:   upNodes,
-		Downstream: downNodes,
-		Edges:      edges,
+		Symbol:         symbol,
+		Upstream:       upNodes,
+		Downstream:     downNodes,
+		Edges:          edges,
+		GraphEdgeCount: len(sg.Edges),
 	}
 }
 
@@ -236,7 +238,7 @@ func FindConvergence(sg *SymbolGraph, symbols []string, topN int) *ConvergenceRe
 		}
 	}
 
-	return &ConvergenceResult{Symbols: symbols, Nodes: nodes, Edges: edges}
+	return &ConvergenceResult{Symbols: symbols, Nodes: nodes, Edges: edges, GraphEdgeCount: len(sg.Edges)}
 }
 
 // Isolate removes a symbol and reports what disconnects.

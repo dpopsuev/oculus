@@ -9,6 +9,7 @@ type ProbeResult struct {
 	EndLine     int      `json:"end_line,omitempty"`
 	Kind        string   `json:"kind"`
 	Exported    bool     `json:"exported"`
+	Leaf        bool     `json:"leaf"`
 	Params      []string `json:"params,omitempty"`
 	Returns     []string `json:"returns,omitempty"`
 	FanIn       int      `json:"fan_in"`
@@ -32,12 +33,13 @@ type ScenarioNode struct {
 
 // ScenarioResult is the bidirectional trace from a pivot symbol to system boundaries.
 type ScenarioResult struct {
-	Symbol     string         `json:"symbol"`
-	Upstream   []ScenarioNode `json:"upstream"`
-	Downstream []ScenarioNode `json:"downstream"`
-	Edges      []SymbolEdge   `json:"edges"`
-	Circuits   [][]string     `json:"circuits,omitempty"`
-	Boundaries []string       `json:"boundaries,omitempty"`
+	Symbol         string         `json:"symbol"`
+	Upstream       []ScenarioNode `json:"upstream"`
+	Downstream     []ScenarioNode `json:"downstream"`
+	Edges          []SymbolEdge   `json:"edges"`
+	Circuits       [][]string     `json:"circuits,omitempty"`
+	Boundaries     []string       `json:"boundaries,omitempty"`
+	GraphEdgeCount int            `json:"graph_edge_count"`
 }
 
 // ConvergenceNode is a shared dependency reached by multiple input symbols.
@@ -49,9 +51,10 @@ type ConvergenceNode struct {
 
 // ConvergenceResult shows where N symbols' downstream call trees overlap.
 type ConvergenceResult struct {
-	Symbols []string          `json:"symbols"`
-	Nodes   []ConvergenceNode `json:"nodes"`
-	Edges   []SymbolEdge      `json:"edges"`
+	Symbols        []string          `json:"symbols"`
+	Nodes          []ConvergenceNode `json:"nodes"`
+	Edges          []SymbolEdge      `json:"edges"`
+	GraphEdgeCount int               `json:"graph_edge_count"`
 }
 
 // IslandResult shows symbols unreachable from declared entry points.
