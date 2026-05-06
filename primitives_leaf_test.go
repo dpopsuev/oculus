@@ -17,15 +17,16 @@ func TestProbe_LeafDetection(t *testing.T) {
 	}
 
 	cases := []struct {
-		symbol   string
-		wantLeaf bool
+		symbol     string
+		wantLeaf   bool
+		wantStatus CallGraphStatus
 		wantFanIn  int
 		wantFanOut int
 	}{
-		{"main.main", false, 0, 1},      // entry point: fan_out>0, fan_in=0 → not leaf (it's a root)
-		{"main.process", false, 1, 1},    // middle: has both callers and callees
-		{"main.leaf", true, 1, 0},        // leaf: has callers but no callees
-		{"main.orphan", false, 0, 0},     // orphan: no edges at all — not a leaf, just disconnected
+		{"main.main", false, CallGraphCovered, 0, 1},
+		{"main.process", false, CallGraphCovered, 1, 1},
+		{"main.leaf", true, CallGraphCovered, 1, 0},
+		{"main.orphan", false, CallGraphNotCovered, 0, 0},
 	}
 
 	for _, tc := range cases {
@@ -35,7 +36,10 @@ func TestProbe_LeafDetection(t *testing.T) {
 				t.Fatalf("Probe(%s) returned nil", tc.symbol)
 			}
 			if r.Leaf != tc.wantLeaf {
-				t.Errorf("Leaf=%v, want %v (fan_in=%d, fan_out=%d)", r.Leaf, tc.wantLeaf, r.FanIn, r.FanOut)
+				t.Errorf("Leaf=%v, want %v", r.Leaf, tc.wantLeaf)
+			}
+			if r.CallGraphStatus != tc.wantStatus {
+				t.Errorf("CallGraphStatus=%s, want %s", r.CallGraphStatus, tc.wantStatus)
 			}
 			if r.FanIn != tc.wantFanIn {
 				t.Errorf("FanIn=%d, want %d", r.FanIn, tc.wantFanIn)
@@ -44,6 +48,23 @@ func TestProbe_LeafDetection(t *testing.T) {
 				t.Errorf("FanOut=%d, want %d", r.FanOut, tc.wantFanOut)
 			}
 		})
+	}
+}
+
+func TestProbe_CallGraphStatus_NoGraph(t *testing.T) {
+	sg := &SymbolGraph{
+		Nodes: []Symbol{
+			{Name: "lonely", Package: "main", Kind: "function", Exported: true},
+		},
+		Edges: nil,
+	}
+
+	r := Probe(sg, "main.lonely")
+	if r == nil {
+		t.Fatal("Probe returned nil")
+	}
+	if r.CallGraphStatus != CallGraphNone {
+		t.Errorf("CallGraphStatus=%s, want %s", r.CallGraphStatus, CallGraphNone)
 	}
 }
 

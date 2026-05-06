@@ -92,23 +92,33 @@ func Probe(sg *SymbolGraph, symbol string) *ProbeResult {
 		inst = float64(fo) / float64(fi+fo)
 	}
 
+	status := CallGraphCovered
+	if fi == 0 && fo == 0 {
+		if len(sg.Edges) == 0 {
+			status = CallGraphNone
+		} else {
+			status = CallGraphNotCovered
+		}
+	}
+
 	return &ProbeResult{
-		FQN:         symbol,
-		Package:     sym.Package,
-		File:        sym.File,
-		Line:        sym.Line,
-		EndLine:     sym.EndLine,
-		Kind:        sym.Kind,
-		Exported:    sym.Exported,
-		Leaf:        fo == 0 && fi > 0,
-		Params:      sym.ParamTypes,
-		Returns:     sym.ReturnTypes,
-		FanIn:       fi,
-		FanOut:      fo,
-		Instability: inst,
-		CrossPkg:    crossPkg,
-		Circuits:    circuits,
-		Boundaries:  boundaries,
+		FQN:             symbol,
+		Package:         sym.Package,
+		File:            sym.File,
+		Line:            sym.Line,
+		EndLine:         sym.EndLine,
+		Kind:            sym.Kind,
+		Exported:        sym.Exported,
+		Leaf:            fo == 0 && fi > 0,
+		CallGraphStatus: status,
+		Params:          sym.ParamTypes,
+		Returns:         sym.ReturnTypes,
+		FanIn:           fi,
+		FanOut:          fo,
+		Instability:     inst,
+		CrossPkg:        crossPkg,
+		Circuits:        circuits,
+		Boundaries:      boundaries,
 	}
 }
 

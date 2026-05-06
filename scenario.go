@@ -1,24 +1,34 @@
 package oculus
 
 // ProbeResult contains all vitals for a single symbol — zero traversal.
+// CallGraphStatus indicates the quality of call graph data for a symbol.
+type CallGraphStatus string
+
+const (
+	CallGraphCovered    CallGraphStatus = "covered"
+	CallGraphNotCovered CallGraphStatus = "not_covered"
+	CallGraphNone       CallGraphStatus = "no_call_graph"
+)
+
 type ProbeResult struct {
-	FQN         string   `json:"fqn"`
-	Package     string   `json:"package"`
-	File        string   `json:"file,omitempty"`
-	Line        int      `json:"line,omitempty"`
-	EndLine     int      `json:"end_line,omitempty"`
-	Kind        string   `json:"kind"`
-	Exported    bool     `json:"exported"`
-	Leaf        bool     `json:"leaf"`
-	Params      []string `json:"params,omitempty"`
-	Returns     []string `json:"returns,omitempty"`
-	FanIn       int      `json:"fan_in"`
-	FanOut      int      `json:"fan_out"`
-	Instability float64  `json:"instability"`
-	CrossPkg    int      `json:"cross_pkg_callees"`
-	Centrality  float64  `json:"centrality,omitempty"`
-	Circuits    int      `json:"circuits"`
-	Boundaries  []string `json:"boundaries,omitempty"`
+	FQN             string          `json:"fqn"`
+	Package         string          `json:"package"`
+	File            string          `json:"file,omitempty"`
+	Line            int             `json:"line,omitempty"`
+	EndLine         int             `json:"end_line,omitempty"`
+	Kind            string          `json:"kind"`
+	Exported        bool            `json:"exported"`
+	Leaf            bool            `json:"leaf"`
+	CallGraphStatus CallGraphStatus `json:"call_graph_status"`
+	Params          []string        `json:"params,omitempty"`
+	Returns         []string        `json:"returns,omitempty"`
+	FanIn           int             `json:"fan_in"`
+	FanOut          int             `json:"fan_out"`
+	Instability     float64         `json:"instability"`
+	CrossPkg        int             `json:"cross_pkg_callees"`
+	Centrality      float64         `json:"centrality,omitempty"`
+	Circuits        int             `json:"circuits"`
+	Boundaries      []string        `json:"boundaries,omitempty"`
 }
 
 // ScenarioNode is a symbol in a scenario trace with depth from the pivot.
