@@ -69,9 +69,6 @@ func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts 
 		if _, ok := analyzer.(*LSPDeepAnalyzer); ok {
 			quality = QualityLSP
 		}
-		if _, ok := analyzer.(*RegexDeepAnalyzer); ok {
-			continue // Regex is too low quality for racing — SymbolSources cover this tier
-		}
 		attempts = append(attempts, Attempt[*oculus.CallGraph]{
 			Name:    name,
 			Quality: quality,

@@ -84,26 +84,6 @@ func TestContract_TreeSitter_EdgeMetadata(t *testing.T) {
 	assertEdgeMetadata(t, "TreeSitter", cg)
 }
 
-func TestContract_Regex_EdgeMetadata(t *testing.T) {
-	dir := setupContractFixture(t)
-	a := &RegexDeepAnalyzer{}
-	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cg.Edges) == 0 {
-		t.Error("[Regex] contract violation: 0 edges")
-		return
-	}
-	// Regex is a best-effort fallback — it produces edges but without
-	// precise File/Line metadata. Document this as known limitation.
-	for _, e := range cg.Edges {
-		if e.File != "" && e.Line > 0 {
-			return // at least one edge has metadata — pass
-		}
-	}
-	t.Log("[Regex] known limitation: edges lack File/Line (best-effort fallback)")
-}
 
 func TestContract_Fallback_EdgeMetadata(t *testing.T) {
 	dir := setupContractFixture(t)
@@ -145,33 +125,6 @@ func TestContract_TreeSitter_TypedEdges(t *testing.T) {
 	assertTypedEdges(t, "TreeSitter", cg)
 }
 
-func TestContract_UniversalEnrichment(t *testing.T) {
-	dir := setupContractFixture(t)
-	// Use Regex — produces edges with 0% types
-	a := &RegexDeepAnalyzer{}
-	cg, err := a.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "main", Depth: 5})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cg.Edges) == 0 {
-		t.Skip("Regex produced 0 edges")
-	}
-
-	// Before enrichment: 0% typed
-	typedBefore := countTyped(cg.Edges)
-	t.Logf("Before enrichment: %d/%d typed", typedBefore, len(cg.Edges))
-
-	// Run go/parser enrichment (universal — works without LSP)
-	EnrichCallEdgeTypes(dir, cg.Edges)
-
-	// After enrichment: should have types
-	typedAfter := countTyped(cg.Edges)
-	t.Logf("After enrichment: %d/%d typed", typedAfter, len(cg.Edges))
-
-	if typedAfter <= typedBefore {
-		t.Errorf("enrichment did not improve type coverage: %d → %d", typedBefore, typedAfter)
-	}
-}
 
 // --- Helpers ---
 
