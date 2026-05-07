@@ -29,7 +29,6 @@ import (
 	clinicnaming "github.com/dpopsuev/oculus/v3/clinic/naming"
 	clinicsolid "github.com/dpopsuev/oculus/v3/clinic/solid"
 	"github.com/dpopsuev/oculus/v3/constraint"
-	"github.com/dpopsuev/oculus/v3/cursor"
 	gitpkg "github.com/dpopsuev/oculus/v3/git"
 	"github.com/dpopsuev/oculus/v3/graph"
 	"github.com/dpopsuev/oculus/v3/history"
@@ -1645,15 +1644,6 @@ func (p *Engine) DiffBranches(ctx context.Context, path, branchA, branchB string
 	}, nil
 }
 
-func (p *Engine) GetRules(ctx context.Context, path string) ([]cursor.Rule, error) {
-	path = p.resolvePath(path)
-	return cursor.ReadRules(path)
-}
-
-func (p *Engine) GetSkills(ctx context.Context, path string) ([]cursor.Skill, error) {
-	path = p.resolvePath(path)
-	return cursor.ReadSkills(path)
-}
 
 func (p *Engine) GetConventions(ctx context.Context, path string) (*oculus.ConventionReport, error) {
 	path = p.resolvePath(path)
