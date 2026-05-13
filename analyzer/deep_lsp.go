@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os/exec"
@@ -114,7 +115,10 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 
 	// Step 1: Discover roots via workspace/symbol (1 call, not 549 file scans).
 	// For a specific entry, just open that one file.
-	roots := lspCallGraphRoots(opts, conn, a.root)
+	roots, err := lspCallGraphRoots(opts, conn, a.root)
+	if err != nil {
+		return nil, fmt.Errorf("lsp call graph roots: %w", err)
+	}
 
 	// Step 2: Walk the call tree from roots with bounded concurrency.
 	var mu sync.Mutex
@@ -217,8 +221,6 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 	}
 	return &oculus.CallGraph{Nodes: nodes, Edges: edges, Layer: oculus.LayerLSP}, nil
 }
-
-
 
 // resolveCalleeTypes extracts callee param/return types via textDocument/hover
 // at the callee's definition position. Cached by callee FQN.
@@ -462,21 +464,28 @@ func (a *LSPDeepAnalyzer) DetectStateMachines(ctx context.Context, _ string) ([]
 
 // lspCallGraphRoots discovers root functions via workspace/symbol (1 call)
 // instead of scanning all files with documentSymbol (N calls).
-func lspCallGraphRoots(opts oculus.CallGraphOpts, conn *lspConn, _ string) []string {
+func lspCallGraphRoots(opts oculus.CallGraphOpts, conn *lspConn, root string) ([]string, error) {
 	if opts.Entry != "" {
-		return []string{opts.Entry}
+		return []string{opts.Entry}, nil
 	}
 	if opts.ExportedOnly {
-		return lspExportedRoots(conn)
+		return lspExportedRoots(conn, root)
 	}
 	// Default: all exported functions
-	return lspExportedRoots(conn)
+	return lspExportedRoots(conn, root)
 }
 
 // lspExportedRoots uses workspace/symbol to find all exported functions.
 // Retries with backoff if the server returns empty (indexing in progress).
-func lspExportedRoots(conn *lspConn) []string {
+// Falls back to documentSymbol when workspace/symbol errors or stays empty
+// (for example TypeScript monorepos returning "No Project").
+func lspExportedRoots(conn *lspConn, root string) ([]string, error) {
+	detected := lang.DetectLanguage(root)
+	allowEarlyFallback := detected == lang.TypeScript || detected == lang.JavaScript
+
 	var symbols []workspaceSymbol
+	var lastErr error
+	primed := false
 
 	for attempt := range lspIndexingRetries {
 		if attempt > 0 {
@@ -484,12 +493,33 @@ func lspExportedRoots(conn *lspConn) []string {
 		}
 		result, err := conn.request("workspace/symbol", map[string]any{"query": "."})
 		if err != nil {
-			return nil
+			lastErr = err
+			if errors.Is(err, lsp.ErrServerDead) {
+				return nil, err
+			}
+			if !primed {
+				primeWorkspace(conn, root)
+				primed = true
+				continue
+			}
+			// TypeScript/JavaScript often report "No Project" at repo root.
+			// Don't spin for minutes when we can fall back to documentSymbol.
+			if allowEarlyFallback || isNoProjectError(err) {
+				break
+			}
+			continue
 		}
-		if json.Unmarshal(result, &symbols) != nil {
-			return nil
+		if err := json.Unmarshal(result, &symbols); err != nil {
+			return nil, fmt.Errorf("workspace/symbol decode: %w", err)
 		}
 		if len(symbols) > 0 {
+			break
+		}
+		if !primed {
+			primeWorkspace(conn, root)
+			primed = true
+		}
+		if allowEarlyFallback && attempt >= 2 {
 			break
 		}
 		slog.LogAttrs(conn.ctx, slog.LevelInfo, "lsp: workspace/symbol empty, server may be indexing",
@@ -498,13 +528,34 @@ func lspExportedRoots(conn *lspConn) []string {
 			slog.String("raw_response", string(result)),
 		)
 	}
+	if roots := exportedRootsFromWorkspaceSymbols(symbols); len(roots) > 0 {
+		return roots, nil
+	}
+
+	roots := lspExportedRootsFromDocumentSymbols(conn, root)
+	if len(roots) > 0 {
+		if lastErr != nil {
+			slog.LogAttrs(conn.ctx, slog.LevelWarn, "lsp: root discovery fallback to documentSymbol",
+				slog.Any("workspace_symbol_error", lastErr),
+				slog.Int("roots", len(roots)),
+			)
+		}
+		return roots, nil
+	}
+
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, nil
+}
+
+func exportedRootsFromWorkspaceSymbols(symbols []workspaceSymbol) []string {
 	seen := make(map[string]bool)
-	var roots []string
+	roots := make([]string, 0, len(symbols))
 	for _, s := range symbols {
 		if s.Kind != 12 && s.Kind != 6 { // function or method
 			continue
 		}
-		// Extract just the function name (workspace/symbol may return "pkg.Func")
 		name := s.Name
 		if dot := strings.LastIndex(name, "."); dot >= 0 {
 			name = name[dot+1:]
@@ -516,4 +567,49 @@ func lspExportedRoots(conn *lspConn) []string {
 		roots = append(roots, name)
 	}
 	return roots
+}
+
+func lspExportedRootsFromDocumentSymbols(conn *lspConn, root string) []string {
+	seen := make(map[string]bool)
+	var roots []string
+	for _, f := range findSrcFiles(root) {
+		if conn.ctx != nil && conn.ctx.Err() != nil {
+			break
+		}
+		syms, err := conn.documentSymbols(f, root)
+		if err != nil {
+			continue
+		}
+		for _, sym := range syms {
+			if sym.Kind != 12 && sym.Kind != 6 {
+				continue
+			}
+			name := sym.Name
+			if dot := strings.LastIndex(name, "."); dot >= 0 {
+				name = name[dot+1:]
+			}
+			if !isExported(name) || seen[name] {
+				continue
+			}
+			seen[name] = true
+			roots = append(roots, name)
+		}
+	}
+	return roots
+}
+
+func primeWorkspace(conn *lspConn, root string) {
+	for _, f := range findSrcFiles(root) {
+		if conn.ctx != nil && conn.ctx.Err() != nil {
+			return
+		}
+		conn.ensureOpen(f)
+	}
+}
+
+func isNoProjectError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "no project")
 }

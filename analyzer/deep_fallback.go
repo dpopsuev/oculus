@@ -80,9 +80,18 @@ func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts 
 		})
 	}
 
+	detectedLang := lang.DetectLanguage(f.root)
+	minQuality := QualityLSP
+	// For TS/JS monorepos the LSP server can be present but fail root
+	// resolution ("No Project"). Allow SymbolSource fallback instead of
+	// hard-failing all symbol-level features.
+	if detectedLang == lang.TypeScript || detectedLang == lang.JavaScript {
+		minQuality = QualityTreeSitter
+	}
+
 	racer := NewRacer(func(cg *oculus.CallGraph) bool {
 		return cg == nil || len(cg.Edges) == 0
-	}, attempts...).WithMinQuality(QualityLSP)
+	}, attempts...).WithMinQuality(minQuality)
 
 	start := time.Now()
 	result, err := racer.Race(ctx)
@@ -93,6 +102,16 @@ func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts 
 			detected := survey.DetectLanguage(f.root)
 			server := lang.DefaultLSPServer(lang.Language(detected.String()))
 			if server != "" {
+				// Always name the server so the caller knows what to fix,
+				// whether the binary is absent or present-but-failing.
+				// TypeScript/JavaScript: add extra context because tsserver
+				// may be present but fail project-root resolution ("No Project").
+				if detected.String() == string(lang.TypeScript) || detected.String() == string(lang.JavaScript) {
+					return &oculus.CallGraph{}, fmt.Errorf(
+						"%w — %s repository requires: %s (LSP returned no project symbols — check workspace root/tsconfig)",
+						err, detected, server,
+					)
+				}
 				return &oculus.CallGraph{}, fmt.Errorf("%w — %s repository requires: %s", err, detected, server)
 			}
 		}
@@ -114,6 +133,8 @@ func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts 
 	}
 	return result.Value, nil
 }
+
+
 
 // perAnalyzerTimeout is the max time each analyzer gets before the fallback
 // chain moves to the next one. 5 minutes gives gopls time to index large
