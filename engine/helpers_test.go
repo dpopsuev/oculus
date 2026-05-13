@@ -346,6 +346,40 @@ func TestRenderScanSummary_WithDrift(t *testing.T) {
 	}
 }
 
+func TestRenderScanSummary_GranularityLabelWhenCountsDiffer(t *testing.T) {
+	// Simulate a grouped scan: component-level sees 0 cycles, module-level sees 1.
+	// RenderScanSummary must label both counts so callers know which granularity
+	// each figure applies to (LCS-BUG-70).
+	report := testReport()
+	report.Cycles = []graph.Cycle{}                                          // component-level: 0
+	report.ModuleLevelCycles = []graph.Cycle{{"pkg/a", "pkg/a/sub", "pkg/a"}} // module-level: 1
+	r := &ScanResult{Report: report, CacheKey: "test@abc"}
+
+	got := RenderScanSummary(r, "")
+
+	if !strings.Contains(got, "component-level") {
+		t.Errorf("expected \"component-level\" label in summary, got: %s", got)
+	}
+	if !strings.Contains(got, "module-level") {
+		t.Errorf("expected \"module-level\" label in summary, got: %s", got)
+	}
+}
+
+func TestRenderScanSummary_NoLabelWhenCountsAgree(t *testing.T) {
+	// When component-level and module-level counts match, the summary must
+	// stay compact — no extra label noise.
+	report := testReport()
+	report.Cycles = []graph.Cycle{{"pkg/a", "pkg/b", "pkg/a"}}
+	report.ModuleLevelCycles = []graph.Cycle{{"pkg/a", "pkg/b", "pkg/a"}} // same count
+	r := &ScanResult{Report: report, CacheKey: "test@abc"}
+
+	got := RenderScanSummary(r, "")
+
+	if strings.Contains(got, "component-level") {
+		t.Errorf("unexpected granularity label when counts agree: %s", got)
+	}
+}
+
 // --- resolveRolesAndAccepted ---
 
 func TestResolveRolesAndAccepted_NilNil(t *testing.T) {

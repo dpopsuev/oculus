@@ -195,6 +195,24 @@ func ScanAndBuild(ctx context.Context, root string, opts ScanOpts) (*ContextRepo
 		cycles = []graph.Cycle{}
 	}
 	report.Cycles = cycles
+
+	// When grouping is active, buildGroupEdges silently drops intra-component
+	// edges (fromGroup == toGroup) before cycle detection runs, so report.Cycles
+	// only reflects inter-component cycles. Run a second pass on the ungrouped
+	// package-level graph so callers can surface the discrepancy.
+	if len(syncOpts.Groups) > 0 {
+		ungroupedOpts := SyncOptions{
+			ModulePath:      syncOpts.ModulePath,
+			ExcludeTests:    syncOpts.ExcludeTests,
+			IncludeExternal: syncOpts.IncludeExternal,
+		}
+		ungroupedModel := ProjectToArchModel(proj, ungroupedOpts)
+		moduleCycles := graph.DetectCycles(ungroupedModel.Edges)
+		if moduleCycles == nil {
+			moduleCycles = []graph.Cycle{}
+		}
+		report.ModuleLevelCycles = moduleCycles
+	}
 	report.ImportDepth = graph.ImportDepth(archModel.Edges)
 	report.APISurfaces = ComputeAPISurface(archModel)
 	report.BoundaryCrossings = DetectBoundaryCrossings(archModel, nil)

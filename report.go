@@ -93,6 +93,10 @@ type ScanCore struct {
 type GraphMetrics struct {
 	HotSpots          []HotSpot              `json:"hot_spots,omitempty"`
 	Cycles            []graph.Cycle          `json:"cycles,omitempty"`
+	// ModuleLevelCycles holds cycles detected on the ungrouped package-level graph.
+	// Only populated when the scan used component grouping (Depth > 0); when nil,
+	// Cycles already reflects module-level granularity.
+	ModuleLevelCycles []graph.Cycle          `json:"module_level_cycles,omitempty"`
 	ImportDepth       graph.DepthMap         `json:"import_depth,omitempty"`
 	LayerViolations   []graph.LayerViolation `json:"layer_violations,omitempty"`
 	APISurfaces       []APISurface           `json:"api_surfaces,omitempty"`

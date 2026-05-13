@@ -181,11 +181,16 @@ type ScanResult struct {
 // RenderScanSummary returns a compact ~50 token summary of a scan result.
 func RenderScanSummary(r *ScanResult, driftInfo string) string {
 	report := r.Report
-	summary := fmt.Sprintf("Scanned %s: %d components, %d edges, %d cycles, scanner=%s\ncache_key: %s",
+	cycleStr := fmt.Sprintf("%d", len(report.Cycles))
+	if report.ModuleLevelCycles != nil && len(report.ModuleLevelCycles) != len(report.Cycles) {
+		cycleStr = fmt.Sprintf("%d component-level (%d module-level)",
+			len(report.Cycles), len(report.ModuleLevelCycles))
+	}
+	summary := fmt.Sprintf("Scanned %s: %d components, %d edges, %s cycles, scanner=%s\ncache_key: %s",
 		report.ModulePath,
 		len(report.Architecture.Services),
 		len(report.Architecture.Edges),
-		len(report.Cycles),
+		cycleStr,
 		report.Scanner,
 		r.CacheKey)
 	if driftInfo != "" {
