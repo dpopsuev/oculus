@@ -181,11 +181,29 @@ type ScanResult struct {
 // RenderScanSummary returns a compact ~50 token summary of a scan result.
 func RenderScanSummary(r *ScanResult, driftInfo string) string {
 	report := r.Report
-	cycleStr := fmt.Sprintf("%d", len(report.Cycles))
-	if report.ModuleLevelCycles != nil && len(report.ModuleLevelCycles) != len(report.Cycles) {
+
+	// Prefer SCC count as the actionable coupling signal.
+	// Johnson's simple-cycle enumeration inflates the number combinatorially:
+	// a single 12-node SCC produces 500+ simple cycles but is one problem.
+	var cycleStr string
+	switch {
+	case len(report.CycleGroups) > 0:
+		// Count packages involved across all SCCs.
+		pkgSet := make(map[string]bool)
+		for _, g := range report.CycleGroups {
+			for _, p := range g {
+				pkgSet[p] = true
+			}
+		}
+		cycleStr = fmt.Sprintf("%d cyclic group(s) (%d packages)",
+			len(report.CycleGroups), len(pkgSet))
+	case report.ModuleLevelCycles != nil && len(report.ModuleLevelCycles) != len(report.Cycles):
 		cycleStr = fmt.Sprintf("%d component-level (%d module-level)",
 			len(report.Cycles), len(report.ModuleLevelCycles))
+	default:
+		cycleStr = fmt.Sprintf("%d", len(report.Cycles))
 	}
+
 	summary := fmt.Sprintf("Scanned %s: %d components, %d edges, %s cycles, scanner=%s\ncache_key: %s",
 		report.ModulePath,
 		len(report.Architecture.Services),

@@ -97,6 +97,12 @@ type GraphMetrics struct {
 	// Only populated when the scan used component grouping (Depth > 0); when nil,
 	// Cycles already reflects module-level granularity.
 	ModuleLevelCycles []graph.Cycle          `json:"module_level_cycles,omitempty"`
+	// CycleGroups holds the strongly connected components (SCCs) with >1 node.
+	// This is the actionable coupling metric: one SCC = one knot to untangle.
+	// Johnson's simple-cycle enumeration (Cycles field) inflates the count
+	// combinatorially — a 12-node SCC produces 500+ simple cycles but is
+	// still just one architectural problem.
+	CycleGroups       []graph.CycleGroup     `json:"cycle_groups,omitempty"`
 	ImportDepth       graph.DepthMap         `json:"import_depth,omitempty"`
 	LayerViolations   []graph.LayerViolation `json:"layer_violations,omitempty"`
 	APISurfaces       []APISurface           `json:"api_surfaces,omitempty"`

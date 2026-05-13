@@ -196,6 +196,13 @@ func ScanAndBuild(ctx context.Context, root string, opts ScanOpts) (*ContextRepo
 	}
 	report.Cycles = cycles
 
+	// SCCs: the actionable coupling metric. One SCC = one knot to untangle,
+	// regardless of how many simple cycles Johnson's algorithm finds inside it.
+	// Always computed on the same graph as Cycles so the granularity matches.
+	if groups := graph.StronglyConnectedComponents(archModel.Edges); len(groups) > 0 {
+		report.CycleGroups = groups
+	}
+
 	// When grouping is active, buildGroupEdges silently drops intra-component
 	// edges (fromGroup == toGroup) before cycle detection runs, so report.Cycles
 	// only reflects inter-component cycles. Run a second pass on the ungrouped
