@@ -133,6 +133,7 @@ func (p *SymbolPipeline) CallGraph(ctx context.Context, _ string, opts CallGraph
 				CrossPkg:    sym.Package != callee.Package,
 				ParamTypes:  paramTypes,
 				ReturnTypes: returnTypes,
+				Kind:        rel.Kind,
 			})
 			mu.Unlock()
 

@@ -33,10 +33,14 @@ func MergeSymbolGraph(cg *CallGraph, classes []ClassInfo, impls []ImplEdge, refs
 		for _, e := range cg.Edges {
 			src := fqn(e.CallerPkg, e.Caller)
 			tgt := fqn(e.CalleePkg, e.Callee)
-			ek := edgeKey{src, tgt, "call"}
+			kind := e.Kind
+			if kind == "" {
+				kind = "call"
+			}
+			ek := edgeKey{src, tgt, kind}
 			if _, exists := edgeSet[ek]; !exists {
 				edgeSet[ek] = SymbolEdge{
-					SourceFQN: src, TargetFQN: tgt, Kind: "call",
+					SourceFQN: src, TargetFQN: tgt, Kind: kind,
 					File: e.File, Line: e.Line, EndLine: e.EndLine,
 					ParamTypes: e.ParamTypes, ReturnTypes: e.ReturnTypes,
 					Layer: cg.Layer,

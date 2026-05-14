@@ -73,6 +73,17 @@ func (s *FuncIndexSource) Children(_ context.Context, sym Symbol) ([]SourceRelat
 			InWorkspace: true,
 		})
 	}
+	for callee, kind := range fn.AsyncCallees {
+		cf, ok := s.index[callee]
+		if !ok {
+			continue
+		}
+		rels = append(rels, SourceRelation{
+			Target:      s.toSymbol(cf),
+			Kind:        kind,
+			InWorkspace: true,
+		})
+	}
 	return rels, nil
 }
 

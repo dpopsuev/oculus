@@ -118,6 +118,19 @@ type ProgressUpdate struct {
 }
 
 // CallEdge represents a single caller->callee edge in the call graph.
+// CallEdgeKind classifies the temporal nature of a call.
+// "call" is a plain synchronous call (default/zero value).
+// Other values encode async seams so consumers can reason about causality.
+const (
+	CallEdgeSync        = "call"          // default — synchronous direct call
+	CallEdgeGoroutine   = "goroutine"     // Go: go f()
+	CallEdgeChanSend    = "channel_send"  // Go: ch <- v
+	CallEdgeChanRecv    = "channel_recv"  // Go: <-ch
+	CallEdgeAwait       = "await_call"    // TS/Python/Rust: await f() / f().await
+	CallEdgePromise     = "promise_chain" // TS: p.then(cb)
+	CallEdgeTaskSpawn   = "task_spawn"    // Python asyncio.create_task / Rust tokio::spawn
+)
+
 type CallEdge struct {
 	Caller       string   `json:"caller"`
 	Callee       string   `json:"callee"`
@@ -130,6 +143,8 @@ type CallEdge struct {
 	CrossPkg     bool     `json:"cross_pkg,omitempty"`
 	ParamTypes   []string `json:"param_types,omitempty"`
 	ReturnTypes  []string `json:"return_types,omitempty"`
+	// Kind encodes the call's temporal nature. Empty/"call" means sync.
+	Kind         string   `json:"kind,omitempty"`
 }
 
 // Symbol is the canonical representation of any code symbol.
@@ -152,7 +167,11 @@ type Symbol struct {
 	ReceiverType string   `json:"receiver_type,omitempty"`
 
 	// Structure enrichment (GoAST, TreeSitter, LSP callHierarchy)
-	Callees []string `json:"callees,omitempty"`
+	Callees      []string          `json:"callees,omitempty"`
+	// AsyncCallees maps callee name → edge kind for async seams (goroutine,
+	// channel_send, channel_recv, await_call, promise_chain, task_spawn).
+	// Regular synchronous calls stay in Callees.
+	AsyncCallees map[string]string `json:"async_callees,omitempty"`
 
 	// Handle for source-specific opaque data (LSP callHierarchyItem, GoAST *ast.FuncDecl)
 	Handle any `json:"-"`

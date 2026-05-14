@@ -2,7 +2,7 @@ package analyzer
 
 import (
 	"context"
-	"github.com/dpopsuev/oculus/v3"
+	"io/fs"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	oculus "github.com/dpopsuev/oculus/v3"
 	"github.com/dpopsuev/oculus/v3/lang"
 	"github.com/dpopsuev/oculus/v3/lsp"
 )
@@ -39,6 +40,12 @@ func NewGoASTDeep(root string) *GoASTDeepAnalyzer {
 // Line, EndLine, ReceiverType, ParamTypes, ReturnTypes, Callees.
 type goFunc = oculus.Symbol
 
+// callRef pairs a callee name with the kind of edge that produced it.
+type callRef struct {
+	name string
+	kind string // one of the oculus.CallEdge* constants
+}
+
 func (a *GoASTDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.CallGraphOpts) (*oculus.CallGraph, error) {
 	depth := opts.Depth
 	if depth <= 0 {
@@ -54,6 +61,19 @@ func (a *GoASTDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus
 	funcIndex := make(map[string]*goFunc)
 	for i := range funcs {
 		funcIndex[funcs[i].Name] = &funcs[i]
+	}
+
+	// Build async-aware call refs: same keying as funcIndex but carries edge kind.
+	callRefs := make(map[string][]callRef)
+	for i := range funcs {
+		for _, name := range funcs[i].Callees {
+			callRefs[funcs[i].Name] = append(callRefs[funcs[i].Name], callRef{name: name, kind: oculus.CallEdgeSync})
+		}
+	}
+	if refs, err2 := extractAsyncRefs(a.root); err2 == nil {
+		for caller, rs := range refs {
+			callRefs[caller] = append(callRefs[caller], rs...)
+		}
 	}
 
 	// Determine root functions.
@@ -93,8 +113,25 @@ func (a *GoASTDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus
 		key := fn.Package + "." + fn.Name
 		nodeSet[key] = oculus.Symbol{Name: fn.Name, Package: fn.Package, Line: fn.Line, File: fn.File, EndLine: fn.EndLine}
 
-		for _, callee := range fn.Callees {
-			calleeFn, ok := funcIndex[callee]
+		for _, ref := range callRefs[fn.Name] {
+			// Channel operations target a variable, not a function.
+			// Emit the edge with the channel var as a pseudo-node; don't recurse.
+			if ref.kind == oculus.CallEdgeChanSend || ref.kind == oculus.CallEdgeChanRecv {
+				chanKey := fn.Package + "." + ref.name
+				nodeSet[chanKey] = oculus.Symbol{Name: ref.name, Package: fn.Package, Kind: "channel"}
+				edges = append(edges, oculus.CallEdge{
+					Caller:    fn.Name,
+					Callee:    ref.name,
+					CallerPkg: fn.Package,
+					CalleePkg: fn.Package,
+					Line:      fn.Line,
+					File:      fn.File,
+					Kind:      ref.kind,
+				})
+				continue
+			}
+
+			calleeFn, ok := funcIndex[ref.name]
 			if !ok {
 				continue
 			}
@@ -111,8 +148,9 @@ func (a *GoASTDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus
 				CrossPkg:     fn.Package != calleeFn.Package,
 				ParamTypes:   calleeFn.ParamTypes,
 				ReturnTypes:  calleeFn.ReturnTypes,
+				Kind:         ref.kind,
 			})
-			walk(callee, d+1)
+			walk(ref.name, d+1)
 		}
 	}
 
@@ -344,6 +382,102 @@ func (a *GoASTDeepAnalyzer) parseFunctions(scope string) ([]goFunc, error) {
 	})
 
 	return funcs, err
+}
+
+// extractAsyncRefs walks all Go files under root and returns a map of
+// caller name → []callRef for async constructs only:
+//   - go f()          → kind: CallEdgeGoroutine
+//   - ch <- v (send)  → kind: CallEdgeChanSend  (callee = channel var name)
+//   - <-ch  (recv)    → kind: CallEdgeChanRecv  (callee = channel var name)
+//
+// Regular function calls are handled via Symbol.Callees; this supplements
+// only the async seams that extractCallees misses.
+func extractAsyncRefs(root string) (map[string][]callRef, error) {
+	out := make(map[string][]callRef)
+
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, root, func(fi fs.FileInfo) bool {
+		return !fi.IsDir() && strings.HasSuffix(fi.Name(), ".go") &&
+			!strings.HasSuffix(fi.Name(), "_test.go")
+	}, 0)
+	if err != nil {
+		// Best-effort: walk subdirectories manually.
+		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			f, parseErr := parser.ParseFile(fset, path, nil, 0)
+			if parseErr != nil {
+				return nil
+			}
+			collectAsyncFromFile(f, out)
+			return nil
+		})
+		return out, nil
+	}
+	for _, pkg := range pkgs {
+		for _, f := range pkg.Files {
+			collectAsyncFromFile(f, out)
+		}
+	}
+	return out, nil
+}
+
+// collectAsyncFromFile adds goroutine/channel callRefs from a single parsed file.
+func collectAsyncFromFile(f *ast.File, out map[string][]callRef) {
+	var currentFunc string
+
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.FuncDecl:
+			if node.Name != nil {
+				currentFunc = node.Name.Name
+			}
+
+		case *ast.GoStmt:
+			// go f() or go func() { ... }()
+			if name := callExprName(node.Call); name != "" && currentFunc != "" {
+				out[currentFunc] = append(out[currentFunc], callRef{name: name, kind: oculus.CallEdgeGoroutine})
+			}
+
+		case *ast.SendStmt:
+			// ch <- value: callee is the channel variable
+			if name := identName(node.Chan); name != "" && currentFunc != "" {
+				out[currentFunc] = append(out[currentFunc], callRef{name: name, kind: oculus.CallEdgeChanSend})
+			}
+
+		case *ast.UnaryExpr:
+			// <-ch receive expression
+			if node.Op == token.ARROW {
+				if name := identName(node.X); name != "" && currentFunc != "" {
+					out[currentFunc] = append(out[currentFunc], callRef{name: name, kind: oculus.CallEdgeChanRecv})
+				}
+			}
+		}
+		return true
+	})
+}
+
+// callExprName returns the function name from a CallExpr, or "" if unresolvable.
+func callExprName(call *ast.CallExpr) string {
+	if call == nil {
+		return ""
+	}
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		return fn.Name
+	case *ast.SelectorExpr:
+		return fn.Sel.Name
+	}
+	return ""
+}
+
+// identName returns the name of an identifier expression, or "".
+func identName(expr ast.Expr) string {
+	if id, ok := expr.(*ast.Ident); ok {
+		return id.Name
+	}
+	return ""
 }
 
 // extractCallees walks a function body and returns all function names called.

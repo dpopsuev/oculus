@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dpopsuev/oculus/v3"
+	oculus "github.com/dpopsuev/oculus/v3"
 	"github.com/dpopsuev/oculus/v3/lang"
 	"github.com/dpopsuev/oculus/v3/lsp"
 
@@ -92,20 +92,23 @@ func extractTSSourceFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]o
 
 			body := child.ChildByFieldName("body")
 			var callees []string
+			var asyncCallees map[string]string
 			if body != nil {
 				callees = extractTSCallees(body, src)
+				asyncCallees = extractTSAsyncCallees(body, src)
 			}
 
 			*funcs = append(*funcs, oculus.Symbol{
-				Name:        name,
-				Package:     pkg,
-				File:        file,
-				Line:        int(child.StartPoint().Row) + 1,
-				EndLine:     int(child.EndPoint().Row) + 1,
-				ParamTypes:  paramTypes,
-				ReturnTypes: returnTypes,
-				Callees:     callees,
-				Exported:    true, // TS functions are public by default
+				Name:         name,
+				Package:      pkg,
+				File:         file,
+				Line:         int(child.StartPoint().Row) + 1,
+				EndLine:      int(child.EndPoint().Row) + 1,
+				ParamTypes:   paramTypes,
+				ReturnTypes:  returnTypes,
+				Callees:      callees,
+				AsyncCallees: asyncCallees,
+				Exported:     true, // TS functions are public by default
 			})
 
 		case "export_statement", "lexical_declaration":
@@ -118,22 +121,25 @@ func extractTSSourceFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]o
 				name := nameNode.Content(src)
 				body := valueNode.ChildByFieldName("body")
 				var callees []string
+				var asyncCallees map[string]string
 				if body != nil {
 					callees = extractTSCallees(body, src)
+					asyncCallees = extractTSAsyncCallees(body, src)
 				}
 				paramTypes := extractTSParamTypes(valueNode, src)
 				returnTypes := extractTSReturnType(valueNode, src)
 
 				*funcs = append(*funcs, oculus.Symbol{
-					Name:        name,
-					Package:     pkg,
-					File:        file,
-					Line:        int(child.StartPoint().Row) + 1,
-					EndLine:     int(child.EndPoint().Row) + 1,
-					ParamTypes:  paramTypes,
-					ReturnTypes: returnTypes,
-					Callees:     callees,
-					Exported:    true,
+					Name:         name,
+					Package:      pkg,
+					File:         file,
+					Line:         int(child.StartPoint().Row) + 1,
+					EndLine:      int(child.EndPoint().Row) + 1,
+					ParamTypes:   paramTypes,
+					ReturnTypes:  returnTypes,
+					Callees:      callees,
+					AsyncCallees: asyncCallees,
+					Exported:     true,
 				})
 			}
 
@@ -199,6 +205,55 @@ func extractTSCallees(node ts.Node, src []byte) []string {
 
 func collectTSCalls(node ts.Node, src []byte, seen map[string]bool, callees *[]string) {
 	collectTreeSitterCalls(node, src, "call_expression", "function", tsNameExtractor, seen, callees)
+}
+
+// extractTSAsyncCallees walks a function body and returns async seams:
+//   - await_expression wrapping a call_expression  → CallEdgeAwait
+//   - .then/.catch/.finally on a call or identifier  → CallEdgePromise
+//
+// Returns a map of callee name → edge kind.
+func extractTSAsyncCallees(node ts.Node, src []byte) map[string]string {
+	out := make(map[string]string)
+	var walk func(ts.Node)
+	walk = func(n ts.Node) {
+		switch n.Type() {
+		case "await_expression":
+			// await <expr> — the child is usually the call_expression
+			for i := 0; i < int(n.ChildCount()); i++ {
+				child := n.Child(i)
+				if child.Type() == "call_expression" {
+					if fn := child.ChildByFieldName("function"); fn != nil {
+						if name := tsNameExtractor(fn, src); name != "" {
+							out[name] = oculus.CallEdgeAwait
+						}
+					}
+				}
+			}
+		case "call_expression":
+			// Detect promise chain: expr.then(cb) / .catch(cb) / .finally(cb)
+			if fn := n.ChildByFieldName("function"); fn != nil && fn.Type() == "member_expression" {
+				if prop := fn.ChildByFieldName("property"); prop != nil {
+					switch prop.Content(src) {
+					case "then", "catch", "finally":
+						// The argument is the callback — try to get its name.
+						if args := n.ChildByFieldName("arguments"); args != nil {
+							for i := 0; i < int(args.ChildCount()); i++ {
+								arg := args.Child(i)
+								if arg.Type() == "identifier" {
+									out[arg.Content(src)] = oculus.CallEdgePromise
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		for i := 0; i < int(n.ChildCount()); i++ {
+			walk(n.Child(i))
+		}
+	}
+	walk(node)
+	return out
 }
 
 func tsNameExtractor(fn ts.Node, src []byte) string {

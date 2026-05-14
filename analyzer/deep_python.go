@@ -76,6 +76,7 @@ func ParsePythonFunctions(root string) []oculus.Symbol {
 func extractPySourceFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.Symbol) {
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
+		isAsync := child.Type() == "async_function_definition" || pyHasAsyncKeyword(child, src)
 		if child.Type() == "function_definition" || child.Type() == "async_function_definition" {
 			nameNode := child.ChildByFieldName("name")
 			if nameNode == nil {
@@ -103,22 +104,27 @@ func extractPySourceFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]o
 
 			// Extract callees from body.
 			var callees []string
+			var asyncCallees map[string]string
 			if body := child.ChildByFieldName("body"); body != nil {
 				callees = extractPyCallees(body, src)
+					if isAsync {
+					asyncCallees = extractPyAsyncCallees(body, src)
+				}
 			}
 
 			exported := len(name) > 0 && !strings.HasPrefix(name, "_")
 
 			*funcs = append(*funcs, oculus.Symbol{
-				Name:        name,
-				Package:     pkg,
-				File:        file,
-				Line:        int(child.StartPoint().Row) + 1,
-				EndLine:     int(child.EndPoint().Row) + 1,
-				ParamTypes:  paramTypes,
-				ReturnTypes: returnTypes,
-				Callees:     callees,
-				Exported:    exported,
+				Name:         name,
+				Package:      pkg,
+				File:         file,
+				Line:         int(child.StartPoint().Row) + 1,
+				EndLine:      int(child.EndPoint().Row) + 1,
+				ParamTypes:   paramTypes,
+				ReturnTypes:  returnTypes,
+				Callees:      callees,
+				AsyncCallees: asyncCallees,
+				Exported:     exported,
 			})
 		}
 		// Recurse into class definitions to find methods.
@@ -182,6 +188,73 @@ func extractPyCallees(node ts.Node, src []byte) []string {
 
 func collectPyCalls(node ts.Node, src []byte, seen map[string]bool, callees *[]string) {
 	collectTreeSitterCalls(node, src, "call", "function", pyNameExtractor, seen, callees)
+}
+
+// extractPyAsyncCallees detects async seams in a Python async function body:
+//   - await <call>          → CallEdgeAwait
+//   - asyncio.create_task() → CallEdgeTaskSpawn
+//   - asyncio.gather()      → CallEdgeTaskSpawn
+func extractPyAsyncCallees(body ts.Node, src []byte) map[string]string {
+	out := make(map[string]string)
+	var walk func(ts.Node)
+	walk = func(n ts.Node) {
+		if n.Type() == "await" {
+			// tree-sitter Python emits [await keyword, expr] as children
+			for i := 0; i < int(n.ChildCount()); i++ {
+				child := n.Child(i)
+				switch child.Type() {
+				case "call":
+					if fn := child.ChildByFieldName("function"); fn != nil {
+						if name := pyNameExtractor(fn, src); name != "" {
+							out[name] = oculus.CallEdgeAwait
+						}
+					}
+				case "identifier":
+					// await coroutine_var (not the keyword token itself)
+					if name := child.Content(src); name != "await" && name != "" {
+						out[name] = oculus.CallEdgeAwait
+					}
+				}
+			}
+		}
+		if n.Type() == "call" {
+			if fn := n.ChildByFieldName("function"); fn != nil {
+				// asyncio.create_task(coro) / asyncio.gather(*coros)
+				raw := fn.Content(src)
+				if raw == "asyncio.create_task" || raw == "asyncio.gather" || raw == "create_task" || raw == "gather" {
+					// Extract first argument as the spawned target.
+					if args := n.ChildByFieldName("arguments"); args != nil {
+						for i := 0; i < int(args.ChildCount()); i++ {
+							arg := args.Child(i)
+							if arg.Type() == "identifier" {
+								out[arg.Content(src)] = oculus.CallEdgeTaskSpawn
+							}
+						}
+					}
+				}
+			}
+		}
+		for i := 0; i < int(n.ChildCount()); i++ {
+			walk(n.Child(i))
+		}
+	}
+	walk(body)
+	return out
+}
+
+// pyHasAsyncKeyword reports whether a function_definition node
+// has an "async" keyword as its first non-whitespace child token.
+func pyHasAsyncKeyword(node ts.Node, src []byte) bool {
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.IsNamed() {
+			break // named child means we're past the keywords
+		}
+		if child.Content(src) == "async" {
+			return true
+		}
+	}
+	return false
 }
 
 func pyNameExtractor(fn ts.Node, src []byte) string {
