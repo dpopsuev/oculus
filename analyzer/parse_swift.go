@@ -95,16 +95,21 @@ func extractSwiftFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]ocul
 				}
 			}
 
+			isAsync := hasKeywordChild(child, src, "async")
 			var callees []string
+			var asyncCallees map[string]string
 			if body := findChildByType(child, "function_body"); body != nil {
 				callees = extractSwiftCallees(body, src)
+				if isAsync {
+					asyncCallees = extractSwiftAsyncCallees(body, src)
+				}
 			}
 
 			*funcs = append(*funcs, oculus.Symbol{
 				Name: name, Package: pkg, File: file,
 				Line: int(child.StartPoint().Row) + 1, EndLine: int(child.EndPoint().Row) + 1,
 				ParamTypes: paramTypes, ReturnTypes: returnTypes,
-				Callees: callees, Exported: true,
+				Callees: callees, AsyncCallees: asyncCallees, Exported: true,
 			})
 
 		case "class_declaration", "struct_declaration", "extension_declaration":

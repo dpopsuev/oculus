@@ -66,9 +66,48 @@ func ParseCppFunctions(root string) []oculus.Symbol {
 			pkg = pkgRoot
 		}
 
-		// C++ uses same function_definition as C
-		extractCLangFuncs(tree.RootNode(), src, pkg, filepath.ToSlash(rel), &funcs)
+		extractCppLangFuncs(tree.RootNode(), src, pkg, filepath.ToSlash(rel), &funcs)
 		return nil
 	})
 	return funcs
+}
+
+// extractCppLangFuncs is the C++ variant of extractCLangFuncs with async colouring.
+func extractCppLangFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculus.Symbol) {
+	for i := 0; i < int(root.ChildCount()); i++ {
+		child := root.Child(i)
+		switch child.Type() {
+		case "function_definition":
+			declarator := child.ChildByFieldName("declarator")
+			if declarator == nil {
+				continue
+			}
+			name := extractCFuncName(declarator, src)
+			if name == "" {
+				continue
+			}
+			var returnTypes []string
+			if retType := child.ChildByFieldName("type"); retType != nil {
+				if rt := retType.Content(src); rt != "" && rt != "void" {
+					returnTypes = []string{rt}
+				}
+			}
+			var callees []string
+			var asyncCallees map[string]string
+			if body := child.ChildByFieldName("body"); body != nil {
+				callees = extractCallExpressions(body, src)
+				asyncCallees = extractCppAsyncCallees(body, src)
+			}
+			*funcs = append(*funcs, oculus.Symbol{
+				Name: name, Package: pkg, File: file,
+				Line: int(child.StartPoint().Row) + 1, EndLine: int(child.EndPoint().Row) + 1,
+				ReturnTypes: returnTypes, ParamTypes: extractCParamTypes(declarator, src),
+				Callees: callees, AsyncCallees: asyncCallees, Exported: true,
+			})
+		case "namespace_definition", "class_specifier":
+			if body := child.ChildByFieldName("body"); body != nil {
+				extractCppLangFuncs(body, src, pkg, file, funcs)
+			}
+		}
+	}
 }

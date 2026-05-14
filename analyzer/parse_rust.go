@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dpopsuev/oculus/v3"
+	oculus "github.com/dpopsuev/oculus/v3"
 	"github.com/dpopsuev/oculus/v3/lang"
 	"github.com/dpopsuev/oculus/v3/lsp"
 
@@ -98,9 +98,14 @@ func extractRustFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculu
 				}
 			}
 
+			isAsync := rustHasAsyncModifier(child, src)
 			var callees []string
+			var asyncCallees map[string]string
 			if body := child.ChildByFieldName("body"); body != nil {
 				callees = extractCallExpressions(body, src)
+				if isAsync {
+					asyncCallees = extractRustAsyncCallees(body, src)
+				}
 			}
 
 			exported := !strings.HasPrefix(name, "_")
@@ -109,7 +114,7 @@ func extractRustFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculu
 				Name: name, Package: pkg, File: file,
 				Line: int(child.StartPoint().Row) + 1, EndLine: int(child.EndPoint().Row) + 1,
 				ParamTypes: paramTypes, ReturnTypes: returnTypes,
-				Callees: callees, Exported: exported,
+				Callees: callees, AsyncCallees: asyncCallees, Exported: exported,
 			})
 
 		case "impl_item":
@@ -134,6 +139,67 @@ func extractRustParamTypes(params ts.Node, src []byte) []string {
 		}
 	}
 	return types
+}
+
+// rustHasAsyncModifier reports whether a function_item node has an async modifier.
+func rustHasAsyncModifier(fn ts.Node, src []byte) bool {
+	for i := 0; i < int(fn.ChildCount()); i++ {
+		child := fn.Child(i)
+		if child.Type() == "function_modifiers" {
+			for j := 0; j < int(child.ChildCount()); j++ {
+				if child.Child(j).Content(src) == "async" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// extractRustAsyncCallees detects async seams in a Rust async function body:
+//   - expr.await            → CallEdgeAwait
+//   - tokio::spawn / task::spawn → CallEdgeTaskSpawn
+//   - tx.send(v)            → CallEdgeChanSend (heuristic: method named "send")
+func extractRustAsyncCallees(body ts.Node, src []byte) map[string]string {
+	out := make(map[string]string)
+	var walk func(ts.Node)
+	walk = func(n ts.Node) {
+		switch n.Type() {
+		case "await_expression":
+			// expr.await — the inner expression is the first child
+			for i := 0; i < int(n.ChildCount()); i++ {
+				child := n.Child(i)
+				if child.Type() == "call_expression" {
+					if fn := child.ChildByFieldName("function"); fn != nil {
+						if name := extractSimpleName(fn, src); name != "" {
+							out[name] = oculus.CallEdgeAwait
+						}
+					}
+				} else if child.Type() == "field_expression" {
+					// fetch(...).await — field_expression wraps the call
+					if name := extractSimpleName(child, src); name != "" && name != "await" {
+						out[name] = oculus.CallEdgeAwait
+					}
+				}
+			}
+		case "call_expression":
+			if fn := n.ChildByFieldName("function"); fn != nil {
+				name := extractSimpleName(fn, src)
+				switch name {
+				case "spawn":
+					out[name] = oculus.CallEdgeTaskSpawn
+				case "send":
+					// tx.send(v) — heuristic channel send
+					out[name] = oculus.CallEdgeChanSend
+				}
+			}
+		}
+		for i := 0; i < int(n.ChildCount()); i++ {
+			walk(n.Child(i))
+		}
+	}
+	walk(body)
+	return out
 }
 
 // extractCallExpressions is a generic tree-sitter call extractor that works

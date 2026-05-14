@@ -102,15 +102,17 @@ func extractCLangFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]ocul
 		paramTypes = extractCParamTypes(declarator, src)
 
 		var callees []string
+		var asyncCallees map[string]string
 		if body := child.ChildByFieldName("body"); body != nil {
 			callees = extractCallExpressions(body, src)
+			asyncCallees = extractCAsyncCallees(body, src)
 		}
 
 		*funcs = append(*funcs, oculus.Symbol{
 			Name: name, Package: pkg, File: file,
 			Line: int(child.StartPoint().Row) + 1, EndLine: int(child.EndPoint().Row) + 1,
 			ParamTypes: paramTypes, ReturnTypes: returnTypes,
-			Callees: callees, Exported: true,
+			Callees: callees, AsyncCallees: asyncCallees, Exported: true,
 		})
 	}
 }

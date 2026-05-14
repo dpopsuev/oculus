@@ -96,9 +96,14 @@ func extractCSharpFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]ocu
 				}
 			}
 
+			isAsync := hasKeywordChild(child, src, "async")
 			var callees []string
+			var asyncCallees map[string]string
 			if body := child.ChildByFieldName("body"); body != nil {
 				callees = extractCSharpCallees(body, src)
+				if isAsync {
+					asyncCallees = extractCSharpAsyncCallees(body, src)
+				}
 			}
 
 			exported := true
@@ -111,7 +116,7 @@ func extractCSharpFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]ocu
 				Name: name, Package: pkg, File: file,
 				Line: int(child.StartPoint().Row) + 1, EndLine: int(child.EndPoint().Row) + 1,
 				ParamTypes: paramTypes, ReturnTypes: returnTypes,
-				Callees: callees, Exported: exported,
+				Callees: callees, AsyncCallees: asyncCallees, Exported: exported,
 			})
 
 		case "class_declaration", "struct_declaration", "interface_declaration":

@@ -97,8 +97,10 @@ func extractJavaFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculu
 			}
 
 			var callees []string
+			var asyncCallees map[string]string
 			if body := child.ChildByFieldName("body"); body != nil {
 				callees = extractJavaCallees(body, src)
+				asyncCallees = extractJavaAsyncCallees(body, src)
 			}
 
 			// Java: public methods are exported
@@ -112,7 +114,7 @@ func extractJavaFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]oculu
 				Name: name, Package: pkg, File: file,
 				Line: int(child.StartPoint().Row) + 1, EndLine: int(child.EndPoint().Row) + 1,
 				ParamTypes: paramTypes, ReturnTypes: returnTypes,
-				Callees: callees, Exported: exported,
+				Callees: callees, AsyncCallees: asyncCallees, Exported: exported,
 			})
 
 		case "class_declaration", "interface_declaration", "enum_declaration":

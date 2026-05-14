@@ -87,15 +87,18 @@ func extractKotlinFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]ocu
 			returnTypes := extractKotlinReturnType(child, src)
 
 			var callees []string
+			var asyncCallees map[string]string
 			if body := findChildByType(child, "function_body"); body != nil {
 				callees = extractKotlinCallees(body, src)
+				// Always scan for coroutine builders — launch/async can appear in any function
+				asyncCallees = extractKotlinAsyncCallees(body, src)
 			}
 
 			*funcs = append(*funcs, oculus.Symbol{
 				Name: name, Package: pkg, File: file,
 				Line: int(child.StartPoint().Row) + 1, EndLine: int(child.EndPoint().Row) + 1,
 				ParamTypes: paramTypes, ReturnTypes: returnTypes,
-				Callees: callees, Exported: true,
+				Callees: callees, AsyncCallees: asyncCallees, Exported: true,
 			})
 
 		case "class_declaration", "object_declaration":
