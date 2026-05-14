@@ -310,8 +310,11 @@ type callHierarchyItem struct {
 }
 
 // outgoingCallItem wraps a callHierarchyItem in callHierarchy/outgoingCalls responses.
+// FromRanges contains the source ranges of each call site in the caller — used
+// by asyncContextAt to determine whether the call is inside an async construct.
 type outgoingCallItem struct {
-	To callHierarchyItem `json:"to"`
+	To         callHierarchyItem `json:"to"`
+	FromRanges []lspRange        `json:"fromRanges"`
 }
 
 // workspaceSymbol represents a symbol returned by workspace/symbol.

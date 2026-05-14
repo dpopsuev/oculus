@@ -144,7 +144,11 @@ type CallEdge struct {
 	ParamTypes   []string `json:"param_types,omitempty"`
 	ReturnTypes  []string `json:"return_types,omitempty"`
 	// Kind encodes the call's temporal nature. Empty/"call" means sync.
-	Kind         string   `json:"kind,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+	// SiteLine/SiteCol is the call site position in the caller file (1-based).
+	// Populated by the LSP deep analyzer from fromRanges; used by asyncContextAt.
+	SiteLine int `json:"site_line,omitempty"`
+	SiteCol  int `json:"site_col,omitempty"`
 }
 
 // Symbol is the canonical representation of any code symbol.

@@ -178,16 +178,27 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 					File: uriToRelPath(out.To.URI, a.root), EndLine: out.To.Range.End.Line + 1,
 				}
 			}
+			// Extract call site position from the first fromRange (if present).
+			var siteLine, siteCol int
+			if len(out.FromRanges) > 0 {
+				siteLine = out.FromRanges[0].Start.Line + 1
+				siteCol = out.FromRanges[0].Start.Character + 1
+			}
+			callerFile := uriToRelPath(it.URI, a.root)
+			kind := asyncContextAt(a.root, callerFile, siteLine, siteCol)
 			edges = append(edges, oculus.CallEdge{
 				Caller:      it.Name,
 				Callee:      out.To.Name,
 				CallerPkg:   pkg,
 				CalleePkg:   calleePkg,
 				Line:        out.To.Range.Start.Line + 1,
-				File:        uriToRelPath(it.URI, a.root),
+				File:        callerFile,
 				CrossPkg:    pkg != calleePkg,
 				ParamTypes:  calleeParams,
 				ReturnTypes: calleeReturns,
+				Kind:        kind,
+				SiteLine:    siteLine,
+				SiteCol:     siteCol,
 			})
 			mu.Unlock()
 
