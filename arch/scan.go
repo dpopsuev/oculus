@@ -382,7 +382,20 @@ func computeHotSpots(m ArchModel) []HotSpot {
 	for i := range m.Services {
 		s := &m.Services[i]
 		fi := fanIn[s.Name]
-		if fi >= MinFanInHotSpot && (s.Churn >= MinChurnHotSpot || s.MaxNesting >= MinNestingHotSpot) {
+		// A component qualifies as a hot spot under either of two conditions:
+		//   (a) Churn risk: it changes frequently (churn ≥ MinChurnHotSpot),
+		//       regardless of fan-in. A frequently-modified component is risky
+		//       even if only one other package imports it.
+		//   (b) Structural complexity: it is a hub (fan-in ≥ MinFanInHotSpot)
+		//       AND has deep logic (nesting ≥ MinNestingHotSpot). High fan-in
+		//       alone is not a problem; deep nesting in a hub is.
+		//
+		// The previous AND-only condition (fan-in AND (churn OR nesting)) was
+		// too strict for small-to-medium repos where churn and structural
+		// centrality rarely co-occur in the same package (LCS-BUG-74).
+		isChurnHot := s.Churn >= MinChurnHotSpot
+		isStructuralRisk := fi >= MinFanInHotSpot && s.MaxNesting >= MinNestingHotSpot
+		if isChurnHot || isStructuralRisk {
 			spots = append(spots, HotSpot{
 				Component: s.Name,
 				FanIn:     fi,
