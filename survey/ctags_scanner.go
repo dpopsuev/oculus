@@ -108,17 +108,23 @@ func (s *CtagsScanner) Scan(root string) (*model.Project, error) {
 		proj.AddNamespace(ns)
 	}
 
+	// Start with C/C++ #include edges (no-op for non-C languages).
 	deps := extractCIncludes(root)
-	if deps != nil && len(deps.Edges) > 0 {
-		proj.DependencyGraph = deps
+	if deps == nil {
+		deps = model.NewDependencyGraph()
 	}
 
-	// Extract import edges for non-C/C++ languages (Java, Kotlin, C#, Swift, Zig).
-	if proj.DependencyGraph == nil || len(proj.DependencyGraph.Edges) == 0 {
-		importDeps := extractLanguageImports(root, proj.Language, dirNS)
-		if importDeps != nil && len(importDeps.Edges) > 0 {
-			proj.DependencyGraph = importDeps
+	// Merge language-specific import edges (Java, Kotlin, C#, Swift, Zig, Lua).
+	// Always merged — not gated on zero C edges — so polyglot projects like
+	// neovim (C + Lua) get edges from both extractors (LCS-BUG-74).
+	if importDeps := extractLanguageImports(root, proj.Language, dirNS); importDeps != nil {
+		for _, e := range importDeps.Edges {
+			deps.AddEdge(e.From, e.To, e.External)
 		}
+	}
+
+	if len(deps.Edges) > 0 {
+		proj.DependencyGraph = deps
 	}
 
 	return proj, nil
@@ -188,8 +194,15 @@ func extractCIncludes(root string) *model.DependencyGraph {
 			if inc == "" {
 				continue
 			}
-			// Resolve include path relative to source file directory.
-			resolved := filepath.ToSlash(filepath.Clean(filepath.Join(srcDir, inc)))
+			// Prefer project-root-relative resolution (handles -I <root> builds
+			// like neovim where #include "nvim/api.h" means <root>/nvim/api.h).
+			// Fall back to source-file-relative (standard C).
+			var resolved string
+			if _, statErr := os.Stat(filepath.Join(root, inc)); statErr == nil {
+				resolved = filepath.ToSlash(inc)
+			} else {
+				resolved = filepath.ToSlash(filepath.Clean(filepath.Join(srcDir, inc)))
+			}
 			incDir := filepath.Dir(resolved)
 			if incDir == "." {
 				incDir = srcDir
@@ -210,6 +223,8 @@ var (
 	reCSharpUsing  = regexp.MustCompile(`^\s*using\s+(?:static\s+)?([a-zA-Z0-9_.]+)\s*;`)
 	reSwiftImport  = regexp.MustCompile(`^\s*import\s+(\w+)`)
 	reZigImport    = regexp.MustCompile(`@import\("([^"]+)"\)`)
+	// Lua: require("module.sub") or require('module.sub') with optional whitespace.
+	reLuaRequire = regexp.MustCompile(`require\s*\(\s*["']([^"']+)["']\s*\)`)
 )
 
 // extractLanguageImports scans source files for language-specific import
@@ -234,6 +249,9 @@ func extractLanguageImports(root string, lang model.Language, dirNS map[string]*
 	case model.LangZig:
 		importRe = reZigImport
 		resolver = resolveZigImport
+	case model.LangLua:
+		importRe = reLuaRequire
+		resolver = resolveLuaRequire
 	default:
 		return nil
 	}
@@ -316,6 +334,27 @@ func resolveZigImport(match []string, dirNS map[string]*model.Namespace) string 
 	}
 	if _, ok := dirNS[dir]; ok {
 		return dir
+	}
+	return ""
+}
+
+// resolveLuaRequire maps a Lua require() argument to a directory namespace.
+// Lua uses dot notation: require("module.sub") → module/sub.
+// Tries exact match, then progressively shorter prefixes, then the first segment.
+func resolveLuaRequire(match []string, dirNS map[string]*model.Namespace) string {
+	modPath := strings.ReplaceAll(match[1], ".", "/")
+
+	// Exact match.
+	if _, ok := dirNS[modPath]; ok {
+		return modPath
+	}
+	// Longest-prefix match.
+	parts := strings.Split(modPath, "/")
+	for i := len(parts); i > 0; i-- {
+		candidate := strings.Join(parts[:i], "/")
+		if _, ok := dirNS[candidate]; ok {
+			return candidate
+		}
 	}
 	return ""
 }

@@ -41,6 +41,11 @@ func (s *PythonScanner) Scan(root string) (*model.Project, error) {
 		pkgSet[pkg] = true
 	}
 
+	// Build a Python-import-path → namespace-import-path index.
+	// This handles nested layouts like libs/<pkg>/<pkg>/ where the filesystem
+	// prefix does not match the Python import path (LCS-BUG-74).
+	pyIndex := buildPyImportIndex(packages)
+
 	sort.Strings(packages)
 	for _, pkgPath := range packages {
 		relPath := pkgPath
@@ -49,7 +54,7 @@ func (s *PythonScanner) Scan(root string) (*model.Project, error) {
 
 		fullDir := filepath.Join(absRoot, pkgPath)
 		s.extractPythonSymbols(fullDir, ns)
-		s.extractPythonImports(fullDir, ns, importPath, pkgSet, externalDeps, proj)
+		s.extractPythonImports(fullDir, ns, importPath, pkgSet, externalDeps, proj, pyIndex)
 		proj.AddNamespace(ns)
 	}
 
@@ -272,7 +277,67 @@ var (
 	rePyFromImport = regexp.MustCompile(`^from\s+(\S+)\s+import\s+`)
 )
 
-func (s *PythonScanner) extractPythonImports(dir string, _ *model.Namespace, importPath string, internalPkgs, _ map[string]bool, proj *model.Project) {
+// buildPyImportIndex constructs a mapping from Python import path (slash-separated)
+// to the namespace import path (dot-separated) used in dependency edges.
+//
+// It detects namespace roots — packages whose parent directory is NOT itself a
+// package — and maps all Python-visible paths relative to each root. This
+// correctly handles nested monorepo layouts like libs/<pkg>/<pkg>/ where a
+// Python import `from pkg.sub import X` must resolve to the internal namespace
+// `libs.pkg.pkg.sub`, not to an external dependency named `pkg`.
+func buildPyImportIndex(packages []string) map[string]string {
+	pkgSet := make(map[string]bool, len(packages))
+	for _, p := range packages {
+		pkgSet[p] = true
+	}
+
+	index := make(map[string]string)
+	for _, pkg := range packages {
+		parent := filepath.Dir(pkg)
+		if parent == "." || !pkgSet[parent] {
+			// pkg is a namespace root; its Python name is its directory base name.
+			pyRoot := filepath.Base(pkg)
+			fsRoot := pkg
+			index[pyRoot] = strings.ReplaceAll(pkg, "/", ".")
+			for _, other := range packages {
+				if other != pkg && strings.HasPrefix(other, fsRoot+"/") {
+					rel := other[len(fsRoot)+1:]
+					pyPath := pyRoot + "/" + rel
+					index[pyPath] = strings.ReplaceAll(other, "/", ".")
+				}
+			}
+		}
+	}
+	return index
+}
+
+// resolvePyImport maps an import key (slash-separated module path) to the
+// corresponding namespace import path (dot-separated) using the pyIndex first
+// (handles nested layouts) and the pkgSet as a fallback (flat layouts).
+func resolvePyImport(importKey string, pyIndex map[string]string, pkgSet map[string]bool) string {
+	// Exact match in the Python import index.
+	if ns, ok := pyIndex[importKey]; ok {
+		return ns
+	}
+	// Longest-prefix match in the Python import index.
+	best, bestNs := "", ""
+	for pyPath, ns := range pyIndex {
+		if strings.HasPrefix(importKey, pyPath+"/") && len(pyPath) > len(best) {
+			best, bestNs = pyPath, ns
+		}
+	}
+	if bestNs != "" {
+		return bestNs
+	}
+	// Fallback: plain pkgSet matching (flat layouts already indexed above,
+	// but kept as safety net).
+	if matchesInternalPackage(importKey, pkgSet) {
+		return resolveToNamespace(importKey, pkgSet)
+	}
+	return ""
+}
+
+func (s *PythonScanner) extractPythonImports(dir string, _ *model.Namespace, importPath string, internalPkgs, _ map[string]bool, proj *model.Project, pyIndex map[string]string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
@@ -314,8 +379,8 @@ func (s *PythonScanner) extractPythonImports(dir string, _ *model.Namespace, imp
 			}
 			seen[internalKey] = true
 
-			if matchesInternalPackage(internalKey, internalPkgs) {
-				target := resolveToNamespace(internalKey, internalPkgs)
+			target := resolvePyImport(internalKey, pyIndex, internalPkgs)
+			if target != "" {
 				if target != importPath {
 					proj.DependencyGraph.AddEdge(importPath, target, false)
 				}

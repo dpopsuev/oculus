@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/dpopsuev/oculus/v3/model"
@@ -140,6 +141,58 @@ name = "testapp"
 	sc := auto.resolve(dir)
 	if _, ok := sc.(*PythonScanner); !ok {
 		t.Errorf("AutoScanner resolved to %T, want *PythonScanner", sc)
+	}
+}
+
+// TestPythonScannerNestedPackageLayout reproduces LCS-BUG-74:
+// a libs/<pkg>/<pkg>/ monorepo layout (e.g. deepagents) where every
+// import like `from myapp.domain.entity import Entity` should resolve
+// to an internal edge. Before the fix, all such imports were treated
+// as external because the discovered pkgSet paths (`libs/myapp/myapp/domain`)
+// never matched the Python-style import key (`myapp/domain/entity`).
+func TestPythonScannerNestedPackageLayout(t *testing.T) {
+	dir := t.TempDir()
+
+	writePyFile(t, dir, "pyproject.toml", "[project]\nname = \"myapp\"\n")
+	writePyFile(t, dir, "libs/myapp/myapp/__init__.py", "")
+	writePyFile(t, dir, "libs/myapp/myapp/domain/__init__.py", "")
+	writePyFile(t, dir, "libs/myapp/myapp/domain/entity.py", "class Entity:\n    pass\n")
+	writePyFile(t, dir, "libs/myapp/myapp/service/__init__.py", "")
+	writePyFile(t, dir, "libs/myapp/myapp/service/handler.py",
+		"from myapp.domain.entity import Entity\n\nclass Handler:\n    pass\n")
+
+	sc := &PythonScanner{}
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan failed: %v", err)
+	}
+
+	if proj.DependencyGraph == nil {
+		t.Fatal("dependency graph is nil")
+	}
+
+	var internalEdges []string
+	for _, e := range proj.DependencyGraph.Edges {
+		if !e.External {
+			internalEdges = append(internalEdges, e.From+" → "+e.To)
+		}
+	}
+
+	if len(internalEdges) == 0 {
+		t.Fatalf("expected internal edges for nested package layout, got 0; all edges: %+v",
+			proj.DependencyGraph.Edges)
+	}
+
+	// service must depend on domain.
+	found := false
+	for _, e := range proj.DependencyGraph.Edges {
+		if !e.External && strings.Contains(e.From, "service") && strings.Contains(e.To, "domain") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected service→domain internal edge; internal edges: %v", internalEdges)
 	}
 }
 

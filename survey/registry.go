@@ -174,4 +174,12 @@ func init() {
 		},
 		Rules: &lang.GenericRules{},
 	})
+	Register(&LanguageSupport{
+		Language: model.LangLua,
+		Markers:  []string{".luarc.json", ".luacheckrc", "lua"},
+		ScannerFactory: func(_ string) Scanner {
+			return &CtagsScanner{}
+		},
+		Rules: &lang.GenericRules{},
+	})
 }

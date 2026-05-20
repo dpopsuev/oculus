@@ -285,3 +285,86 @@ func TestRequireEdgeDetection_JavaScript(t *testing.T) {
 		t.Errorf("missing internal edge src/adapter -> src/domain; edges: %+v", edges)
 	}
 }
+
+// TestExtractCIncludesRootRelative reproduces LCS-BUG-74 (C side):
+// a #include "subdir/header.h" whose actual file lives at <root>/subdir/header.h
+// (compiled with -I <root>, neovim-style) must produce edge src→subdir,
+// not a phantom edge to src/subdir (old file-relative resolution).
+func TestExtractCIncludesRootRelative(t *testing.T) {
+	dir := t.TempDir()
+
+	buildFixture(t, dir, map[string]string{
+		"CMakeLists.txt": "cmake_minimum_required(VERSION 3.0)\n",
+		// Header lives at root/utils/helper.h (project-root-relative include).
+		"utils/helper.h": "// helper\n",
+		// Source includes it as "utils/helper.h" — standard -I <root> pattern.
+		"core/main.c": "#include \"utils/helper.h\"\nint main() { return 0; }\n",
+	})
+
+	deps := extractCIncludes(dir)
+	if deps == nil {
+		t.Fatal("extractCIncludes returned nil")
+	}
+
+	// Must produce the real edge core → utils.
+	edges := deps.EdgesFrom("core")
+	found := false
+	for _, e := range edges {
+		if e.To == "utils" && !e.External {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected root-relative edge core→utils; all edges from core: %+v", edges)
+	}
+
+	// Must NOT produce the phantom edge core → core/utils.
+	for _, e := range deps.Edges {
+		if e.From == "core" && e.To == "core/utils" {
+			t.Errorf("phantom edge core→core/utils must not exist")
+		}
+	}
+}
+
+// TestExtractLuaRequires reproduces LCS-BUG-74 (Lua side):
+// require("module.sub") calls should produce dependency edges between
+// directories, just like Python/Java/C# imports.
+func TestExtractLuaRequires(t *testing.T) {
+	dir := t.TempDir()
+
+	buildFixture(t, dir, map[string]string{
+		"plugin/init.lua": "local engine = require(\"core.engine\")\n",
+		"core/engine.lua": "-- engine module\nreturn {}\n",
+	})
+
+	dirNS := map[string]*model.Namespace{
+		"plugin": {
+			Name:       "plugin",
+			ImportPath: "plugin",
+			Files:      []*model.File{model.NewFile("plugin/init.lua", "plugin")},
+		},
+		"core": {
+			Name:       "core",
+			ImportPath: "core",
+			Files:      []*model.File{model.NewFile("core/engine.lua", "core")},
+		},
+	}
+
+	graph := extractLanguageImports(dir, model.LangLua, dirNS)
+	if graph == nil {
+		t.Fatal("extractLanguageImports returned nil for LangLua — Lua require() not implemented")
+	}
+
+	edges := graph.EdgesFrom("plugin")
+	found := false
+	for _, e := range edges {
+		if e.To == "core" && !e.External {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected edge plugin→core from require(\"core.engine\"); edges: %+v", edges)
+	}
+}
