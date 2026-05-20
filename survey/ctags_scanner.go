@@ -194,13 +194,30 @@ func extractCIncludes(root string) *model.DependencyGraph {
 			if inc == "" {
 				continue
 			}
-			// Prefer project-root-relative resolution (handles -I <root> builds
-			// like neovim where #include "nvim/api.h" means <root>/nvim/api.h).
-			// Fall back to source-file-relative (standard C).
+			// Resolve include path using a cascade of search paths, mimicking
+			// common -I compiler flags (LCS-BUG-74):
+			//   1. <root>/<inc>          — -I <root>  (e.g. small projects)
+			//   2. <root>/src/<inc>      — -I src     (e.g. neovim, Linux kernel)
+			//   3. <root>/include/<inc>  — -I include (e.g. many C libs)
+			//   4. <srcDir>/<inc>        — standard file-relative (fallback)
 			var resolved string
-			if _, statErr := os.Stat(filepath.Join(root, inc)); statErr == nil {
-				resolved = filepath.ToSlash(inc)
-			} else {
+			searchPaths := []string{"", "src", "include"}
+			found := false
+			for _, sp := range searchPaths {
+				var candidate string
+				if sp == "" {
+					candidate = filepath.Join(root, inc)
+				} else {
+					candidate = filepath.Join(root, sp, inc)
+				}
+				if _, statErr := os.Stat(candidate); statErr == nil {
+					rel, _ := filepath.Rel(root, candidate)
+					resolved = filepath.ToSlash(rel)
+					found = true
+					break
+				}
+			}
+			if !found {
 				resolved = filepath.ToSlash(filepath.Clean(filepath.Join(srcDir, inc)))
 			}
 			incDir := filepath.Dir(resolved)

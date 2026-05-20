@@ -260,3 +260,65 @@ version = "0.1.0"
 		t.Errorf("expected at least 2 namespaces from composite scan, got %d", len(proj.Namespaces))
 	}
 }
+
+// TestCompositeScanDiscoversNestedPythonPackages reproduces LCS-BUG-74:
+// a monorepo with pyproject.toml files inside subdirectories (like
+// deepagents libs/<pkg>/pyproject.toml) must be discovered as Python
+// sub-projects, not silently fall through to CtagsScanner.
+func TestCompositeScanDiscoversNestedPythonPackages(t *testing.T) {
+	dir := t.TempDir()
+
+	files := map[string]string{
+		// No marker at repo root — typical for a multi-package monorepo.
+		"libs/backend/pyproject.toml":          "[project]\nname = \"backend\"\n",
+		"libs/backend/backend/__init__.py":      "",
+		"libs/backend/backend/api.py":           "from backend.models import Record\nclass API:\n    pass\n",
+		"libs/backend/backend/models.py":        "class Record:\n    pass\n",
+		"libs/frontend/pyproject.toml":          "[project]\nname = \"frontend\"\n",
+		"libs/frontend/frontend/__init__.py":    "",
+		"libs/frontend/frontend/app.py":         "from backend.api import API\n",
+	}
+
+	for name, content := range files {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sc := &survey.CompositeScanner{}
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+
+	if len(proj.Namespaces) == 0 {
+		t.Fatal("expected Python namespaces from nested pyproject.toml discovery, got 0")
+	}
+
+	// Both sub-packages must be represented.
+	nsMap := make(map[string]bool)
+	for _, ns := range proj.Namespaces {
+		nsMap[ns.ImportPath] = true
+	}
+
+	for _, want := range []string{"libs/backend/backend", "libs/frontend/frontend"} {
+		if !nsMap[want] {
+			t.Errorf("missing namespace %q; have: %v", want, func() []string {
+				keys := make([]string, 0, len(nsMap))
+				for k := range nsMap {
+					keys = append(keys, k)
+				}
+				return keys
+			}())
+		}
+	}
+
+	// Must produce internal dependency edges (not zero like before the fix).
+	if proj.DependencyGraph == nil || len(proj.DependencyGraph.Edges) == 0 {
+		t.Error("expected dependency edges from nested Python packages, got 0")
+	}
+}

@@ -368,3 +368,41 @@ func TestExtractLuaRequires(t *testing.T) {
 		t.Errorf("expected edge plugin→core from require(\"core.engine\"); edges: %+v", edges)
 	}
 }
+
+// TestExtractCIncludesSrcSearchPath reproduces LCS-BUG-74 (neovim C side):
+// #include "nvim/api.h" from src/nvim/main.c should resolve via the
+// -I src search path to src/nvim/api.h, producing edge src/nvim → src/nvim/api.
+func TestExtractCIncludesSrcSearchPath(t *testing.T) {
+	dir := t.TempDir()
+
+	buildFixture(t, dir, map[string]string{
+		"CMakeLists.txt":          "cmake_minimum_required(VERSION 3.0)\n",
+		"src/nvim/api/handler.h":  "// handler\n",
+		"src/nvim/main.c":         "#include \"nvim/api/handler.h\"\nint main() { return 0; }\n",
+	})
+
+	deps := extractCIncludes(dir)
+	if deps == nil {
+		t.Fatal("extractCIncludes returned nil")
+	}
+
+	// Must resolve via src/ search path: src/nvim → src/nvim/api.
+	edges := deps.EdgesFrom("src/nvim")
+	found := false
+	for _, e := range edges {
+		if e.To == "src/nvim/api" && !e.External {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected src/nvim→src/nvim/api via -I src resolution; all edges: %+v", deps.Edges)
+	}
+
+	// Must NOT produce phantom edge src/nvim → src/nvim/nvim/api.
+	for _, e := range deps.Edges {
+		if e.From == "src/nvim" && e.To == "src/nvim/nvim/api" {
+			t.Errorf("phantom edge src/nvim→src/nvim/nvim/api must not exist")
+		}
+	}
+}

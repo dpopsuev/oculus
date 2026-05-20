@@ -82,7 +82,16 @@ func discoverSubProjects(root string) []subProject {
 		}
 	}
 
-	tsMarkers := []string{"package.json", "tsconfig.json"}
+	// subProjectMarkers maps a marker filename to the language it signals.
+	// These are walked recursively so polyglot monorepos (e.g. deepagents
+	// with pyproject.toml inside libs/) are discovered correctly (LCS-BUG-74).
+	subProjectMarkers := map[string]model.Language{
+		"package.json":  model.LangTypeScript,
+		"tsconfig.json": model.LangTypeScript,
+		"pyproject.toml": model.LangPython,
+		"setup.py":       model.LangPython,
+	}
+
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -94,26 +103,25 @@ func discoverSubProjects(root string) []subProject {
 			return nil
 		}
 
-		for _, tsm := range tsMarkers {
-			if d.Name() != tsm {
-				continue
-			}
-			rel, relErr := filepath.Rel(root, filepath.Dir(path))
-			if relErr != nil {
-				break
-			}
-			rel = filepath.ToSlash(rel)
-			if seen[rel] {
-				break
-			}
-			if hasNodeModulesParent(rel) {
-				break
-			}
-			seen[rel] = true
-			subs = append(subs, subProject{relPath: rel, lang: model.LangTypeScript})
-			break
+		lang, ok := subProjectMarkers[d.Name()]
+		if !ok {
+			return nil
 		}
 
+		subDir := filepath.Dir(path)
+		rel, relErr := filepath.Rel(root, subDir)
+		if relErr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if seen[rel] {
+			return nil
+		}
+		if hasNodeModulesParent(rel) {
+			return nil
+		}
+		seen[rel] = true
+		subs = append(subs, subProject{relPath: rel, lang: lang})
 		return nil
 	})
 
