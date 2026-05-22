@@ -31,18 +31,24 @@ type Client struct {
 	mu      sync.Mutex // protects nextID
 	wmu     sync.Mutex // serializes writes
 	nextID  int
-	pending sync.Map   // id → chan *JSONRPCResponse
+	pending    sync.Map  // id → chan *JSONRPCResponse
 	readerOnce sync.Once
 	readerErr  error
+	// readerDone is closed when the reader goroutine exits. Any RequestContext
+	// call that races with server death selects on this channel and returns
+	// ErrServerDead immediately instead of blocking forever on an orphaned
+	// pending channel (PIV-BUG-2).
+	readerDone chan struct{}
 }
 
 // NewClient creates an LSP client from reader/writer pairs (typically
 // connected to an LSP server's stdin/stdout).
 func NewClient(r io.Reader, w io.Writer) *Client {
 	return &Client{
-		w:      w,
-		r:      bufio.NewReader(r),
-		nextID: 1,
+		w:          w,
+		r:          bufio.NewReader(r),
+		nextID:     1,
+		readerDone: make(chan struct{}),
 	}
 }
 
@@ -84,6 +90,8 @@ func (c *Client) Request(method string, params any) (json.RawMessage, error) {
 func (c *Client) startReader() {
 	c.readerOnce.Do(func() {
 		go func() {
+			// Signal all current and future callers that the reader is gone.
+			defer close(c.readerDone)
 			for {
 				resp, err := c.readMessage()
 				if err != nil {
@@ -147,11 +155,15 @@ func (c *Client) RequestContext(ctx context.Context, method string, params any) 
 		return nil, fmt.Errorf("lsp write %s: %w", method, ctx.Err())
 	}
 
-	// Wait for response dispatched by reader goroutine
+	// Wait for response dispatched by reader goroutine.
+	// readerDone is selected alongside ch and ctx.Done() so that requests
+	// created after the reader goroutine has already exited (the zombie race,
+	// PIV-BUG-2) return ErrServerDead immediately instead of blocking forever
+	// on an orphaned pending channel.
 	select {
 	case resp, ok := <-ch:
 		if !ok {
-			// Reader goroutine died
+			// Reader goroutine died while this request was in-flight.
 			if c.readerErr != nil {
 				return nil, fmt.Errorf("lsp response %s: %w", method, c.readerErr)
 			}
@@ -161,6 +173,12 @@ func (c *Client) RequestContext(ctx context.Context, method string, params any) 
 			return nil, resp.Error
 		}
 		return resp.Result, nil
+	case <-c.readerDone:
+		// Reader goroutine already exited before this request was made.
+		if c.readerErr != nil {
+			return nil, fmt.Errorf("lsp response %s: %w", method, c.readerErr)
+		}
+		return nil, fmt.Errorf("lsp response %s: %w", method, ErrServerDead)
 	case <-ctx.Done():
 		return nil, fmt.Errorf("lsp read %s: %w", method, ctx.Err())
 	}
