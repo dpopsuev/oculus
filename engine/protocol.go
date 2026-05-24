@@ -1043,7 +1043,10 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 
 	path = p.resolvePath(path)
 
-	sha := p.db.ResolveHEAD(path)
+	var sha string
+	if p.db != nil {
+		sha = p.db.ResolveHEAD(path)
+	}
 	if sha != "" {
 		if cached, ok := p.sgCache.Load(path + "@" + sha); ok {
 			return cached.(*oculus.SymbolGraph), nil
@@ -1059,13 +1062,13 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 
 	start := time.Now()
 	cg, err := da.CallGraph(ctx, path, cgOpts)
+	if err != nil {
+		return nil, fmt.Errorf("call graph: %w", err)
+	}
 	slog.LogAttrs(ctx, slog.LevelDebug, "mesh: call_graph",
 		slog.Duration("duration", time.Since(start)),
 		slog.Int("edges", len(cg.Edges)),
 	)
-	if err != nil {
-		return nil, fmt.Errorf("call graph: %w", err)
-	}
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("symbol graph: %w", ctx.Err())
 	}

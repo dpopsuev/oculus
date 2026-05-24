@@ -2,11 +2,12 @@ package diagram
 
 import (
 	"context"
-	"github.com/dpopsuev/oculus/v3/analyzer"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
+	"github.com/dpopsuev/oculus/v3/analyzer"
 	"github.com/dpopsuev/oculus/v3/arch"
 	clinichexa "github.com/dpopsuev/oculus/v3/clinic/hexa"
 	"github.com/dpopsuev/oculus/v3/diagram/core"
@@ -18,13 +19,18 @@ func integrationRoot(t *testing.T) string {
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
-	return filepath.Join(filepath.Dir(file), "..", "..")
+	// Use the bundled Go testkit fixture — it is a complete Go module that
+	// detects correctly, contains type definitions for class diagrams, and
+	// is small enough for ScanAndBuild to complete well within the timeout.
+	return filepath.Join(filepath.Dir(file), "..", "testdata", "testkit", "go")
 }
 
 func integrationScan(t *testing.T) *arch.ContextReport {
 	t.Helper()
 	root := integrationRoot(t)
-	report, err := arch.ScanAndBuild(context.Background(), root, arch.ScanOpts{ExcludeTests: true})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	report, err := arch.ScanAndBuild(ctx, root, arch.ScanOpts{ExcludeTests: true})
 	if err != nil {
 		t.Fatalf("ScanAndBuild: %v", err)
 	}

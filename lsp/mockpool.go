@@ -52,7 +52,7 @@ func (p *MockPool) Get(language lang.Language, root string) (*Client, error) {
 	}()
 
 	client := NewClient(cr, cw)
-	if err := Initialize(client, root); err != nil {
+	if _, err := Initialize(client, root); err != nil {
 		cw.Close()
 		sr.Close()
 		return nil, err

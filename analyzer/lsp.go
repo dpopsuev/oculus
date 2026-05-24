@@ -123,7 +123,8 @@ func newLSPConn(r interface{ Read([]byte) (int, error) }, w interface{ Write([]b
 }
 
 func (c *lspConn) initialize(root string) error {
-	return lsp.Initialize(c.Client, root)
+	_, err := lsp.Initialize(c.Client, root)
+	return err
 }
 
 func (c *lspConn) shutdown() {
@@ -735,17 +736,16 @@ func (a *LSPAnalyzer) startServer(root string) (*lspConn, func(), error) {
 
 	// Fall through to existing cold-start logic.
 	detected := lang.DetectLanguage(root)
-	cmdStr := lang.DefaultLSPServer(detected)
-	if cmdStr == "" {
+	regEntry := lang.DefaultServerEntry(detected)
+	if regEntry == nil {
 		return nil, nil, fmt.Errorf("%w: %v", ErrLSPNoServer, detected)
 	}
-	parts := strings.Fields(cmdStr)
-	bin, err := exec.LookPath(parts[0])
+	bin, err := exec.LookPath(regEntry.Command)
 	if err != nil {
-		return nil, nil, fmt.Errorf("lsp server %s not found: %w", parts[0], err)
+		return nil, nil, fmt.Errorf("lsp server %s not found: %w", regEntry.Command, err)
 	}
 	absRoot, _ := filepath.Abs(root)
-	cmd := exec.Command(bin, parts[1:]...)
+	cmd := exec.Command(bin, regEntry.Args...)
 	cmd.Dir = absRoot
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()
@@ -757,7 +757,7 @@ func (a *LSPAnalyzer) startServer(root string) (*lspConn, func(), error) {
 		return nil, nil, err
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, nil, fmt.Errorf("start %s: %w", parts[0], err)
+		return nil, nil, fmt.Errorf("start %s: %w", regEntry.Command, err)
 	}
 	conn := newLSPConn(stdout, stdin)
 	if err := conn.initialize(absRoot); err != nil {

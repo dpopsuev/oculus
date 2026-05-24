@@ -30,6 +30,7 @@ type poolEntry struct {
 	stdin    io.WriteCloser
 	dead     atomic.Bool
 	lastUsed time.Time
+	encoding OffsetEncoding // negotiated position encoding
 }
 
 // DefaultTTL is how long an idle gopls stays alive before eviction.
@@ -213,19 +214,33 @@ func (p *RealPool) KillServer(language lang.Language, root string) error {
 }
 
 // spawnServer starts a new LSP server process and performs the initialize handshake.
+// It looks up the registry entry for language, checks root markers (unless the
+// server has SingleFileSupport), then spawns and initializes the process.
 func spawnServer(language lang.Language, absRoot string) (*poolEntry, error) {
-	cmdStr := lang.DefaultLSPServer(language)
-	if cmdStr == "" {
+	regEntry := lang.DefaultServerEntry(language)
+	if regEntry == nil {
 		return nil, fmt.Errorf("%w: %v", ErrNoLSPServer, language)
 	}
 
-	parts := strings.Fields(cmdStr)
-	bin, err := exec.LookPath(parts[0])
-	if err != nil {
-		return nil, fmt.Errorf("lsp pool: server %s not found: %w", parts[0], err)
+	if regEntry.SkipAutoStart {
+		return nil, fmt.Errorf("%w: %v (requires manual configuration)", ErrNoLSPServer, language)
 	}
 
-	cmd := exec.Command(bin, parts[1:]...)
+	// Require root markers for servers that need a project root, unless the
+	// server explicitly supports single-file mode.
+	if !regEntry.SingleFileSupport && len(regEntry.RootMarkers) > 0 {
+		if !lang.HasRootMarkers(absRoot, regEntry.RootMarkers) {
+			return nil, fmt.Errorf("lsp pool: %v: no root markers found in %s",
+				language, absRoot)
+		}
+	}
+
+	bin, err := exec.LookPath(regEntry.Command)
+	if err != nil {
+		return nil, fmt.Errorf("lsp pool: server %s not found: %w", regEntry.Command, err)
+	}
+
+	cmd := exec.Command(bin, regEntry.Args...)
 	cmd.Dir = absRoot
 	cmd.Stderr = os.Stderr
 
@@ -239,22 +254,27 @@ func spawnServer(language lang.Language, absRoot string) (*poolEntry, error) {
 	}
 
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("lsp pool: start %s: %w", parts[0], err)
+		return nil, fmt.Errorf("lsp pool: start %s: %w", regEntry.Command, err)
 	}
 
 	client := NewClient(stdout, stdin)
 
-	if err := initialize(client, absRoot); err != nil {
+	enc, err := initialize(client, absRoot)
+	if err != nil {
 		stdin.Close()
 		_ = cmd.Wait()
 		return nil, fmt.Errorf("lsp pool: initialize: %w", err)
 	}
+
+	// Open root marker files so servers like gopls establish workspace views.
+	OpenRootMarkers(client, absRoot, regEntry.RootMarkers)
 
 	entry := &poolEntry{
 		client:   client,
 		cmd:      cmd,
 		stdin:    stdin,
 		lastUsed: time.Now(),
+		encoding: enc,
 	}
 
 	go func() {
@@ -268,8 +288,9 @@ func spawnServer(language lang.Language, absRoot string) (*poolEntry, error) {
 	return entry, nil
 }
 
-// initialize performs the LSP initialize/initialized handshake.
-func initialize(client *Client, root string) error {
+// initialize performs the LSP initialize/initialized handshake and returns
+// the negotiated OffsetEncoding.
+func initialize(client *Client, root string) (OffsetEncoding, error) {
 	return Initialize(client, root)
 }
 

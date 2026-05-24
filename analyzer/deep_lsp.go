@@ -500,7 +500,9 @@ func lspExportedRoots(conn *lspConn, root string) ([]string, error) {
 
 	for attempt := range lspIndexingRetries {
 		if attempt > 0 {
-			time.Sleep(lspIndexingBackoff)
+			if err := indexingBackoff(conn.ctx, lspIndexingBackoff); err != nil {
+				return nil, err
+			}
 		}
 		result, err := conn.request("workspace/symbol", map[string]any{"query": "."})
 		if err != nil {
@@ -623,4 +625,19 @@ func isNoProjectError(err error) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(err.Error()), "no project")
+}
+
+// indexingBackoff sleeps for d or until ctx is cancelled, whichever comes
+// first. Returns ctx.Err() on cancellation, nil after a full sleep.
+func indexingBackoff(ctx context.Context, d time.Duration) error {
+	if ctx == nil {
+		time.Sleep(d)
+		return nil
+	}
+	select {
+	case <-time.After(d):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

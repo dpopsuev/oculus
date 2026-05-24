@@ -22,6 +22,13 @@ var ErrMissingContentLength = errors.New("missing Content-Length header")
 // pipe is broken. The pool should evict and respawn on this error.
 var ErrServerDead = errors.New("lsp server dead")
 
+// NotificationHandler is called for server-initiated notifications (no ID).
+type NotificationHandler func(method string, params json.RawMessage)
+
+// RequestHandler is called for server-initiated requests (has ID). It must
+// return a result (or nil) and an optional error.
+type RequestHandler func(method string, params json.RawMessage) (any, error)
+
 // Client implements the JSON-RPC 2.0 transport for LSP communication
 // over a stdin/stdout pipe pair. Thread-safe: a single reader goroutine
 // dispatches responses by request ID. Writes are serialized via mutex.
@@ -39,17 +46,56 @@ type Client struct {
 	// ErrServerDead immediately instead of blocking forever on an orphaned
 	// pending channel (PIV-BUG-2).
 	readerDone chan struct{}
+
+	// notifHandlers is a method → NotificationHandler dispatch table.
+	notifHandlers sync.Map
+	// reqHandlers is a method → RequestHandler dispatch table for
+	// server-initiated requests (workspace/configuration, workspace/applyEdit).
+	reqHandlers sync.Map
+
+	// Diagnostics caches textDocument/publishDiagnostics notifications.
+	// Populated automatically when RegisterDefaultHandlers is called.
+	Diagnostics *VersionedDiagnosticMap
 }
 
 // NewClient creates an LSP client from reader/writer pairs (typically
-// connected to an LSP server's stdin/stdout).
+// connected to an LSP server's stdin/stdout). Automatically registers
+// default handlers including textDocument/publishDiagnostics.
 func NewClient(r io.Reader, w io.Writer) *Client {
-	return &Client{
-		w:          w,
-		r:          bufio.NewReader(r),
-		nextID:     1,
-		readerDone: make(chan struct{}),
+	c := &Client{
+		w:           w,
+		r:           bufio.NewReader(r),
+		nextID:      1,
+		readerDone:  make(chan struct{}),
+		Diagnostics: newVersionedDiagnosticMap(),
 	}
+	c.RegisterDefaultHandlers()
+	return c
+}
+
+// RegisterNotificationHandler registers fn to be called for server-initiated
+// notifications with the given method. Replaces any existing handler.
+func (c *Client) RegisterNotificationHandler(method string, fn NotificationHandler) {
+	c.notifHandlers.Store(method, fn)
+}
+
+// RegisterHandler registers fn to handle server-initiated requests with the
+// given method. The return value is sent back as the JSON-RPC result.
+// Replaces any existing handler.
+func (c *Client) RegisterHandler(method string, fn RequestHandler) {
+	c.reqHandlers.Store(method, fn)
+}
+
+// RegisterDefaultHandlers wires the standard server→client handlers:
+//   - textDocument/publishDiagnostics → Diagnostics cache
+//   - workspace/configuration         → empty settings response
+func (c *Client) RegisterDefaultHandlers() {
+	c.RegisterNotificationHandler("textDocument/publishDiagnostics", func(_ string, params json.RawMessage) {
+		c.Diagnostics.handlePublishDiagnostics(params)
+	})
+	c.RegisterHandler("workspace/configuration", func(_ string, _ json.RawMessage) (any, error) {
+		return []map[string]any{{}}, nil
+	})
 }
 
 // JSONRPCRequest is a JSON-RPC 2.0 request message.
@@ -60,11 +106,14 @@ type JSONRPCRequest struct {
 	Params  any    `json:"params,omitempty"`
 }
 
-// JSONRPCResponse is a JSON-RPC 2.0 response message.
+// JSONRPCResponse is a JSON-RPC 2.0 response message. The same struct is
+// used for server-initiated notifications and requests (which carry Params
+// instead of Result).
 type JSONRPCResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      *int            `json:"id,omitempty"`
 	Method  string          `json:"method,omitempty"`
+	Params  json.RawMessage `json:"params,omitempty"`
 	Result  json.RawMessage `json:"result,omitempty"`
 	Error   *JSONRPCError   `json:"error,omitempty"`
 }
@@ -105,8 +154,24 @@ func (c *Client) startReader() {
 					})
 					return
 				}
-				if resp.ID == nil || resp.Method != "" {
-					continue // skip notifications
+				if resp.Method != "" {
+					// Server-initiated message: notification or request.
+					if resp.ID == nil {
+						// Notification — fire handler, no response.
+						if h, ok := c.notifHandlers.Load(resp.Method); ok {
+							h.(NotificationHandler)(resp.Method, resp.Params)
+						}
+					} else {
+						// Server request — fire handler and send response.
+						go c.dispatchServerRequest(*resp.ID, resp.Method, resp.Params)
+					}
+					continue
+				}
+				// Response to our outgoing request. Guard against malformed
+				// messages with no ID (Method=="" and ID==nil is invalid but
+				// possible with misbehaving servers).
+				if resp.ID == nil {
+					continue
 				}
 				if ch, ok := c.pending.LoadAndDelete(*resp.ID); ok {
 					ch.(chan *JSONRPCResponse) <- resp
@@ -247,4 +312,32 @@ func (c *Client) readMessage() (*JSONRPCResponse, error) {
 	}
 
 	return &resp, nil
+}
+
+// dispatchServerRequest handles a server-initiated request: calls the
+// registered RequestHandler and writes back a JSON-RPC response.
+func (c *Client) dispatchServerRequest(id int, method string, params json.RawMessage) {
+	var result any
+	var rpcErr *JSONRPCError
+
+	if h, ok := c.reqHandlers.Load(method); ok {
+		res, err := h.(RequestHandler)(method, params)
+		if err != nil {
+			rpcErr = &JSONRPCError{Code: -32603, Message: err.Error()}
+		} else {
+			result = res
+		}
+	} else {
+		// Unknown method — respond with MethodNotFound.
+		rpcErr = &JSONRPCError{Code: -32601, Message: "method not found: " + method}
+	}
+
+	type response struct {
+		JSONRPC string        `json:"jsonrpc"`
+		ID      int           `json:"id"`
+		Result  any           `json:"result,omitempty"`
+		Error   *JSONRPCError `json:"error,omitempty"`
+	}
+	resp := response{JSONRPC: "2.0", ID: id, Result: result, Error: rpcErr}
+	_ = c.writeMessage(resp)
 }

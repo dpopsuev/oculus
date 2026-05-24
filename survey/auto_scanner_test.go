@@ -127,7 +127,7 @@ func TestDefaultLSPServer(t *testing.T) {
 		lang model.Language
 		want string
 	}{
-		{model.LangGo, "gopls serve"},
+		{model.LangGo, "gopls"},
 		{model.LangRust, "rust-analyzer"},
 		{model.LangPython, "pyright-langserver --stdio"},
 		{model.LangTypeScript, "typescript-language-server --stdio"},

@@ -166,7 +166,8 @@ func (p *ContainerPool) spawnContainer(language lang.Language, absRoot string) (
 }
 
 func initializeLSP(client *lsp.Client, root string) error {
-	return lsp.Initialize(client, root)
+	_, err := lsp.Initialize(client, root)
+	return err
 }
 
 func shutdownContainer(entry *containerEntry) {

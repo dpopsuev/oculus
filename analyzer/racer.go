@@ -71,6 +71,9 @@ func (r *Racer[T]) WithMinQuality(q QualityTier) *Racer[T] {
 // Losers continue in background and upgrade the cache if they produce
 // higher-quality results.
 func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	// Check cache first — return highest-quality cached result.
 	r.mu.RLock()
 	if r.cache != nil {
