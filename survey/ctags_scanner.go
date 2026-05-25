@@ -3,6 +3,7 @@ package survey
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +12,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/dpopsuev/oculus/v3/lang"
 	"github.com/dpopsuev/oculus/v3/model"
 )
 
@@ -35,17 +38,52 @@ type ctagsEntry struct {
 	Signature string `json:"signature"`
 }
 
+// ctagsScanTimeout is the maximum time ctags is allowed to run.
+// Large workspaces with node_modules can take hours without --exclude;
+// after adding excludes the typical scan takes under 60 s.
+const ctagsScanTimeout = 5 * time.Minute
+
+// ctagsExcludeArgs builds the --exclude= flags from CommonSkipDirs so that
+// ctags never descends into node_modules, .git, vendor, etc.
+func ctagsExcludeArgs() []string {
+	args := make([]string, 0, len(lang.CommonSkipDirs))
+	for dir := range lang.CommonSkipDirs {
+		args = append(args, "--exclude="+dir)
+	}
+	// Also exclude hidden directories (dot-prefixed) that are not already listed.
+	args = append(args, "--exclude=.*")
+	return args
+}
+
 func (s *CtagsScanner) Scan(root string) (*model.Project, error) {
 	if _, err := exec.LookPath("ctags"); err != nil {
 		return nil, errCtagsNotFound
 	}
 
-	cmd := exec.Command("ctags", "--output-format=json", "--fields=*", "-R", ".")
+	ctx, cancel := context.WithTimeout(context.Background(), ctagsScanTimeout)
+	defer cancel()
+
+	args := append(
+		[]string{"--output-format=json", "--fields=*", "-o", "-"},
+		ctagsExcludeArgs()...,
+	)
+	args = append(args, "-R", ".")
+
+	cmd := exec.CommandContext(ctx, "ctags", args...)
 	cmd.Dir = root
-	out, err := cmd.Output()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("ctags: %w", err)
+		return nil, fmt.Errorf("ctags pipe: %w", err)
 	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("ctags start: %w", err)
+	}
+	defer func() {
+		// Always reap the child so no zombie is left behind.
+		// cmd.Wait is called below on the success path; this handles
+		// early-return error paths where Wait has not been reached.
+		_ = cmd.Wait()
+	}()
 
 	proj := &model.Project{
 		Path:     root,
@@ -55,7 +93,7 @@ func (s *CtagsScanner) Scan(root string) (*model.Project, error) {
 	dirNS := make(map[string]*model.Namespace)
 	fileSet := make(map[string]bool)
 
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -102,6 +140,14 @@ func (s *CtagsScanner) Scan(root string) (*model.Project, error) {
 			}
 			ns.AddFile(fileObj)
 		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("ctags timed out after %s (is node_modules excluded?): %w", ctagsScanTimeout, ctx.Err())
+		}
+		// Non-zero exit from ctags is usually a parse warning — use whatever
+		// symbols were collected rather than failing the whole scan.
 	}
 
 	for _, ns := range dirNS {
