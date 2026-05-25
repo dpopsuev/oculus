@@ -239,6 +239,18 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 		// CacheKey must include the intent suffix (sha+"-"+intent) so that
 		// analysis tools calling getOrScan with this key find the same DB
 		// entry as the one that was stored here.
+		//
+		// Also ensure the plain-sha slot is warm so that analysis tools
+		// called without a cache_key never trigger a cold getOrScan rescan.
+		// On a cold rescan AutoScanner (no ScannerOverride) may pick
+		// CompositeScanner instead of the scanner used here, producing
+		// sub-project-relative component names that do not match the
+		// names in the intent-keyed report.
+		if cacheKey != sha && sha != "" {
+			if _, plainHit, _ := p.db.GetReport(ctx, path, sha); !plainHit {
+				_ = p.db.PutReport(ctx, path, sha, cached)
+			}
+		}
 		return &ScanResult{Report: cached, CacheKey: path + "@" + cacheKey, SHA: sha}, nil
 	}
 
