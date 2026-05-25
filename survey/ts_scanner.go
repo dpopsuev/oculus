@@ -181,7 +181,14 @@ func resolveRelativeImport(fromDir, spec string) string {
 	resolved := filepath.ToSlash(filepath.Clean(filepath.Join(base, spec)))
 	dir := filepath.ToSlash(filepath.Dir(resolved))
 	if dir == "." {
-		return nsRoot
+		// resolved is a top-level bare name (e.g. "domain" from "../domain").
+		// Return it directly as the target namespace rather than collapsing
+		// to nsRoot — a directory-level import like '../domain' points to
+		// the 'domain' component, not to the project root.
+		if resolved == "." {
+			return nsRoot
+		}
+		return resolved
 	}
 	return dir
 }
