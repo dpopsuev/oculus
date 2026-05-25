@@ -110,11 +110,30 @@ func readPathAliases(absRoot string) []pathAlias {
 		}
 	}
 
-	// Parse tsconfig.json first, then tsconfig.base.json as a fallback if
-	// tsconfig.json does not extend anything.
-	for _, name := range []string{"tsconfig.json", "tsconfig.base.json"} {
+	// Parse tsconfig.json / jsconfig.json first, then tsconfig.base.json.
+	// jsconfig.json is the JavaScript-only equivalent of tsconfig.json and
+	// uses an identical compilerOptions.paths schema (LCS-BUG-80).
+	for _, name := range []string{"tsconfig.json", "jsconfig.json", "tsconfig.base.json"} {
 		parseTsConfig(filepath.Join(absRoot, name))
 	}
+
+	// Sort aliases so that the most specific pattern is tried first:
+	//   1. exact matches (no wildcard) — highest priority
+	//   2. glob patterns ordered by descending aliasPrefix length (longer prefix = more specific)
+	//   3. catch-all (aliasPrefix == "", i.e. "*") — lowest priority
+	//
+	// Without this sort, Go map iteration produces non-deterministic order and
+	// a catch-all "*": ["./*"] can shadow a more-specific exact entry like
+	// "@scope/pkg": ["./packages/pkg/src/index.ts"] (LCS-BUG-79).
+	sort.SliceStable(aliases, func(i, j int) bool {
+		ai, aj := aliases[i], aliases[j]
+		// Exact always beats glob.
+		if ai.exact != aj.exact {
+			return ai.exact
+		}
+		// Among globs, longer prefix is more specific.
+		return len(ai.aliasPrefix) > len(aj.aliasPrefix)
+	})
 	return aliases
 }
 

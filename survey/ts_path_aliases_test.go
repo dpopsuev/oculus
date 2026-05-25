@@ -9,6 +9,7 @@ package survey_test
 // risk-scores, coupling, and cycle detection useless for the real architecture.
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/dpopsuev/oculus/v3/model"
@@ -209,6 +210,107 @@ func edgeIndex(proj *model.Project) map[string]map[string]bool {
 		idx[e.From][e.To] = true
 	}
 	return idx
+}
+
+// TestTSScan_PathAliases_CatchAllDoesNotShadowSpecific is the regression test
+// for the ordering bug: tsconfig "*": ["./*"] is a catch-all that matches any
+// import, including ones covered by a more-specific exact entry. Because
+// readPathAliases builds the alias slice from a Go map (non-deterministic
+// iteration), the catch-all could be tried before the specific entry and
+// return a nonsense directory, causing the specific alias to never fire.
+//
+// Given tsconfig.json has both "*": ["./*"] and "@app/core": ["./packages/core/src/index.ts"]
+// When packages/app/src/index.ts imports from '@app/core'
+// Then the specific alias wins and an internal edge is produced
+// And the catch-all does not shadow the specific pattern
+func TestTSScan_PathAliases_CatchAllDoesNotShadowSpecific(t *testing.T) {
+	dir := setupTSProject(t, map[string]string{
+		// Catch-all "*" comes before the specific entry in JSON — but JSON object
+		// key order is not preserved by Go's encoding/json (map iteration).
+		// The scanner must sort aliases so exact > glob > catch-all.
+		"tsconfig.json": `{
+			"compilerOptions": {
+				"paths": {
+					"*":           ["./*"],
+					"@app/core":   ["./packages/core/src/index.ts"],
+					"@app/utils":  ["./packages/utils/src/index.ts"]
+				}
+			}
+		}`,
+		"packages/core/src/index.ts":  "export function coreFunc(): void {}\n",
+		"packages/utils/src/index.ts": "export function utilFunc(): void {}\n",
+		"packages/app/src/index.ts": `
+import { coreFunc } from '@app/core';
+import { utilFunc } from '@app/utils';
+export function run(): void { coreFunc(); utilFunc(); }
+`,
+	})
+
+	sc := newTSScanner()
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	edges := edgeIndex(proj)
+
+	if !edges["packages/app/src"]["packages/core/src"] {
+		t.Errorf("specific alias @app/core shadowed by catch-all *; got edges: %v",
+			keys(edges["packages/app/src"]))
+	}
+	if !edges["packages/app/src"]["packages/utils/src"] {
+		t.Errorf("specific alias @app/utils shadowed by catch-all *; got edges: %v",
+			keys(edges["packages/app/src"]))
+	}
+
+	// The catch-all must NOT win: no edge to a nonsense path like ./@app/core
+	for to := range edges["packages/app/src"] {
+		if strings.HasPrefix(to, "./") || strings.HasPrefix(to, "@app") {
+			t.Errorf("catch-all produced a bad edge target: packages/app/src → %q", to)
+		}
+	}
+}
+
+// TestTSScan_PathAliases_CatchAllResolvesUnmatchedImports verifies that the
+// catch-all pattern still resolves imports that have NO specific alias entry.
+// It must lose to specifics but still work for everything else.
+func TestTSScan_PathAliases_CatchAllResolvesUnmatchedImports(t *testing.T) {
+	dir := setupTSProject(t, map[string]string{
+		"tsconfig.json": `{
+			"compilerOptions": {
+				"paths": {
+					"*":       ["./src/*"],
+					"@app/a":  ["./packages/a/src/index.ts"]
+				}
+			}
+		}`,
+		"packages/a/src/index.ts": "export function aFunc(): void {}\n",
+		"src/helpers/index.ts":    "export function help(): void {}\n",
+		"packages/consumer/src/index.ts": `
+import { aFunc } from '@app/a';
+import { help } from 'helpers';
+export function run(): void { aFunc(); help(); }
+`,
+	})
+
+	sc := newTSScanner()
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	edges := edgeIndex(proj)
+
+	// Specific alias wins.
+	if !edges["packages/consumer/src"]["packages/a/src"] {
+		t.Errorf("specific @app/a alias did not produce edge; got: %v",
+			keys(edges["packages/consumer/src"]))
+	}
+	// Catch-all resolves 'helpers' → src/helpers.
+	if !edges["packages/consumer/src"]["src/helpers"] {
+		t.Errorf("catch-all * did not resolve 'helpers' to src/helpers; got: %v",
+			keys(edges["packages/consumer/src"]))
+	}
 }
 
 // keys returns the keys of a map as a slice, for use in error messages.
