@@ -31,6 +31,16 @@ type CallEdge struct {
 	ToCol    int
 }
 
+// Evil mode constants for ServeEvil (LCS-BUG-76).
+const (
+	// EvilHangOnInitialize — reads the initialize request but never replies.
+	EvilHangOnInitialize = "hang_init"
+	// EvilHangOnDocumentSymbol — completes initialize, hangs on first documentSymbol.
+	EvilHangOnDocumentSymbol = "hang_document_symbol"
+	// EvilHangOnExit — completes the full scan protocol, hangs on shutdown.
+	EvilHangOnExit = "hang_exit"
+)
+
 // Config controls the mock server behavior.
 type Config struct {
 	Symbols                    []Symbol      // workspace/symbol results
@@ -241,6 +251,52 @@ func buildOutgoingCalls(edges []CallEdge, params json.RawMessage) []map[string]a
 		}
 	}
 	return result
+}
+
+// ServeEvil runs a minimal LSP server that misbehaves according to mode.
+// Designed to be called from TestMain so the test binary itself acts as the
+// evil LSP server subprocess spawned by LSPScanner (LCS-BUG-76).
+//
+//	EvilHangOnInitialize     — reads initialize, never replies
+//	EvilHangOnDocumentSymbol — replies to initialize, hangs on documentSymbol
+//	EvilHangOnExit           — replies to everything, hangs on shutdown
+//
+// Returns when r reaches EOF (scanner closed stdin after killing the process).
+func ServeEvil(r io.Reader, w io.Writer, mode string) {
+	reader := bufio.NewReader(r)
+	for {
+		method, id, _, err := readRequest(reader)
+		if err != nil {
+			return
+		}
+		switch {
+		case method == "initialize" && mode == EvilHangOnInitialize:
+			select {} // read the request, never reply — scanner must kill us
+		case method == "initialize":
+			_ = writeResponse(w, id, map[string]any{
+				"capabilities": map[string]any{
+					"textDocumentSync":       1,
+					"workspaceSymbolProvider": true,
+				},
+			})
+		case method == "initialized", method == "textDocument/didOpen":
+			// notifications — no response
+		case method == "textDocument/documentSymbol" && mode == EvilHangOnDocumentSymbol:
+			select {}
+		case method == "textDocument/documentSymbol":
+			_ = writeResponse(w, id, []any{})
+		case method == "shutdown" && mode == EvilHangOnExit:
+			select {}
+		case method == "shutdown":
+			_ = writeResponse(w, id, nil)
+		case method == "exit":
+			return
+		default:
+			if id != nil {
+				_ = writeResponse(w, id, nil)
+			}
+		}
+	}
 }
 
 func buildDocumentSymbols(symbols []Symbol, params json.RawMessage) []map[string]any {

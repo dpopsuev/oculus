@@ -1,6 +1,7 @@
 package survey
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,9 +9,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/dpopsuev/oculus/v3/model"
 	"github.com/dpopsuev/oculus/v3/lsp"
+	"github.com/dpopsuev/oculus/v3/model"
 )
 
 var errEmptyServerCmd = errors.New("lsp scanner: empty ServerCmd")
@@ -38,11 +40,16 @@ var extToLanguageID = map[string]string{
 	".zig":   "zig",
 }
 
+// lspScanTimeout is the maximum time any LSP server is allowed to run
+// during a survey scan. Identical in spirit to ctagsScanTimeout (LCS-BUG-75).
+const lspScanTimeout = 5 * time.Minute
+
 // LSPScanner extracts structural metadata by communicating with an
 // external LSP server. It is language-agnostic: the same code works
 // with gopls, rust-analyzer, pyright, or any LSP-compliant server.
 type LSPScanner struct {
-	ServerCmd string // e.g. "gopls serve", "rust-analyzer", "pyright-langserver --stdio"
+	ServerCmd string        // e.g. "gopls serve", "rust-analyzer", "pyright-langserver --stdio"
+	Timeout   time.Duration // 0 = lspScanTimeout; set a small value in tests
 }
 
 func (s *LSPScanner) Scan(root string) (*model.Project, error) {
@@ -61,7 +68,14 @@ func (s *LSPScanner) Scan(root string) (*model.Project, error) {
 		return nil, fmt.Errorf("lsp scanner: %s not found on PATH: %w", parts[0], err)
 	}
 
-	cmd := exec.Command(bin, parts[1:]...)
+	timeout := s.Timeout
+	if timeout == 0 {
+		timeout = lspScanTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, bin, parts[1:]...)
 	cmd.Dir = absRoot
 	cmd.Stderr = os.Stderr
 
@@ -77,19 +91,30 @@ func (s *LSPScanner) Scan(root string) (*model.Project, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("lsp scanner: start %s: %w", parts[0], err)
 	}
+	// Reap the child on every return path so the process never becomes a
+	// zombie. The explicit cmd.Wait() below covers the normal path; this
+	// defer covers all early-return error paths (LCS-BUG-76).
+	defer func() { _ = cmd.Wait() }()
 
 	client := lsp.NewClient(stdout, stdin)
 
 	proj, scanErr := s.runProtocol(client, absRoot)
 
-	// Always attempt clean shutdown.
+	// Best-effort graceful shutdown. If the context already fired (timeout),
+	// the process was killed by exec.CommandContext and these calls will
+	// return immediately with pipe-broken errors, which we ignore.
 	_ = shutdownLSP(client)
 	stdin.Close()
 	_ = cmd.Wait()
 
 	if scanErr != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("lsp scanner: timed out after %s (%s): %w", timeout, parts[0], ctx.Err())
+		}
 		return nil, scanErr
 	}
+	// Scan protocol succeeded. If the context fired only during shutdown
+	// (hang_exit scenario), we still return the collected data.
 	return proj, nil
 }
 
@@ -154,7 +179,10 @@ func (s *LSPScanner) runProtocol(client *lsp.Client, root string) (*model.Projec
 			"textDocument": map[string]string{"uri": fileURI},
 		})
 		if err != nil {
-			continue
+			// Propagate transport errors (e.g. broken pipe on timeout kill)
+			// so the caller can distinguish a timed-out scan from a scan
+			// that simply found no symbols (LCS-BUG-76).
+			return nil, fmt.Errorf("documentSymbol %s: %w", filepath.Base(f), err)
 		}
 
 		var symbols []lspDocumentSymbol
