@@ -3,6 +3,7 @@ package survey
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -23,11 +24,128 @@ type packageJSON struct {
 	DevDeps      map[string]string `json:"devDependencies"`
 }
 
+// tsConfigFile is a minimal representation of tsconfig.json / tsconfig.base.json.
+type tsConfigFile struct {
+	Extends         string `json:"extends"`
+	CompilerOptions struct {
+		Paths map[string][]string `json:"paths"`
+	} `json:"compilerOptions"`
+}
+
+// pathAlias holds a resolved tsconfig paths entry.
+type pathAlias struct {
+	aliasPrefix  string // leading non-wildcard part, e.g. "@scope/"
+	dirPrefix    string // leading path to interpolate into, e.g. "packages/"
+	dirSuffix    string // trailing path after the wildcard, e.g. "/src"
+	exact        bool   // true = no wildcard, direct alias → dir mapping
+	exactDir     string // resolved dir for exact aliases
+}
+
+// readPathAliases parses compilerOptions.paths from tsconfig.json and
+// tsconfig.base.json in absRoot, resolving each entry to a local namespace
+// directory. Both exact ("@scope/pkg") and glob ("@scope/*") patterns are
+// supported. The extends chain is followed one level deep.
+func readPathAliases(absRoot string) []pathAlias {
+	var aliases []pathAlias
+	seen := make(map[string]bool)
+
+	var parseTsConfig func(path string)
+	parseTsConfig = func(cfgPath string) {
+		if seen[cfgPath] {
+			return
+		}
+		seen[cfgPath] = true
+
+		data, err := os.ReadFile(cfgPath)
+		if err != nil {
+			return
+		}
+		var cfg tsConfigFile
+		if json.Unmarshal(data, &cfg) != nil {
+			return
+		}
+		// Follow 'extends' one level (e.g. tsconfig.base.json).
+		if cfg.Extends != "" {
+			ext := cfg.Extends
+			if !strings.HasSuffix(ext, ".json") {
+				ext += ".json"
+			}
+			ext = strings.TrimPrefix(ext, "./")
+			parseTsConfig(filepath.Join(absRoot, ext))
+		}
+		for alias, targets := range cfg.CompilerOptions.Paths {
+			if len(targets) == 0 {
+				continue
+			}
+			target := filepath.ToSlash(strings.TrimPrefix(targets[0], "./"))
+			if strings.Contains(alias, "*") {
+				// Glob alias: "@scope/*" → "packages/*/src/index.ts"
+				aliasParts := strings.SplitN(alias, "*", 2)
+				targetParts := strings.SplitN(target, "*", 2)
+				if len(aliasParts) != 2 || len(targetParts) != 2 {
+					continue
+				}
+				// Strip the trailing filename from the suffix so we get the dir.
+				suffix := filepath.ToSlash(filepath.Dir(targetParts[1]))
+				if suffix == "." {
+					suffix = ""
+				}
+				aliases = append(aliases, pathAlias{
+					aliasPrefix: aliasParts[0],
+					dirPrefix:   targetParts[0],
+					dirSuffix:   suffix,
+				})
+			} else {
+				// Exact alias: "@scope/pkg" → "packages/pkg/src/index.ts"
+				dir := filepath.ToSlash(filepath.Dir(target))
+				if dir == "." {
+					dir = nsRoot
+				}
+				aliases = append(aliases, pathAlias{
+					aliasPrefix: alias,
+					exact:       true,
+					exactDir:    dir,
+				})
+			}
+		}
+	}
+
+	// Parse tsconfig.json first, then tsconfig.base.json as a fallback if
+	// tsconfig.json does not extend anything.
+	for _, name := range []string{"tsconfig.json", "tsconfig.base.json"} {
+		parseTsConfig(filepath.Join(absRoot, name))
+	}
+	return aliases
+}
+
+// resolveAlias checks whether spec matches any tsconfig path alias and returns
+// the resolved local namespace directory. Returns ("", false) for unknown
+// specs that should fall through to external-package handling.
+func resolveAlias(spec string, aliases []pathAlias) (string, bool) {
+	for _, a := range aliases {
+		if a.exact {
+			if spec == a.aliasPrefix {
+				return a.exactDir, true
+			}
+			continue
+		}
+		// Glob: spec must start with aliasPrefix.
+		if strings.HasPrefix(spec, a.aliasPrefix) {
+			wildcard := strings.TrimPrefix(spec, a.aliasPrefix)
+			dir := filepath.ToSlash(fmt.Sprintf("%s%s%s", a.dirPrefix, wildcard, a.dirSuffix))
+			return dir, true
+		}
+	}
+	return "", false
+}
+
 func (s *TypeScriptScanner) Scan(root string) (*model.Project, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
+
+	aliases := readPathAliases(absRoot)
 
 	pkg := readPackageJSON(absRoot)
 
@@ -98,7 +216,7 @@ func (s *TypeScriptScanner) Scan(root string) (*model.Project, error) {
 			lineCount++
 			line := scanner.Text()
 			s.extractExports(line, ns, seen[dir], rel, lineCount)
-			s.extractImportEdge(line, dir, absRoot, externalPkgs, proj.DependencyGraph)
+			s.extractImportEdge(line, dir, aliases, proj.DependencyGraph)
 		}
 		fileObj.Lines = lineCount
 		ns.AddFile(fileObj)
@@ -143,7 +261,7 @@ func (s *TypeScriptScanner) extractExports(line string, ns *model.Namespace, see
 	matchSymbolPatterns(line, tsExportPatterns, ns, seen, true, filePath, lineNum)
 }
 
-func (s *TypeScriptScanner) extractImportEdge(line, fromDir, _ string, _ map[string]bool, graph *model.DependencyGraph) {
+func (s *TypeScriptScanner) extractImportEdge(line, fromDir string, aliases []pathAlias, graph *model.DependencyGraph) {
 	// Skip type-only imports — they are erased at compile time and
 	// don't create runtime dependencies. Prevents false-positive cycles.
 	if reImportTypeOnly.MatchString(line) {
@@ -166,6 +284,11 @@ func (s *TypeScriptScanner) extractImportEdge(line, fromDir, _ string, _ map[str
 		resolved := resolveRelativeImport(fromDir, spec)
 		if resolved != fromDir {
 			graph.AddEdge(fromDir, resolved, false)
+		}
+	} else if dir, ok := resolveAlias(spec, aliases); ok {
+		// Path alias resolved to a local namespace — internal edge.
+		if dir != fromDir {
+			graph.AddEdge(fromDir, dir, false)
 		}
 	} else {
 		pkgName := barePackageName(spec)
