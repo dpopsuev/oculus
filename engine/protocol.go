@@ -2515,3 +2515,11 @@ func desiredRolesForTrust(ctx context.Context, p *Engine, path string) map[strin
 	}
 	return desired.Roles
 }
+
+// ResolvePath is the exported equivalent of resolvePath, used by diagnostics
+// and logging in downstream consumers.
+func (p *Engine) ResolvePath(path string) string { return p.resolvePath(path) }
+
+// ResolveHEAD returns the git HEAD SHA for a repo path, or "" if unavailable.
+// Exported for diagnostics and logging in downstream consumers.
+func (p *Engine) ResolveHEAD(path string) string { return p.db.ResolveHEAD(path) }
