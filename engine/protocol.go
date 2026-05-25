@@ -261,6 +261,12 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 	if sha != "" {
 		_ = p.db.PutReport(ctx, path, cacheKey, report)
 		_ = p.db.PutComponentMeta(ctx, path, cacheKey, generateComponentMeta(report))
+		// Also store under the plain sha so that analysis tools called without
+		// a cache_key find the most recent scan via getOrScan's plain-sha lookup
+		// and never trigger a slow cold rescan on a large workspace.
+		if cacheKey != sha {
+			_ = p.db.PutReport(ctx, path, sha, report)
+		}
 		abs, _ := filepath.Abs(path)
 		_ = p.db.RecordScan(ctx, string(history.Local), abs, sha, report)
 	}
