@@ -41,7 +41,7 @@ var extToLanguageID = map[string]string{
 }
 
 // lspScanTimeout is the maximum time any LSP server is allowed to run
-// during a survey scan. Identical in spirit to ctagsScanTimeout (LCS-BUG-75).
+// during a survey scan before it is killed and the scan returns an error.
 const lspScanTimeout = 5 * time.Minute
 
 // LSPScanner extracts structural metadata by communicating with an
@@ -93,7 +93,7 @@ func (s *LSPScanner) Scan(root string) (*model.Project, error) {
 	}
 	// Reap the child on every return path so the process never becomes a
 	// zombie. The explicit cmd.Wait() below covers the normal path; this
-	// defer covers all early-return error paths (LCS-BUG-76).
+	// defer covers all early-return error paths.
 	defer func() { _ = cmd.Wait() }()
 
 	client := lsp.NewClient(stdout, stdin)
@@ -181,7 +181,7 @@ func (s *LSPScanner) runProtocol(client *lsp.Client, root string) (*model.Projec
 		if err != nil {
 			// Propagate transport errors (e.g. broken pipe on timeout kill)
 			// so the caller can distinguish a timed-out scan from a scan
-			// that simply found no symbols (LCS-BUG-76).
+			// that simply found no symbols.
 			return nil, fmt.Errorf("documentSymbol %s: %w", filepath.Base(f), err)
 		}
 

@@ -1,7 +1,7 @@
-// Package survey_test contains the evil-LSP timeout tests for LSPScanner
-// (LCS-BUG-76). The test binary itself acts as the evil LSP server subprocess
-// via TestMain: when EVIL_LSP_MODE is set in the environment the binary runs
-// ServeEvil and exits immediately without running any tests.
+// Package survey_test contains timeout tests for LSPScanner using adversarial
+// ("evil") LSP server behaviours. The test binary itself acts as the evil LSP
+// server subprocess via TestMain: when EVIL_LSP_MODE is set in the environment
+// the binary runs ServeEvil and exits without running any tests.
 package survey_test
 
 import (
@@ -14,9 +14,9 @@ import (
 	"github.com/dpopsuev/oculus/v3/survey"
 )
 
-// TestMain intercepts child-process invocations where this test binary is
-// used as a fake LSP server. EVIL_LSP_MODE is set by the parent test via
-// t.Setenv; the child inherits it and calls ServeEvil instead of running tests.
+// TestMain intercepts child-process invocations where this test binary is used
+// as a fake LSP server. EVIL_LSP_MODE is set by the parent test via t.Setenv;
+// the child inherits it and calls ServeEvil instead of running tests.
 func TestMain(m *testing.M) {
 	if mode := os.Getenv("EVIL_LSP_MODE"); mode != "" {
 		mockserver.ServeEvil(os.Stdin, os.Stdout, mode)
@@ -30,10 +30,10 @@ func TestMain(m *testing.M) {
 // (init + N×didOpen + N×documentSymbol over a local pipe ≈ a few ms).
 const evilTimeout = 300 * time.Millisecond
 
-// lspLanguageCases defines one fixture per language that LSPScanner can be
-// pointed at. Each case contains only the source files relevant to that
-// language so that findSourceFiles returns the right extension set and the
-// evil server receives the correct textDocument/didOpen language IDs.
+// lspLanguageCases defines one fixture per language that LSPScanner may scan.
+// Each case contains only the source files relevant to that language so that
+// findSourceFiles returns the right extension set and the evil server receives
+// the correct textDocument/didOpen language IDs.
 var lspLanguageCases = []struct {
 	name  string
 	files map[string]string // relative path → content
@@ -70,37 +70,38 @@ var lspLanguageCases = []struct {
 	},
 	{
 		// A C file without CMakeLists.txt → DetectLanguage returns LangUnknown.
-		// This is the primary scenario: AutoScanner falls through to LSPScanner
-		// because the language cannot be identified from marker files.
-		name: "unknown_via_c_file",
+		// This is the primary failure scenario: AutoScanner falls through to
+		// LSPScanner because no language marker file is present.
+		name: "unknown_language",
 		files: map[string]string{
 			"lib.c": "void hello(void) {}\n",
 		},
 	},
 }
 
-// evilModes is the full set of adversarial behaviours under test.
+// evilModes is the full set of adversarial behaviours exercised per language.
 var evilModes = []struct {
 	mode    string
-	wantErr bool // true = Scan must return a non-nil error (timeout path)
-	// false = Scan may succeed because the protocol finished before shutdown hung
+	wantErr bool // true = Scan must return a non-nil error (scanner timed out)
 }{
 	{mockserver.EvilHangOnInitialize, true},
 	{mockserver.EvilHangOnDocumentSymbol, true},
-	// hang_exit: the protocol completes, only shutdown hangs.
-	// LSPScanner returns the (possibly empty) project data and nil error.
+	// hang_exit: the protocol completes but shutdown hangs. LSPScanner kills
+	// the process after the timeout and returns the collected data with nil error.
 	{mockserver.EvilHangOnExit, false},
 }
 
-// TestLSPScanner_Evil verifies that LSPScanner.Scan returns within a bounded
-// time for every (language, evil-mode) combination and never leaves a zombie
-// process behind.
+// TestLSPScanner_ReturnsWithinTimeout verifies that LSPScanner.Scan returns
+// within a bounded time for every (language, adversarial-mode) combination and
+// never leaves a zombie process behind.
 //
-// The test binary itself is used as the evil LSP server (TestMain above).
-// EVIL_LSP_MODE is inherited by the child via t.Setenv; the child calls
-// ServeEvil and exits. The tests are not run in parallel because t.Setenv
-// mutates an OS-level env var that is inherited by child processes.
-func TestLSPScanner_Evil(t *testing.T) {
+// Given a workspace with source files of the given language
+// And an LSP server that hangs at the specified lifecycle point
+// When LSPScanner.Scan is called
+// Then the call returns within 2×Timeout
+// And returns an error for hang_init and hang_document_symbol
+// And returns a (possibly empty) result with nil error for hang_exit
+func TestLSPScanner_ReturnsWithinTimeout(t *testing.T) {
 	for _, lang := range lspLanguageCases {
 		for _, evil := range evilModes {
 			t.Run(lang.name+"/"+evil.mode, func(t *testing.T) {
@@ -122,23 +123,21 @@ func TestLSPScanner_Evil(t *testing.T) {
 				// Primary assertion: the call must return well within 2×
 				// the timeout. Any longer and the fix is broken.
 				if elapsed > 2*evilTimeout {
-					t.Errorf("Scan took %v — did not return within 2×timeout (%v); "+
-						"fix is broken for %s/%s", elapsed, 2*evilTimeout, lang.name, evil.mode)
+					t.Errorf("Scan took %v — did not return within 2×timeout (%v) for %s/%s",
+						elapsed, 2*evilTimeout, lang.name, evil.mode)
 				}
 
 				if evil.wantErr {
 					if err == nil {
-						t.Errorf("expected timeout error, got nil (proj=%v)", proj)
+						t.Errorf("expected timeout error for %s/%s, got nil (proj=%v)",
+							lang.name, evil.mode, proj)
 					}
 				} else {
-					// hang_exit: scan protocol succeeded; nil error expected.
 					if err != nil {
-						t.Logf("hang_exit returned err=%v (acceptable if timeout fired during shutdown)", err)
+						t.Logf("%s/%s: non-nil error (acceptable if timeout fired during shutdown): %v",
+							lang.name, evil.mode, err)
 					}
 				}
-
-				// Secondary assertion: no dangling goroutine from a hung Scan.
-				// (If Scan leaked a goroutine it would lock on the next t.Setenv call.)
 			})
 		}
 	}

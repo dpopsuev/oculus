@@ -31,7 +31,7 @@ type CallEdge struct {
 	ToCol    int
 }
 
-// Evil mode constants for ServeEvil (LCS-BUG-76).
+// Evil mode constants for ServeEvil.
 const (
 	// EvilHangOnInitialize — reads the initialize request but never replies.
 	EvilHangOnInitialize = "hang_init"
@@ -255,7 +255,7 @@ func buildOutgoingCalls(edges []CallEdge, params json.RawMessage) []map[string]a
 
 // ServeEvil runs a minimal LSP server that misbehaves according to mode.
 // Designed to be called from TestMain so the test binary itself acts as the
-// evil LSP server subprocess spawned by LSPScanner (LCS-BUG-76).
+// evil LSP server subprocess spawned by LSPScanner.
 //
 //	EvilHangOnInitialize     — reads initialize, never replies
 //	EvilHangOnDocumentSymbol — replies to initialize, hangs on documentSymbol
