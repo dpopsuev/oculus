@@ -236,7 +236,10 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 	}
 
 	if cached, hit, err := p.db.GetReport(ctx, path, cacheKey); err == nil && hit {
-		return &ScanResult{Report: cached, CacheKey: path + "@" + sha, SHA: sha}, nil
+		// CacheKey must include the intent suffix (sha+"-"+intent) so that
+		// analysis tools calling getOrScan with this key find the same DB
+		// entry. Using plain sha here caused a cache miss (LCS-BUG-78).
+		return &ScanResult{Report: cached, CacheKey: path + "@" + cacheKey, SHA: sha}, nil
 	}
 
 	report, err := arch.ScanAndBuild(ctx, path, arch.ScanOpts{
@@ -261,7 +264,7 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 		abs, _ := filepath.Abs(path)
 		_ = p.db.RecordScan(ctx, string(history.Local), abs, sha, report)
 	}
-	return &ScanResult{Report: report, CacheKey: path + "@" + sha, SHA: sha}, nil
+	return &ScanResult{Report: report, CacheKey: path + "@" + cacheKey, SHA: sha}, nil
 }
 
 func (p *Engine) SuggestDepth(ctx context.Context, path string) (*SuggestDepthResult, error) {
