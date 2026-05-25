@@ -2044,6 +2044,19 @@ func (p *Engine) getOrScan(ctx context.Context, path string, cacheKeys ...string
 	if cached, hit, _ := p.db.GetReport(ctx, path, sha); hit {
 		return cached, nil
 	}
+
+	// Before running a cold ScanAndBuild, probe intent-keyed slots in order
+	// of richness. This prevents the scanner-selection divergence that occurs
+	// when getOrScan's ScanAndBuild (no ScannerOverride) picks a different
+	// scanner than scan_local used (e.g. CompositeScanner vs TypeScriptScanner
+	// in a TypeScript monorepo), producing sub-project-relative component
+	// names that don't match what scan_local stored.
+	for _, intent := range []string{"full", "health", "coupling", "architecture"} {
+		if cached, hit, _ := p.db.GetReport(ctx, path, sha+"-"+intent); hit {
+			return cached, nil
+		}
+	}
+
 	r, err := arch.ScanAndBuild(ctx, path, arch.ScanOpts{ExcludeTests: true, ChurnDays: 30})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrScanFailed, err)
