@@ -322,3 +322,64 @@ func TestCompositeScanDiscoversNestedPythonPackages(t *testing.T) {
 		t.Error("expected dependency edges from nested Python packages, got 0")
 	}
 }
+
+// TestCompositeScanner_NoNamespaceDuplication verifies that a TypeScript
+// npm-workspaces monorepo does not produce duplicate namespace entries.
+//
+// Given a TypeScript monorepo where discoverSubProjects finds "." (root) and
+// individual "packages/*" sub-directories
+// When CompositeScanner scans the monorepo root
+// Then each namespace ImportPath appears exactly once in the result
+func TestCompositeScanner_NoNamespaceDuplication(t *testing.T) {
+	dir := setupTSProject(t, map[string]string{
+		// Root workspace — discoverSubProjects finds "." from package.json
+		"package.json": `{"name":"alef-test","workspaces":["packages/*"]}`,
+		"tsconfig.json": `{
+			"compilerOptions":{
+				"paths":{
+					"@alef/spine":  ["./packages/spine/src/index.ts"],
+					"@alef/corpus": ["./packages/corpus/src/index.ts"]
+				}
+			}
+		}`,
+		// packages/spine — discoverSubProjects also finds this from package.json
+		"packages/spine/package.json":   `{"name":"@alef/spine"}`,
+		"packages/spine/tsconfig.json":  `{"extends":"../../tsconfig.json"}`,
+		"packages/spine/src/index.ts":   "export function spineCore(): void {}\n",
+		// packages/corpus — same
+		"packages/corpus/package.json":  `{"name":"@alef/corpus"}`,
+		"packages/corpus/tsconfig.json": `{"extends":"../../tsconfig.json"}`,
+		"packages/corpus/src/index.ts":  "import { spineCore } from '@alef/spine';\nexport function corpusMain(): void { spineCore(); }\n",
+	})
+
+	sc := &survey.CompositeScanner{}
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	// Check for duplicate ImportPaths.
+	seen := make(map[string]int)
+	for _, ns := range proj.Namespaces {
+		seen[ns.ImportPath]++
+	}
+	for ip, count := range seen {
+		if count > 1 {
+			t.Errorf("namespace %q appears %d times (want 1) — CompositeScanner is duplicating namespaces", ip, count)
+		}
+	}
+
+	// Confirm the cross-package edge is present exactly once.
+	edgeCounts := make(map[[2]string]int)
+	if proj.DependencyGraph != nil {
+		for _, e := range proj.DependencyGraph.Edges {
+			edgeCounts[[2]string{e.From, e.To}]++
+		}
+	}
+	for endpoints, count := range edgeCounts {
+		if count > 1 {
+			t.Errorf("edge %q→%q weight=%d but appears %d times in raw edge list — unexpected duplication",
+				endpoints[0], endpoints[1], count, count)
+		}
+	}
+}

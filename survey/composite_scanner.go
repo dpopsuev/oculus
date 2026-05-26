@@ -38,6 +38,15 @@ func (s *CompositeScanner) Scan(root string) (*model.Project, error) {
 		proj.Language = subs[0].lang
 	}
 
+	// seenNS tracks namespace ImportPaths that have already been added to
+	// the merged project. The root '.' sub-project is scanned first and
+	// produces monorepo-root-relative names (e.g. 'packages/spine/src').
+	// Individual package sub-projects produce the same names after
+	// prefixImportPath is applied. Without deduplication every component
+	// appears twice — once from each scan — doubling risk scores, coupling
+	// metrics, and component counts.
+	seenNS := make(map[string]bool)
+
 	for _, sub := range subs {
 		subRoot := filepath.Join(absRoot, sub.relPath)
 		sc := ScannerFromRegistry(sub.lang, subRoot)
@@ -54,6 +63,10 @@ func (s *CompositeScanner) Scan(root string) (*model.Project, error) {
 				Files:      ns.Files,
 				Symbols:    ns.Symbols,
 			}
+			if seenNS[merged.ImportPath] {
+				continue // first (root-scan) entry wins; skip sub-project duplicate
+			}
+			seenNS[merged.ImportPath] = true
 			proj.AddNamespace(merged)
 		}
 
