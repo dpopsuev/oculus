@@ -18,6 +18,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/dpopsuev/oculus/v3"
 	"github.com/dpopsuev/oculus/v3/analyzer"
@@ -79,6 +80,20 @@ type HealthCheckable interface {
 	HistoryDir() string
 }
 
+// sgCacheTTL bounds the lifetime of in-process SymbolGraph objects.
+// Eviction happens on the next Load or Store after the TTL elapses.
+const sgCacheTTL = 30 * time.Minute
+
+// scanBuildTimeout caps the shared arch.ScanAndBuild started by getOrScan.
+// It is longer than any caller deadline so individual callers can time out
+// without cancelling the shared scan mid-way.
+const scanBuildTimeout = 30 * time.Minute
+
+type sgEntry struct {
+	sg *oculus.SymbolGraph
+	at time.Time
+}
+
 // Engine encapsulates all Locus business logic.
 // Both CLI and MCP are thin wrappers around this.
 type Engine struct {
@@ -87,17 +102,52 @@ type Engine struct {
 	pool       lsp.Pool       // optional LSP connection pool (nil = cold-start per request)
 	bookOnce   sync.Once
 	bookGraph  *book.BookGraph
-	sgCache    sync.Map // path@sha → *oculus.SymbolGraph
+
+	sgMu      sync.Mutex
+	sgEntries map[string]*sgEntry // TTL-bounded; swept on each Store
+
+	scanSfg singleflight.Group // one arch.ScanAndBuild per (path, sha) at a time
 }
 
 // New creates a Protocol with the given store, workspace roots, and optional
 // LSP connection pool. Pass nil pool for CLI mode (cold-start per request).
 func New(s Store, workspaces []string, pool ...lsp.Pool) *Engine {
-	p := &Engine{db: s, workspaces: workspaces}
+	p := &Engine{
+		db:         s,
+		workspaces: workspaces,
+		sgEntries:  make(map[string]*sgEntry),
+	}
 	if len(pool) > 0 {
 		p.pool = pool[0]
 	}
 	return p
+}
+
+// sgLoad returns the cached SymbolGraph for key, evicting it on expiry.
+func (p *Engine) sgLoad(key string) (*oculus.SymbolGraph, bool) {
+	p.sgMu.Lock()
+	defer p.sgMu.Unlock()
+	e, ok := p.sgEntries[key]
+	if !ok {
+		return nil, false
+	}
+	if time.Since(e.at) > sgCacheTTL {
+		delete(p.sgEntries, key)
+		return nil, false
+	}
+	return e.sg, true
+}
+
+// sgStore adds sg and sweeps all expired entries.
+func (p *Engine) sgStore(key string, sg *oculus.SymbolGraph) {
+	p.sgMu.Lock()
+	defer p.sgMu.Unlock()
+	for k, e := range p.sgEntries {
+		if time.Since(e.at) > sgCacheTTL {
+			delete(p.sgEntries, k)
+		}
+	}
+	p.sgEntries[key] = &sgEntry{sg: sg, at: time.Now()}
 }
 
 // WarmLSP pre-warms the gopls index for a workspace root. Returns
@@ -1069,8 +1119,8 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 		sha = p.db.ResolveHEAD(path)
 	}
 	if sha != "" {
-		if cached, ok := p.sgCache.Load(path + "@" + sha); ok {
-			return cached.(*oculus.SymbolGraph), nil
+		if cached, ok := p.sgLoad(path + "@" + sha); ok {
+			return cached, nil
 		}
 	}
 
@@ -1123,7 +1173,7 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 	)
 
 	if sha != "" {
-		p.sgCache.Store(path+"@"+sha, sg)
+		p.sgStore(path+"@"+sha, sg)
 	}
 
 	return sg, nil
@@ -2057,14 +2107,34 @@ func (p *Engine) getOrScan(ctx context.Context, path string, cacheKeys ...string
 		}
 	}
 
-	r, err := arch.ScanAndBuild(ctx, path, arch.ScanOpts{ExcludeTests: true, ChurnDays: 30})
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrScanFailed, err)
-	}
+	// context.Background() isolates the shared scan from any one caller's
+	// deadline — each caller selects on its own ctx independently.
+	type sfResult struct{ report *arch.ContextReport }
+	sfKey := path
 	if sha != "" {
-		_ = p.db.PutReport(ctx, path, sha, r)
+		sfKey = path + "@" + sha
 	}
-	return r, nil
+	ch := p.scanSfg.DoChan(sfKey, func() (any, error) {
+		scanCtx, cancel := context.WithTimeout(context.Background(), scanBuildTimeout)
+		defer cancel()
+		r, err := arch.ScanAndBuild(scanCtx, path, arch.ScanOpts{ExcludeTests: true, ChurnDays: 30})
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrScanFailed, err)
+		}
+		if sha != "" {
+			_ = p.db.PutReport(context.Background(), path, sha, r)
+		}
+		return &sfResult{r}, nil
+	})
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res := <-ch:
+		if res.Err != nil {
+			return nil, res.Err
+		}
+		return res.Val.(*sfResult).report, nil
+	}
 }
 
 func (p *Engine) scanBranch(ctx context.Context, repoPath, ref string) (*arch.ContextReport, error) {
