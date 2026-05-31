@@ -2,6 +2,7 @@ package survey
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -404,5 +405,58 @@ func TestExtractCIncludesSrcSearchPath(t *testing.T) {
 		if e.From == "src/nvim" && e.To == "src/nvim/nvim/api" {
 			t.Errorf("phantom edge src/nvim→src/nvim/nvim/api must not exist")
 		}
+	}
+}
+
+// TestCtagsExcludeArgs_NoDotStar verifies that --exclude=.* is not present in
+// the ctags exclude args. That pattern matches "." when ctags is invoked as
+// `ctags -R .`, excluding the entire scan root before traversal begins (LCS-BUG-95).
+//
+// Given ctagsExcludeArgs()
+// When the args are inspected
+// Then none of them is "--exclude=.*"
+func TestCtagsExcludeArgs_NoDotStar(t *testing.T) {
+	for _, arg := range ctagsExcludeArgs() {
+		if arg == "--exclude=.*" {
+			t.Errorf("ctagsExcludeArgs contains --exclude=.* which silently excludes the scan root when running `ctags -R .`")
+		}
+	}
+}
+
+// TestCtagsScan_HiddenRootDirectory verifies that CtagsScanner finds symbols
+// when the project has a hidden directory at root (e.g. .opencode/).
+// Previously --exclude=.* excluded "." itself, producing 0 components.
+//
+// Given a C-like project with a .hidden/ directory at root
+// When CtagsScanner.Scan is called
+// Then symbols from source files are returned (not 0)
+func TestCtagsScan_HiddenRootDirectory(t *testing.T) {
+	if _, err := exec.LookPath("ctags"); err != nil {
+		t.Skip("ctags not installed")
+	}
+
+	dir := t.TempDir()
+	files := map[string]string{
+		".hidden/config.json":   `{"key": "value"}`,
+		"src/lib.c":             "int add(int a, int b) { return a + b; }\n",
+		"src/lib.h":             "int add(int a, int b);\n",
+	}
+	for name, content := range files {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sc := &CtagsScanner{}
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(proj.Namespaces) == 0 {
+		t.Error("expected at least one namespace; got 0 — likely caused by --exclude=.* excluding the scan root")
 	}
 }

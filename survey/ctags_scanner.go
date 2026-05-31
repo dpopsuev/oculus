@@ -45,13 +45,21 @@ const ctagsScanTimeout = 5 * time.Minute
 
 // ctagsExcludeArgs builds the --exclude= flags from CommonSkipDirs so that
 // ctags never descends into node_modules, .git, vendor, etc.
+//
+// Note: --exclude=.* must NOT be used here. When ctags is invoked as
+// `ctags -R .`, the root directory argument "." matches the glob ".*"
+// (a dot followed by zero or more characters), so ctags excludes the entire
+// scan root before any traversal begins — producing 0 components (LCS-BUG-95).
+//
+// Instead we use --exclude=.[!.]* which matches any name that starts with a
+// dot followed by a non-dot character (e.g. .git, .opencode, .svn) but does
+// NOT match "." or ".." themselves.
 func ctagsExcludeArgs() []string {
-	args := make([]string, 0, len(lang.CommonSkipDirs))
+	args := make([]string, 0, len(lang.CommonSkipDirs)+1)
 	for dir := range lang.CommonSkipDirs {
 		args = append(args, "--exclude="+dir)
 	}
-	// Also exclude hidden directories (dot-prefixed) that are not already listed.
-	args = append(args, "--exclude=.*")
+	args = append(args, "--exclude=.[!.]*")
 	return args
 }
 
