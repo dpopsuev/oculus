@@ -161,3 +161,75 @@ func TestComputeHotSpots(t *testing.T) {
 		})
 	}
 }
+
+// TestProjectToArch_TestCoverageMetadata verifies that ArchService.HasTests and
+// CoverageRatio are populated from the namespace file list.
+//
+// Given a Go project where one package has *_test.go files and another does not
+// When ScanAndBuild is called
+// Then the tested package has HasTests=true and CoverageRatio > 0
+// And the untested package has HasTests=false and CoverageRatio=0
+func TestProjectToArch_TestCoverageMetadata(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"go.mod":                 "module example.com/cov\n\ngo 1.21\n",
+		"api/api.go":             "package api\n\nfunc Handle() {}\n",
+		"api/api_test.go":        "package api\n\nimport \"testing\"\n\nfunc TestHandle(t *testing.T) {}\n",
+		"store/store.go":         "package store\n\nfunc Get() string { return \"\" }\n",
+		// store has no test file
+	}
+	for name, content := range files {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	report, err := ScanAndBuild(context.Background(), dir, ScanOpts{Intent: IntentArchitecture})
+	if err != nil {
+		t.Fatalf("ScanAndBuild: %v", err)
+	}
+
+	svcMap := make(map[string]ArchService)
+	for _, svc := range report.Architecture.Services {
+		svcMap[svc.Name] = svc
+	}
+
+	api, ok := svcMap["example.com/cov/api"]
+	if !ok {
+		// Try short name.
+		api, ok = svcMap["api"]
+	}
+	if !ok {
+		t.Fatalf("api component not found; have: %v", func() []string {
+			names := make([]string, 0, len(svcMap))
+			for k := range svcMap {
+				names = append(names, k)
+			}
+			return names
+		}())
+	}
+	if !api.HasTests {
+		t.Errorf("api: HasTests=false, want true (has api_test.go)")
+	}
+	if api.CoverageRatio <= 0 {
+		t.Errorf("api: CoverageRatio=%f, want > 0", api.CoverageRatio)
+	}
+
+	store, ok := svcMap["example.com/cov/store"]
+	if !ok {
+		store, ok = svcMap["store"]
+	}
+	if !ok {
+		t.Fatalf("store component not found")
+	}
+	if store.HasTests {
+		t.Errorf("store: HasTests=true, want false (no test files)")
+	}
+	if store.CoverageRatio != 0 {
+		t.Errorf("store: CoverageRatio=%f, want 0", store.CoverageRatio)
+	}
+}

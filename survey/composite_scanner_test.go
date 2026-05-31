@@ -323,6 +323,55 @@ func TestCompositeScanDiscoversNestedPythonPackages(t *testing.T) {
 	}
 }
 
+// TestCompositeScanner_TSRootRustSubdir verifies that when TypeScript is at
+// the repo root and Rust lives in a subdirectory, the Rust component is
+// discovered. This is the LCS-NED-9 gap: Cargo.toml was missing from
+// subProjectMarkers so Rust sub-directories were silently dropped.
+//
+// Given a repo with package.json at root and Cargo.toml in backend/
+// When CompositeScanner scans the root
+// Then both the TS namespace and the Rust namespace are returned
+func TestCompositeScanner_TSRootRustSubdir(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"package.json":       `{"name": "frontend"}`,
+		"src/index.ts":       `export function main() {}`,
+		"backend/Cargo.toml": "[package]\nname = \"backend\"\nversion = \"0.1.0\"\n",
+		"backend/src/lib.rs": "pub fn serve() {}",
+	}
+	for name, content := range files {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sc := &survey.CompositeScanner{}
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+
+	nsMap := make(map[string]*model.Namespace)
+	for _, ns := range proj.Namespaces {
+		nsMap[ns.ImportPath] = ns
+	}
+
+	if _, ok := nsMap["src"]; !ok {
+		t.Error("missing TypeScript namespace 'src'")
+	}
+	if _, ok := nsMap["backend"]; !ok {
+		allPaths := make([]string, 0, len(nsMap))
+		for k := range nsMap {
+			allPaths = append(allPaths, k)
+		}
+		t.Errorf("missing Rust namespace 'backend'; have: %v", allPaths)
+	}
+}
+
 // TestCompositeScanner_NoNamespaceDuplication verifies that a TypeScript
 // npm-workspaces monorepo does not produce duplicate namespace entries.
 //

@@ -362,3 +362,22 @@ func truncateTest(s string, limit int) string {
 	}
 	return s[:limit] + "..."
 }
+
+// TestRenderDependency_NoEdgeWeightLabels verifies that dependency diagrams do
+// not include raw numeric weight labels on arrows by default (LCS-BUG-94).
+//
+// Given a project with weighted edges
+// When Render(type=dependency) is called
+// Then arrows use --> not -->|"N"| form
+func TestRenderDependency_NoEdgeWeightLabels(t *testing.T) {
+	out, err := Render(core.Input{Report: testReport()}, core.Options{Type: "dependency"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Must not contain the weight label pattern -->|"<number>"|
+	if strings.Contains(out, `-->|"`) {
+		t.Errorf("dependency diagram should not include raw numeric edge weight labels; got:\n%s", out)
+	}
+	// Must still contain plain arrows.
+	assertContains(t, out, "-->")
+}

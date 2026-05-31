@@ -64,6 +64,13 @@ func parseOffsetEncoding(raw []byte) OffsetEncoding {
 	}
 }
 
+// Location is a source position returned by LSP textDocument/references.
+// Line is 1-based (converted from LSP 0-based).
+type Location struct {
+	URI  string `json:"uri"`
+	Line int    `json:"line"`
+}
+
 // Pool manages reusable LSP server connections. In long-running mode
 // (locus serve), connections are kept alive across requests. In CLI mode,
 // pool is nil and analyzers fall back to cold-start per request.
@@ -76,6 +83,11 @@ type Pool interface {
 	// Release signals that the caller is done with the connection. The pool
 	// keeps it alive for future callers. Does not close the connection.
 	Release(language lang.Language, root string)
+
+	// References returns all reference locations for the symbol at the given
+	// position in file (line and char are 1-based). Sends textDocument/didOpen
+	// then textDocument/references. Returns ErrNoPool from StubPool.
+	References(ctx context.Context, file string, line, char int) ([]Location, error)
 
 	// Shutdown gracefully stops all managed LSP servers. Sends LSP shutdown
 	// and exit notifications, then kills processes.
@@ -232,4 +244,77 @@ type PoolStatus struct {
 	Active int                   `json:"active"`
 	Idle   int                   `json:"idle"`
 	ByLang map[lang.Language]int `json:"by_language"`
+}
+
+// poolReferences is the shared References implementation for RealPool and
+// MockPool. It detects the language from the file extension, gets a warm
+// client, sends textDocument/didOpen then textDocument/references, and
+// unmarshals the []Location response.
+func poolReferences(ctx context.Context, pool Pool, file string, line, char int) ([]Location, error) {
+	language := fileLanguage(file)
+	root := filepath.Dir(file)
+
+	client, err := pool.Get(language, root)
+	if err != nil {
+		return nil, err
+	}
+	defer pool.Release(language, root)
+
+	content, _ := os.ReadFile(file)
+	uri := "file://" + filepath.ToSlash(file)
+	langID := extToLangID(filepath.Ext(file))
+	_ = client.Notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        uri,
+			"languageId": langID,
+			"version":    1,
+			"text":       string(content),
+		},
+	})
+
+	// LSP positions are 0-based; callers pass 1-based.
+	raw, err := client.RequestContext(ctx, "textDocument/references", map[string]any{
+		"textDocument": map[string]any{"uri": uri},
+		"position":     map[string]any{"line": line - 1, "character": char},
+		"context":      map[string]any{"includeDeclaration": false},
+	})
+	if err != nil {
+		return []Location{}, nil // no references is not an error
+	}
+
+	type lspPos struct {
+		Line int `json:"line"`
+	}
+	type lspRange struct {
+		Start lspPos `json:"start"`
+	}
+	type lspLoc struct {
+		URI   string   `json:"uri"`
+		Range lspRange `json:"range"`
+	}
+	var locs []lspLoc
+	if err := json.Unmarshal(raw, &locs); err != nil || len(locs) == 0 {
+		return []Location{}, nil
+	}
+	out := make([]Location, len(locs))
+	for i, l := range locs {
+		out[i] = Location{URI: l.URI, Line: l.Range.Start.Line + 1}
+	}
+	return out, nil
+}
+
+// fileLanguage infers the LSP language from a file extension.
+func fileLanguage(file string) lang.Language {
+	switch strings.ToLower(filepath.Ext(file)) {
+	case ".go":
+		return lang.Go
+	case ".rs":
+		return lang.Rust
+	case ".py":
+		return lang.Python
+	case ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs":
+		return lang.TypeScript
+	default:
+		return lang.Unknown
+	}
 }

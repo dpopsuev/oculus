@@ -222,3 +222,59 @@ func readModulePath(goModPath string) (string, error) {
 	}
 	return "", fmt.Errorf("%s: %w", goModPath, errNoModuleDirective)
 }
+
+// ScanFile implements FileScanner. It parses a single Go source file and
+// returns a Project containing that file's package namespace and symbols.
+// The module path is read from the nearest go.mod up the directory tree;
+// when none is found the package directory name is used as a fallback.
+func (s *GoScanner) ScanFile(path string) (*model.Project, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, absPath, nil, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	// Walk up to find go.mod for the module path.
+	modPath := ""
+	dir := filepath.Dir(absPath)
+	for d := dir; ; d = filepath.Dir(d) {
+		candidate := filepath.Join(d, "go.mod")
+		if mp, e := readModulePath(candidate); e == nil {
+			// Convert the file's directory to an import path relative to the module root.
+			rel, _ := filepath.Rel(d, dir)
+			if rel == "." || rel == "" {
+				modPath = mp
+			} else {
+				modPath = mp + "/" + filepath.ToSlash(rel)
+			}
+			break
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+	}
+	if modPath == "" {
+		modPath = filepath.Base(dir)
+	}
+
+	pkg := model.NewNamespace(f.Name.Name, modPath)
+	rel := filepath.Base(absPath)
+	fileObj := model.NewFile(rel, f.Name.Name)
+	if tokFile := fset.File(f.Pos()); tokFile != nil {
+		fileObj.Lines = tokFile.LineCount()
+	}
+	pkg.AddFile(fileObj)
+	extractSymbols(f, fset, rel, pkg)
+
+	proj := model.NewProject(modPath)
+	proj.Language = model.LangGo
+	proj.DependencyGraph = model.NewDependencyGraph()
+	proj.AddNamespace(pkg)
+	return proj, nil
+}

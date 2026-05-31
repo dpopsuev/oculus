@@ -426,3 +426,48 @@ func matchesInternalPackage(importKey string, pkgSet map[string]bool) bool {
 	}
 	return false
 }
+
+// ScanFile implements FileScanner for a single Python source file.
+func (s *PythonScanner) ScanFile(path string) (*model.Project, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+
+	base := filepath.Base(absPath)
+	stem := strings.TrimSuffix(base, ".py")
+	ns := model.NewNamespace(stem, stem)
+
+	f, err := os.Open(absPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	seen := make(map[string]bool)
+	lineCount := 0
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		lineCount++
+		line := sc.Text()
+		if m := rePyDef.FindStringSubmatch(line); m != nil {
+			addPythonSymbol(ns, seen, m[1], model.SymbolFunction, base, lineCount)
+		} else if m := rePyAsyncDef.FindStringSubmatch(line); m != nil {
+			addPythonSymbol(ns, seen, m[1], model.SymbolFunction, base, lineCount)
+		} else if m := rePyClass.FindStringSubmatch(line); m != nil {
+			addPythonSymbol(ns, seen, m[1], model.SymbolClass, base, lineCount)
+		}
+	}
+
+	fileObj := model.NewFile(base, stem)
+	fileObj.Lines = lineCount
+	ns.AddFile(fileObj)
+
+	proj := &model.Project{
+		Path:            stem,
+		Language:        model.LangPython,
+		DependencyGraph: model.NewDependencyGraph(),
+	}
+	proj.AddNamespace(ns)
+	return proj, nil
+}

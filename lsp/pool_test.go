@@ -10,6 +10,7 @@ import (
 
 	"github.com/dpopsuev/oculus/v3/lang"
 	"github.com/dpopsuev/oculus/v3/lsp"
+	"github.com/dpopsuev/oculus/v3/lsp/mockserver"
 )
 
 // --- StubPool contract tests ---
@@ -148,5 +149,48 @@ func TestRealPool_StatusReportsActive(t *testing.T) {
 	}
 	if s.ByLang[lang.Go] != 1 {
 		t.Fatalf("expected 1 Go connection, got %d", s.ByLang[lang.Go])
+	}
+}
+
+// --- Pool.References ---
+
+// TestStubPool_References_ReturnsErrNoPool verifies that StubPool.References
+// returns ErrNoPool so callers know to fall back to cold-start LSP.
+//
+// Given a StubPool (CLI mode)
+// When References is called
+// Then ErrNoPool is returned
+func TestStubPool_References_ReturnsErrNoPool(t *testing.T) {
+	p := &lsp.StubPool{}
+	_, err := p.References(context.Background(), "/tmp/test.go", 1, 0)
+	if !errors.Is(err, lsp.ErrNoPool) {
+		t.Fatalf("expected ErrNoPool, got %v", err)
+	}
+}
+
+// TestMockPool_References_ReturnsEmptyOnNoServer verifies that MockPool
+// implements References. The mock server returns no reference locations by
+// default, so the result is an empty (not nil) slice.
+//
+// Given a MockPool backed by a mock LSP server
+// When References is called on a non-existent file
+// Then the call succeeds (no error) and returns an empty location list
+func TestMockPool_References_MockServer(t *testing.T) {
+	p := lsp.NewMockPool(mockserver.Config{})
+	defer p.Shutdown(context.Background())
+
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(filePath, []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	locs, err := p.References(context.Background(), filePath, 1, 0)
+	if err != nil {
+		t.Fatalf("References: %v", err)
+	}
+	// Mock server returns empty locations — not an error.
+	if locs == nil {
+		t.Error("expected non-nil (empty) slice, got nil")
 	}
 }

@@ -196,3 +196,149 @@ func TestScanSkipsVendorAndHiddenDirs(t *testing.T) {
 		t.Errorf("namespaces = %d, want 1 (only main)", len(mod.Namespaces))
 	}
 }
+
+// --- ScanFile interface tests ---
+
+// TestGoScanner_ScanFile verifies that GoScanner implements FileScanner and
+// returns only the symbols from the specified file.
+//
+// Given a Go module with two files in the same package
+// When ScanFile is called on one file
+// Then the result contains only symbols from that file
+func TestGoScanner_ScanFile(t *testing.T) {
+	dir := setupModule(t, map[string]string{
+		"go.mod":    "module example.com/scan\n\ngo 1.21\n",
+		"foo.go":    "package main\n\nfunc Alpha() {}\nfunc Beta() {}\n",
+		"bar.go":    "package main\n\nfunc Gamma() {}\n",
+	})
+
+	sc := &survey.GoScanner{}
+	fs, ok := any(sc).(survey.FileScanner)
+	if !ok {
+		t.Fatal("GoScanner does not implement FileScanner")
+	}
+
+	proj, err := fs.ScanFile(filepath.Join(dir, "foo.go"))
+	if err != nil {
+		t.Fatalf("ScanFile: %v", err)
+	}
+	if len(proj.Namespaces) == 0 {
+		t.Fatal("expected at least one namespace")
+	}
+
+	symNames := make(map[string]bool)
+	for _, ns := range proj.Namespaces {
+		for _, s := range ns.Symbols {
+			symNames[s.Name] = true
+		}
+	}
+	if !symNames["Alpha"] || !symNames["Beta"] {
+		t.Errorf("expected Alpha and Beta from foo.go; got: %v", symNames)
+	}
+	if symNames["Gamma"] {
+		t.Error("Gamma from bar.go should not appear in ScanFile(foo.go)")
+	}
+}
+
+// TestRustScanner_ScanFile verifies that RustScanner implements FileScanner.
+//
+// Given a Rust file with pub symbols
+// When ScanFile is called
+// Then the result contains those symbols
+func TestRustScanner_ScanFile(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "lib.rs")
+	if err := os.WriteFile(filePath, []byte("pub fn serve() {}\npub struct Config {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sc := &survey.RustScanner{}
+	fs, ok := any(sc).(survey.FileScanner)
+	if !ok {
+		t.Fatal("RustScanner does not implement FileScanner")
+	}
+
+	proj, err := fs.ScanFile(filePath)
+	if err != nil {
+		t.Fatalf("ScanFile: %v", err)
+	}
+
+	symNames := make(map[string]bool)
+	for _, ns := range proj.Namespaces {
+		for _, s := range ns.Symbols {
+			symNames[s.Name] = true
+		}
+	}
+	if !symNames["serve"] {
+		t.Errorf("expected 'serve'; got: %v", symNames)
+	}
+	if !symNames["Config"] {
+		t.Errorf("expected 'Config'; got: %v", symNames)
+	}
+}
+
+// TestTSScanner_ScanFile verifies that TypeScriptScanner implements FileScanner.
+func TestTSScanner_ScanFile(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "index.ts")
+	if err := os.WriteFile(filePath, []byte("export function render() {}\nexport class Widget {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sc := &survey.TypeScriptScanner{}
+	fs, ok := any(sc).(survey.FileScanner)
+	if !ok {
+		t.Fatal("TypeScriptScanner does not implement FileScanner")
+	}
+
+	proj, err := fs.ScanFile(filePath)
+	if err != nil {
+		t.Fatalf("ScanFile: %v", err)
+	}
+
+	symNames := make(map[string]bool)
+	for _, ns := range proj.Namespaces {
+		for _, s := range ns.Symbols {
+			symNames[s.Name] = true
+		}
+	}
+	if !symNames["render"] {
+		t.Errorf("expected 'render'; got: %v", symNames)
+	}
+	if !symNames["Widget"] {
+		t.Errorf("expected 'Widget'; got: %v", symNames)
+	}
+}
+
+// TestPythonScanner_ScanFile verifies that PythonScanner implements FileScanner.
+func TestPythonScanner_ScanFile(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "api.py")
+	if err := os.WriteFile(filePath, []byte("def handle():\n    pass\nclass Router:\n    pass\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sc := &survey.PythonScanner{}
+	fs, ok := any(sc).(survey.FileScanner)
+	if !ok {
+		t.Fatal("PythonScanner does not implement FileScanner")
+	}
+
+	proj, err := fs.ScanFile(filePath)
+	if err != nil {
+		t.Fatalf("ScanFile: %v", err)
+	}
+
+	symNames := make(map[string]bool)
+	for _, ns := range proj.Namespaces {
+		for _, s := range ns.Symbols {
+			symNames[s.Name] = true
+		}
+	}
+	if !symNames["handle"] {
+		t.Errorf("expected 'handle'; got: %v", symNames)
+	}
+	if !symNames["Router"] {
+		t.Errorf("expected 'Router'; got: %v", symNames)
+	}
+}

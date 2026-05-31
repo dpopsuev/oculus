@@ -53,11 +53,7 @@ func Dependency(in core.Input, opts core.Options) string {
 		}
 		fromID := core.MermaidID(e.From)
 		toID := core.MermaidID(e.To)
-		if e.Weight > 0 {
-			fmt.Fprintf(&b, "    %s -->|\"%d\"| %s\n", fromID, e.Weight, toID)
-		} else {
-			fmt.Fprintf(&b, "    %s --> %s\n", fromID, toID)
-		}
+		fmt.Fprintf(&b, "    %s --> %s\n", fromID, toID)
 	}
 
 	return b.String()

@@ -213,6 +213,11 @@ func (p *RealPool) KillServer(language lang.Language, root string) error {
 	return fmt.Errorf("no process")
 }
 
+// References implements Pool.References for RealPool using poolReferences.
+func (p *RealPool) References(ctx context.Context, file string, line, char int) ([]Location, error) {
+	return poolReferences(ctx, p, file, line, char)
+}
+
 // spawnServer starts a new LSP server process and performs the initialize handshake.
 // It looks up the registry entry for language, checks root markers (unless the
 // server has SingleFileSupport), then spawns and initializes the process.

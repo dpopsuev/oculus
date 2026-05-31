@@ -13,10 +13,26 @@ import (
 	"github.com/dpopsuev/oculus/v3/model"
 )
 
+// Granularity controls whether the TypeScript scanner groups files by directory
+// (the default) or treats each file as its own namespace component.
+type Granularity int
+
+const (
+	// DirLevel groups all files in a directory into one namespace. Default.
+	DirLevel Granularity = iota
+	// FileLevel promotes each .ts/.tsx file to its own namespace, exposing
+	// per-file coupling for strangler fig analysis.
+	FileLevel
+)
+
 // TypeScriptScanner extracts structural metadata from TypeScript/JavaScript
 // projects by parsing package.json and scanning source files for import/export
 // declarations via regex.
-type TypeScriptScanner struct{}
+type TypeScriptScanner struct {
+	// Granularity controls whether files are grouped by directory (DirLevel,
+	// default) or each file becomes its own namespace (FileLevel).
+	Granularity Granularity
+}
 
 type packageJSON struct {
 	Name         string            `json:"name"`
@@ -210,18 +226,24 @@ func (s *TypeScriptScanner) Scan(root string) (*model.Project, error) {
 		}
 		rel = filepath.ToSlash(rel)
 
-		dir := filepath.ToSlash(filepath.Dir(rel))
-		if dir == "." {
-			dir = nsRoot
+		var nsKey string
+		if s.Granularity == FileLevel {
+			nsKey = rel // each file is its own namespace
+		} else {
+			nsKey = filepath.ToSlash(filepath.Dir(rel))
+			if nsKey == "." {
+				nsKey = nsRoot
+			}
 		}
 
-		ns := nsMap[dir]
+		ns := nsMap[nsKey]
 		if ns == nil {
-			ns = model.NewNamespace(dir, dir)
-			nsMap[dir] = ns
-			seen[dir] = make(map[string]bool)
+			ns = model.NewNamespace(nsKey, nsKey)
+			nsMap[nsKey] = ns
+			seen[nsKey] = make(map[string]bool)
 		}
-		fileObj := model.NewFile(rel, dir)
+		fileObj := model.NewFile(rel, nsKey)
+		dir := nsKey
 
 		f, fErr := os.Open(path)
 		if fErr != nil {
@@ -364,4 +386,41 @@ func readPackageJSON(root string) packageJSON {
 	}
 	_ = json.Unmarshal(data, &pkg)
 	return pkg
+}
+
+// ScanFile implements FileScanner for a single TypeScript/JavaScript source file.
+func (s *TypeScriptScanner) ScanFile(path string) (*model.Project, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+
+	base := filepath.Base(absPath)
+	nsName := strings.TrimSuffix(base, filepath.Ext(base))
+	ns := model.NewNamespace(nsName, nsName)
+
+	f, err := os.Open(absPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	seen := make(map[string]bool)
+	lineCount := 0
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		lineCount++
+		s.extractExports(sc.Text(), ns, seen, base, lineCount)
+	}
+	fileObj := model.NewFile(base, nsName)
+	fileObj.Lines = lineCount
+	ns.AddFile(fileObj)
+
+	proj := &model.Project{
+		Path:            nsName,
+		Language:        model.LangTypeScript,
+		DependencyGraph: model.NewDependencyGraph(),
+	}
+	proj.AddNamespace(ns)
+	return proj, nil
 }

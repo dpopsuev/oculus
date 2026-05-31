@@ -76,12 +76,28 @@ func (s *PackagesScanner) Scan(root string) (*model.Project, error) {
 
 		ns := model.NewNamespace(pkg.Name, pkg.PkgPath)
 
+		testDirs := make(map[string]bool)
 		for _, f := range pkg.GoFiles {
 			rel, relErr := filepath.Rel(absRoot, f)
 			if relErr != nil {
 				rel = f
 			}
 			ns.AddFile(model.NewFile(filepath.ToSlash(rel), pkg.Name))
+			testDirs[filepath.Dir(f)] = true
+		}
+		// Detect *_test.go files in the same directories (not in GoFiles).
+		for dir := range testDirs {
+			entries, _ := os.ReadDir(dir)
+			for _, e := range entries {
+				if e.IsDir() || !strings.HasSuffix(e.Name(), "_test.go") {
+					continue
+				}
+				rel, relErr := filepath.Rel(absRoot, filepath.Join(dir, e.Name()))
+				if relErr != nil {
+					rel = filepath.Join(dir, e.Name())
+				}
+				ns.AddFile(model.NewFile(filepath.ToSlash(rel), pkg.Name))
+			}
 		}
 
 		extractTypedSymbols(pkg, ns)

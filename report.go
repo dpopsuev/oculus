@@ -19,6 +19,12 @@ type ArchService struct {
 	MaxNesting int     `json:"max_nesting,omitempty"`
 	AvgNesting float64 `json:"avg_nesting,omitempty"`
 	Changed    bool    `json:"changed,omitempty"`
+
+	// Test coverage metadata — populated by the architecture builder from
+	// scanner file lists. Ratio is test_files / total_files (proxy coverage).
+	HasTests      bool     `json:"has_tests,omitempty"`
+	TestFiles     []string `json:"test_files,omitempty"`
+	CoverageRatio float64  `json:"coverage_ratio,omitempty"`
 }
 
 // ArchEdge represents a dependency edge in an architecture artifact.

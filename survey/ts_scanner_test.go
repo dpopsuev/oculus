@@ -217,3 +217,76 @@ func TestTSScanSkipsNodeModules(t *testing.T) {
 		t.Errorf("namespaces = %d, want 1 (only src)", len(proj.Namespaces))
 	}
 }
+
+// --- File-level granularity mode ---
+
+// TestTSScan_FileLevel_EachFileIsNamespace verifies that when TypeScriptScanner
+// is configured with FileLevel granularity, each .ts file becomes its own
+// namespace instead of being grouped by directory.
+//
+// Given a directory with 3 .ts files
+// When TypeScriptScanner{Granularity: FileLevel}.Scan(root) is called
+// Then there are 3 namespaces, one per file, with the file path as ImportPath
+func TestTSScan_FileLevel_EachFileIsNamespace(t *testing.T) {
+	dir := setupTSProject(t, map[string]string{
+		"package.json": `{"name":"test-pkg"}`,
+		"src/foo.ts":   "export function alpha() {}\n",
+		"src/bar.ts":   "export function beta() {}\n",
+		"src/baz.ts":   "export function gamma() {}\n",
+	})
+
+	sc := &survey.TypeScriptScanner{Granularity: survey.FileLevel}
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	nsMap := make(map[string]bool)
+	for _, ns := range proj.Namespaces {
+		nsMap[ns.ImportPath] = true
+	}
+
+	for _, want := range []string{"src/foo.ts", "src/bar.ts", "src/baz.ts"} {
+		if !nsMap[want] {
+			t.Errorf("expected namespace %q; have: %v", want, func() []string {
+				keys := make([]string, 0, len(nsMap))
+				for k := range nsMap {
+					keys = append(keys, k)
+				}
+				return keys
+			}())
+		}
+	}
+
+	if len(proj.Namespaces) != 3 {
+		t.Errorf("expected 3 namespaces (one per file), got %d", len(proj.Namespaces))
+	}
+}
+
+// TestTSScan_DirLevel_IsDefault verifies that TypeScriptScanner with no
+// Granularity set behaves identically to the existing directory-level scan.
+func TestTSScan_DirLevel_IsDefault(t *testing.T) {
+	dir := setupTSProject(t, map[string]string{
+		"package.json": `{"name":"test-pkg"}`,
+		"src/foo.ts":   "export function alpha() {}\n",
+		"src/bar.ts":   "export function beta() {}\n",
+	})
+
+	sc := &survey.TypeScriptScanner{} // default = DirLevel
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	// Both files should be grouped under "src".
+	nsMap := make(map[string]bool)
+	for _, ns := range proj.Namespaces {
+		nsMap[ns.ImportPath] = true
+	}
+	if !nsMap["src"] {
+		t.Errorf("expected namespace 'src' (dir-level), have: %v", nsMap)
+	}
+	if nsMap["src/foo.ts"] || nsMap["src/bar.ts"] {
+		t.Error("file-level namespace paths should not appear in default (dir-level) mode")
+	}
+}

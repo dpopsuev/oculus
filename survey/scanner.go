@@ -15,6 +15,13 @@ type Scanner interface {
 	Scan(root string) (*model.Project, error)
 }
 
+// FileScanner is an optional extension of Scanner that extracts symbols from a
+// single file. Callers should type-assert to FileScanner and fall back to
+// Scan(dir)+filter when the scanner does not implement it.
+type FileScanner interface {
+	ScanFile(path string) (*model.Project, error)
+}
+
 // symbolPattern pairs a compiled regex with the SymbolKind it detects.
 type symbolPattern struct {
 	re   *regexp.Regexp

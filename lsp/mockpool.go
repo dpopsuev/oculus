@@ -77,6 +77,13 @@ func (p *MockPool) Get(language lang.Language, root string) (*Client, error) {
 
 func (p *MockPool) Release(lang.Language, string) {}
 
+// References implements Pool.References for MockPool. It opens the file via
+// didOpen and sends textDocument/references. The mock server returns empty
+// results by default.
+func (p *MockPool) References(ctx context.Context, file string, line, char int) ([]Location, error) {
+	return poolReferences(ctx, p, file, line, char)
+}
+
 func (p *MockPool) Shutdown(_ context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()

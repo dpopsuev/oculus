@@ -74,6 +74,7 @@ func projectToArchPackageLevel(proj *model.Project, modPath string, m ArchModel,
 				svc.Symbols = append(svc.Symbols, *sym)
 			}
 		}
+		populateTestCoverage(&svc, ns.Files)
 		m.Services = append(m.Services, svc)
 	}
 
@@ -378,4 +379,49 @@ func renderMermaidEdge(b *strings.Builder, fromID, toID, label string, external 
 func mermaidID(name string) string {
 	r := strings.NewReplacer(" ", "_", "-", "_", ".", "_", "/", "_")
 	return r.Replace(name)
+}
+
+// populateTestCoverage sets HasTests, TestFiles, and CoverageRatio on svc
+// based on the file list from the namespace. A test file is identified by
+// language-agnostic heuristics on the file name.
+func populateTestCoverage(svc *ArchService, files []*model.File) {
+	if len(files) == 0 {
+		return
+	}
+	var testFiles []string
+	for _, f := range files {
+		if isTestFile(f.Path) {
+			testFiles = append(testFiles, f.Path)
+		}
+	}
+	if len(testFiles) > 0 {
+		svc.HasTests = true
+		svc.TestFiles = testFiles
+		svc.CoverageRatio = float64(len(testFiles)) / float64(len(files))
+	}
+}
+
+// isTestFile returns true when a file path matches common test file conventions
+// across Go, TypeScript, Rust, and Python.
+func isTestFile(path string) bool {
+	base := filepath.Base(path)
+	name := strings.ToLower(base)
+	switch {
+	case strings.HasSuffix(name, "_test.go"):
+		return true
+	case strings.HasSuffix(name, ".test.ts"), strings.HasSuffix(name, ".spec.ts"):
+		return true
+	case strings.HasSuffix(name, ".test.tsx"), strings.HasSuffix(name, ".spec.tsx"):
+		return true
+	case strings.HasSuffix(name, ".test.js"), strings.HasSuffix(name, ".spec.js"):
+		return true
+	case strings.HasPrefix(name, "test_") && strings.HasSuffix(name, ".py"):
+		return true
+	case strings.HasSuffix(name, "_test.py"):
+		return true
+	case strings.Contains(filepath.ToSlash(path), "/tests/") && strings.HasSuffix(name, ".rs"):
+		return true
+	default:
+		return false
+	}
 }

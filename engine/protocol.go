@@ -107,6 +107,9 @@ type Engine struct {
 	sgEntries map[string]*sgEntry // TTL-bounded; swept on each Store
 
 	scanSfg singleflight.Group // one arch.ScanAndBuild per (path, sha) at a time
+
+	mirrorMu sync.Mutex
+	mirrors  map[string][]SymbolMirror // keyed by resolved project path
 }
 
 // New creates a Protocol with the given store, workspace roots, and optional
@@ -811,6 +814,18 @@ type SymbolSearchReport struct {
 }
 
 func (p *Engine) SearchSymbols(ctx context.Context, path, pattern string, cacheKey ...string) (*SymbolSearchReport, error) {
+	return p.SearchSymbolsFiltered(ctx, path, pattern, "", cacheKey...)
+}
+
+// SearchSymbolsFiltered is like SearchSymbols but optionally restricts results
+// to symbols whose File field matches file. When file is empty all files are
+// included (backward-compatible with SearchSymbols). When pattern is empty all
+// symbol names match (wildcard). Both filters apply simultaneously when set.
+//
+// File matching is suffix-aware: an absolute file path matches a relative
+// symbol file path when the absolute path ends with the relative path. This
+// handles scanners that store relative paths (e.g. TypeScriptScanner).
+func (p *Engine) SearchSymbolsFiltered(ctx context.Context, path, pattern, file string, cacheKey ...string) (*SymbolSearchReport, error) {
 	path = p.resolvePath(path)
 	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
@@ -818,24 +833,44 @@ func (p *Engine) SearchSymbols(ctx context.Context, path, pattern string, cacheK
 	}
 
 	lower := strings.ToLower(pattern)
+	fileClean := filepath.ToSlash(filepath.Clean(file))
 	var matches []SymbolMatch
 	for i := range report.Architecture.Services {
 		svc := &report.Architecture.Services[i]
 		for _, sym := range svc.Symbols {
-			if strings.Contains(strings.ToLower(sym.Name), lower) {
-				matches = append(matches, SymbolMatch{
-					Symbol:    sym.Name,
-					Kind:      sym.Kind.String(),
-					Component: svc.Name,
-					File:      sym.File,
-					Line:      sym.Line,
-				})
+			if file != "" && !symbolFileMatches(sym.File, fileClean) {
+				continue
 			}
+			if pattern != "" && !strings.Contains(strings.ToLower(sym.Name), lower) {
+				continue
+			}
+			matches = append(matches, SymbolMatch{
+				Symbol:    sym.Name,
+				Kind:      sym.Kind.String(),
+				Component: svc.Name,
+				File:      sym.File,
+				Line:      sym.Line,
+			})
 		}
 	}
 
 	summary := fmt.Sprintf("%d symbol(s) matching %q", len(matches), pattern)
+	if file != "" {
+		summary = fmt.Sprintf("%d symbol(s) in %s matching %q", len(matches), file, pattern)
+	}
 	return &SymbolSearchReport{Query: pattern, Matches: matches, Summary: summary}, nil
+}
+
+// symbolFileMatches returns true when the symbol's stored file path matches
+// the filter. Handles both exact matches and suffix matches for the case where
+// scanners store relative paths but callers provide absolute paths.
+func symbolFileMatches(symFile, filter string) bool {
+	symClean := filepath.ToSlash(filepath.Clean(symFile))
+	if symClean == filter {
+		return true
+	}
+	// Absolute filter ends with the relative symFile.
+	return strings.HasSuffix(filter, "/"+symClean)
 }
 
 // CallerSite is a type alias for port.CallerSite, kept for backward compatibility.
@@ -1038,6 +1073,45 @@ func (p *Engine) GetCallers(ctx context.Context, path, symbol string, cacheKey .
 
 	summary := fmt.Sprintf("%d caller(s) of %s", len(callers), symbol)
 	return &CallersReport{Symbol: symbol, Callers: callers, Summary: summary}, nil
+}
+
+// GetCallersAt returns callers of the symbol at a given source position using
+// LSP textDocument/references via Pool.References. This avoids requiring the
+// caller to know the FQN of the symbol. line and char are 1-based.
+//
+// When the pool is a StubPool (CLI mode), ErrNoPool is returned by
+// Pool.References and the function returns an empty CallerReport (not an error)
+// so callers degrade gracefully.
+func (p *Engine) GetCallersAt(ctx context.Context, path, file string, line, char int, cacheKey ...string) (*CallersReport, error) {
+	path = p.resolvePath(path)
+
+	if p.pool == nil {
+		return &CallersReport{Symbol: file, Summary: "no LSP pool configured"}, nil
+	}
+	locs, err := p.pool.References(ctx, file, line, char)
+	if err != nil {
+		// ErrNoPool in CLI mode — return empty report, not an error.
+		return &CallersReport{Symbol: file, Summary: "pool unavailable: " + err.Error()}, nil
+	}
+
+	callers := make([]CallerSite, 0, len(locs))
+	seen := make(map[string]bool)
+	for _, loc := range locs {
+		// Strip file:// prefix from URI.
+		filePath := strings.TrimPrefix(loc.URI, "file://")
+		key := filePath + ":" + fmt.Sprintf("%d", loc.Line)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		callers = append(callers, CallerSite{
+			File: filePath,
+			Line: loc.Line,
+		})
+	}
+
+	summary := fmt.Sprintf("%d caller(s) at %s:%d:%d", len(callers), file, line, char)
+	return &CallersReport{Symbol: fmt.Sprintf("%s:%d:%d", file, line, char), Callers: callers, Summary: summary}, nil
 }
 
 // --- Data flow & state machine ---
@@ -1592,6 +1666,284 @@ func diffEdges(beforeEdges, afterEdges []arch.ArchEdge) (added, removed int) {
 		}
 	}
 	return added, removed
+}
+
+// ComponentRangeDiffEntry holds a component name and the count of files changed
+// in the commit range that belong to it.
+type ComponentRangeDiffEntry struct {
+	Component    string   `json:"component"`
+	ChangedFiles []string `json:"changed_files"`
+	FileCount    int      `json:"file_count"`
+}
+
+// ComponentRangeDiffReport lists components touched by files changed between
+// two SHAs. Uses the scan's file-to-component mapping.
+type ComponentRangeDiffReport struct {
+	BeforeSHA         string                    `json:"before_sha"`
+	AfterSHA          string                    `json:"after_sha"`
+	TouchedComponents []ComponentRangeDiffEntry `json:"touched_components"`
+	UntrackedFiles    []string                  `json:"untracked_files,omitempty"`
+	Summary           string                    `json:"summary"`
+}
+
+// GetComponentRangeDiff returns which components had files changed between
+// beforeSHA and afterSHA, using the scan stored for afterSHA to map files
+// to components. Files not belonging to any component go into UntrackedFiles.
+func (p *Engine) GetComponentRangeDiff(ctx context.Context, path, beforeSHA, afterSHA string, cacheKey ...string) (*ComponentRangeDiffReport, error) {
+	path = p.resolvePath(path)
+
+	if beforeSHA == afterSHA {
+		return &ComponentRangeDiffReport{BeforeSHA: beforeSHA, AfterSHA: afterSHA, Summary: "no changes"}, nil
+	}
+
+	// Get the changed file list via go-git.
+	changedFiles, err := gitDiffFiles(path, beforeSHA, afterSHA)
+	if err != nil {
+		return nil, fmt.Errorf("git diff %s..%s: %w", beforeSHA, afterSHA, err)
+	}
+
+	// Load the scan report to build file→component mapping.
+	report, err := p.getOrScan(ctx, path, cacheKey...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build file→component index from the scan.
+	fileToComponent := make(map[string]string)
+	for i := range report.Architecture.Services {
+		svc := &report.Architecture.Services[i]
+		for _, sym := range svc.Symbols {
+			if sym.File != "" {
+				fileToComponent[filepath.ToSlash(sym.File)] = svc.Name
+			}
+		}
+	}
+
+	componentFiles := make(map[string][]string)
+	var untracked []string
+	for _, f := range changedFiles {
+		fSlash := filepath.ToSlash(f)
+		comp, ok := fileToComponent[fSlash]
+		// Also try matching by directory prefix.
+		if !ok {
+			dir := filepath.Dir(fSlash)
+			for k, v := range fileToComponent {
+				if strings.HasPrefix(k, dir+"/") || filepath.Dir(k) == dir {
+					comp = v
+					ok = true
+					break
+				}
+			}
+		}
+		if ok {
+			componentFiles[comp] = append(componentFiles[comp], f)
+		} else {
+			untracked = append(untracked, f)
+		}
+	}
+
+	entries := make([]ComponentRangeDiffEntry, 0, len(componentFiles))
+	for comp, files := range componentFiles {
+		sort.Strings(files)
+		entries = append(entries, ComponentRangeDiffEntry{
+			Component:    comp,
+			ChangedFiles: files,
+			FileCount:    len(files),
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Component < entries[j].Component })
+	sort.Strings(untracked)
+
+	summary := fmt.Sprintf("%d component(s) touched, %d file(s) changed (%s..%s)",
+		len(entries), len(changedFiles), beforeSHA[:min8(beforeSHA)], afterSHA[:min8(afterSHA)])
+	return &ComponentRangeDiffReport{
+		BeforeSHA:         beforeSHA,
+		AfterSHA:          afterSHA,
+		TouchedComponents: entries,
+		UntrackedFiles:    untracked,
+		Summary:           summary,
+	}, nil
+}
+
+func min8(s string) int {
+	if len(s) < 8 {
+		return len(s)
+	}
+	return 8
+}
+
+// gitDiffFiles returns the list of file paths changed between two SHAs using
+// go-git. Returns an empty list (not an error) when the repo cannot be opened
+// or the SHAs are invalid.
+func gitDiffFiles(repoPath, beforeSHA, afterSHA string) ([]string, error) {
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		return nil, err
+	}
+
+	beforeHash := plumbing.NewHash(beforeSHA)
+	afterHash := plumbing.NewHash(afterSHA)
+
+	beforeCommit, err := repo.CommitObject(beforeHash)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %s: %w", beforeSHA, err)
+	}
+	afterCommit, err := repo.CommitObject(afterHash)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %s: %w", afterSHA, err)
+	}
+
+	beforeTree, err := beforeCommit.Tree()
+	if err != nil {
+		return nil, err
+	}
+	afterTree, err := afterCommit.Tree()
+	if err != nil {
+		return nil, err
+	}
+
+	changes, err := object.DiffTree(beforeTree, afterTree)
+	if err != nil {
+		return nil, err
+	}
+
+	files := make([]string, 0, len(changes))
+	for _, ch := range changes {
+		name := ch.To.Name
+		if name == "" {
+			name = ch.From.Name
+		}
+		if name != "" {
+			files = append(files, name)
+		}
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+// MigrationOverlay tracks the strangler fig progress between a source
+// component (being replaced) and a target component (the replacement).
+type MigrationOverlay struct {
+	Source         string   `json:"source"`
+	Target         string   `json:"target"`
+	PortedSymbols  []string `json:"ported_symbols"`
+	PendingSymbols []string `json:"pending_symbols"`
+	ProgressPct    float64  `json:"progress_pct"`
+}
+
+// ComputeMigrationOverlay compares the exported symbol sets of sourceComponent
+// and targetComponent from the most recent scan. Symbols are matched by
+// normalized name (camelCase ↔ snake_case). PortedSymbols are present in both;
+// PendingSymbols are in source but not in target.
+func (p *Engine) ComputeMigrationOverlay(ctx context.Context, path, sourceComponent, targetComponent string, cacheKey ...string) (*MigrationOverlay, error) {
+	path = p.resolvePath(path)
+	report, err := p.getOrScan(ctx, path, cacheKey...)
+	if err != nil {
+		return nil, err
+	}
+
+	var sourceSyms, targetSyms []string
+	sourceFound, targetFound := false, false
+	for i := range report.Architecture.Services {
+		svc := &report.Architecture.Services[i]
+		if svc.Name == sourceComponent {
+			sourceFound = true
+			for _, s := range svc.Symbols {
+				sourceSyms = append(sourceSyms, s.Name)
+			}
+		}
+		if svc.Name == targetComponent {
+			targetFound = true
+			for _, s := range svc.Symbols {
+				targetSyms = append(targetSyms, s.Name)
+			}
+		}
+	}
+	if !sourceFound {
+		return nil, fmt.Errorf("source component %q not found in scan", sourceComponent)
+	}
+	if !targetFound {
+		return nil, fmt.Errorf("target component %q not found in scan", targetComponent)
+	}
+
+	// Build normalized target name set for matching.
+	targetNorm := make(map[string]bool, len(targetSyms))
+	for _, name := range targetSyms {
+		targetNorm[normalizeSymbolName(name)] = true
+	}
+
+	var ported, pending []string
+	for _, name := range sourceSyms {
+		if targetNorm[normalizeSymbolName(name)] {
+			ported = append(ported, name)
+		} else {
+			pending = append(pending, name)
+		}
+	}
+	sort.Strings(ported)
+	sort.Strings(pending)
+
+	var pct float64
+	if len(sourceSyms) > 0 {
+		pct = float64(len(ported)) / float64(len(sourceSyms)) * 100
+	}
+
+	return &MigrationOverlay{
+		Source:         sourceComponent,
+		Target:         targetComponent,
+		PortedSymbols:  ported,
+		PendingSymbols: pending,
+		ProgressPct:    pct,
+	}, nil
+}
+
+// normalizeSymbolName converts camelCase and PascalCase names to lowercase
+// snake_case for cross-language symbol matching (e.g. computeGap ↔ compute_gap).
+func normalizeSymbolName(name string) string {
+	name = strings.ToLower(name)
+	return strings.ReplaceAll(name, "_", "")
+}
+
+// SymbolMirror pairs a source FQN with its cross-language equivalent.
+type SymbolMirror struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// RegisterMirror records a cross-language symbol equivalence pair for path.
+// Registrations are stored in-process (per Engine instance). Registering the
+// same pair twice is idempotent.
+func (p *Engine) RegisterMirror(_ context.Context, path, from, to string) error {
+	path = p.resolvePath(path)
+	p.mirrorMu.Lock()
+	defer p.mirrorMu.Unlock()
+	if p.mirrors == nil {
+		p.mirrors = make(map[string][]SymbolMirror)
+	}
+	for _, m := range p.mirrors[path] {
+		if m.From == from && m.To == to {
+			return nil // already registered
+		}
+	}
+	p.mirrors[path] = append(p.mirrors[path], SymbolMirror{From: from, To: to})
+	return nil
+}
+
+// ListMirrors returns all registered cross-language symbol pairs for path.
+func (p *Engine) ListMirrors(_ context.Context, path string) ([]SymbolMirror, error) {
+	path = p.resolvePath(path)
+	p.mirrorMu.Lock()
+	defer p.mirrorMu.Unlock()
+	if p.mirrors == nil {
+		return []SymbolMirror{}, nil
+	}
+	result := p.mirrors[path]
+	if result == nil {
+		return []SymbolMirror{}, nil
+	}
+	out := make([]SymbolMirror, len(result))
+	copy(out, result)
+	return out, nil
 }
 
 // CoverageReport holds per-component coverage data.

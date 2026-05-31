@@ -253,3 +253,40 @@ func projectName(m cargoManifest, root string) string {
 	}
 	return filepath.Base(root)
 }
+
+// ScanFile implements FileScanner for a single Rust source file.
+// It returns a Project with one namespace named after the file's stem.
+func (s *RustScanner) ScanFile(path string) (*model.Project, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+
+	stem := strings.TrimSuffix(filepath.Base(absPath), ".rs")
+	ns := model.NewNamespace(stem, stem)
+
+	f, err := os.Open(absPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	seen := make(map[string]bool)
+	lineCount := 0
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		lineCount++
+		matchSymbolPatterns(sc.Text(), rustSymbolPatterns, ns, seen, true, filepath.Base(absPath), lineCount)
+	}
+	fileObj := model.NewFile(filepath.Base(absPath), stem)
+	fileObj.Lines = lineCount
+	ns.AddFile(fileObj)
+
+	proj := &model.Project{
+		Path:            stem,
+		Language:        model.LangRust,
+		DependencyGraph: model.NewDependencyGraph(),
+	}
+	proj.AddNamespace(ns)
+	return proj, nil
+}

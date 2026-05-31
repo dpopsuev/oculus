@@ -56,10 +56,14 @@ func (s *CompositeScanner) Scan(root string) (*model.Project, error) {
 		}
 
 		prefix := sub.relPath
+		applyPrefix := prefixImportPath
+		if sub.lang == model.LangRust {
+			applyPrefix = rustImportPath
+		}
 		for _, ns := range subProj.Namespaces {
 			merged := &model.Namespace{
 				Name:       ns.Name,
-				ImportPath: prefixImportPath(prefix, ns.ImportPath),
+				ImportPath: applyPrefix(prefix, ns.ImportPath),
 				Files:      ns.Files,
 				Symbols:    ns.Symbols,
 			}
@@ -73,8 +77,8 @@ func (s *CompositeScanner) Scan(root string) (*model.Project, error) {
 		if subProj.DependencyGraph != nil {
 			for _, edge := range subProj.DependencyGraph.Edges {
 				proj.DependencyGraph.AddEdge(
-					prefixImportPath(prefix, edge.From),
-					prefixImportPath(prefix, edge.To),
+					applyPrefix(prefix, edge.From),
+					applyPrefix(prefix, edge.To),
 					edge.External,
 				)
 			}
@@ -99,10 +103,11 @@ func discoverSubProjects(root string) []subProject {
 	// These are walked recursively so polyglot monorepos (e.g. deepagents
 	// with pyproject.toml inside libs/) are discovered correctly (LCS-BUG-74).
 	subProjectMarkers := map[string]model.Language{
-		"package.json":  model.LangTypeScript,
-		"tsconfig.json": model.LangTypeScript,
+		"package.json":   model.LangTypeScript,
+		"tsconfig.json":  model.LangTypeScript,
 		"pyproject.toml": model.LangPython,
 		"setup.py":       model.LangPython,
+		"Cargo.toml":     model.LangRust,
 	}
 
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -155,4 +160,19 @@ func prefixImportPath(prefix, importPath string) string {
 		return importPath
 	}
 	return prefix + "/" + importPath
+}
+
+// rustImportPath computes the namespace import path for a Rust sub-project.
+// The Rust scanner uses the crate name (from Cargo.toml) as the import path,
+// which equals the directory name for single-crate layouts. Prefixing would
+// double the segment ("backend/backend"). We use the sub-project relPath
+// directly in that case.
+func rustImportPath(subRelPath, nsImportPath string) string {
+	if subRelPath == "." || subRelPath == "" {
+		return nsImportPath
+	}
+	if nsImportPath == filepath.Base(subRelPath) {
+		return subRelPath
+	}
+	return subRelPath + "/" + nsImportPath
 }
