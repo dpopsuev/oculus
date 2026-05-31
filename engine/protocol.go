@@ -169,18 +169,19 @@ func (p *Engine) WarmLSP(ctx context.Context, path string) error {
 
 // ScanOpts controls a local scan.
 type ScanOpts struct {
-	Depth           int
-	ChurnDays       int
-	IncludeExternal bool
-	IncludeTests    bool
-	IncludeCoverage bool
-	Budget          int
-	Scanner         string
-	GitDays         int
-	Authors         bool
-	Format          string // "json", "md", "mermaid", "summary" — rendering is caller's job
-	Intent          string // architecture, coupling, health (default), full
-	Since           string // git ref to diff against for incremental scan
+	Depth             int
+	ChurnDays         int
+	IncludeExternal   bool
+	IncludeTests      bool
+	IncludeCoverage   bool
+	Budget            int
+	Scanner           string
+	GitDays           int
+	Authors           bool
+	Format            string // "json", "md", "mermaid", "summary" — rendering is caller's job
+	Intent            string // architecture, coupling, health (default), full
+	Since             string // git ref to diff against for incremental scan
+	TSFileGranularity bool   // TypeScript: each .ts file as its own component
 }
 
 // RemoteOpts controls a remote codograph.
@@ -287,6 +288,9 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 	if opts.Intent != "" {
 		cacheKey = sha + "-" + opts.Intent
 	}
+	if opts.TSFileGranularity {
+		cacheKey += "-file"
+	}
 
 	if cached, hit, err := p.db.GetReport(ctx, path, cacheKey); err == nil && hit {
 		// CacheKey must include the intent suffix (sha+"-"+intent) so that
@@ -308,17 +312,18 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 	}
 
 	report, err := arch.ScanAndBuild(ctx, path, arch.ScanOpts{
-		ScannerOverride: opts.Scanner,
-		ExcludeTests:    !opts.IncludeTests,
-		IncludeExternal: opts.IncludeExternal,
-		IncludeCoverage: opts.IncludeCoverage,
-		Depth:           opts.Depth,
-		ChurnDays:       churnDays,
-		Budget:          opts.Budget,
-		GitDays:         opts.GitDays,
-		Authors:         opts.Authors,
-		Intent:          arch.ScanIntent(opts.Intent),
-		Since:           opts.Since,
+		ScannerOverride:   opts.Scanner,
+		ExcludeTests:      !opts.IncludeTests,
+		IncludeExternal:   opts.IncludeExternal,
+		IncludeCoverage:   opts.IncludeCoverage,
+		Depth:             opts.Depth,
+		ChurnDays:         churnDays,
+		Budget:            opts.Budget,
+		GitDays:           opts.GitDays,
+		Authors:           opts.Authors,
+		Intent:            arch.ScanIntent(opts.Intent),
+		Since:             opts.Since,
+		TSFileGranularity: opts.TSFileGranularity,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrScanFailed, err)
@@ -1413,13 +1418,16 @@ func (p *Engine) RunPreset(ctx context.Context, path, preset string, cacheKey ..
 
 // ComponentDetail holds single-component analysis data.
 type ComponentDetail struct {
-	Name      string   `json:"name"`
-	LOC       int      `json:"loc"`
-	Symbols   []string `json:"symbols,omitempty"`
-	Imports   []string `json:"imports,omitempty"`
-	Importers []string `json:"importers,omitempty"`
-	Churn     int      `json:"churn"`
-	Health    string   `json:"health"`
+	Name          string   `json:"name"`
+	LOC           int      `json:"loc"`
+	Symbols       []string `json:"symbols,omitempty"`
+	Imports       []string `json:"imports,omitempty"`
+	Importers     []string `json:"importers,omitempty"`
+	Churn         int      `json:"churn"`
+	Health        string   `json:"health"`
+	HasTests      bool     `json:"has_tests"`
+	TestFiles     []string `json:"test_files,omitempty"`
+	CoverageRatio float64  `json:"coverage_ratio,omitempty"`
 }
 
 func (p *Engine) GetComponentDetail(ctx context.Context, path, name string, cacheKey ...string) (*ComponentDetail, error) {
@@ -1476,6 +1484,7 @@ func (p *Engine) GetComponentDetail(ctx context.Context, path, name string, cach
 		Name: name, LOC: svc.LOC, Symbols: symNames,
 		Imports: imports, Importers: importers,
 		Churn: svc.Churn, Health: health,
+		HasTests: svc.HasTests, TestFiles: svc.TestFiles, CoverageRatio: svc.CoverageRatio,
 	}, nil
 }
 

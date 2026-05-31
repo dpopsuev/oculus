@@ -714,3 +714,39 @@ func TestListMirrors_Empty(t *testing.T) {
 		t.Error("expected non-nil empty slice")
 	}
 }
+
+// --- ComponentDetail: test coverage fields ---
+
+// TestGetComponentDetail_HasTests verifies that HasTests and CoverageRatio
+// surface in the component action response.
+//
+// Given a component with test file symbols (File ending in _test.go)
+// When GetComponentDetail is called
+// Then HasTests and CoverageRatio are present in the result
+func TestGetComponentDetail_HasTests(t *testing.T) {
+	r := testReport()
+	// Inject a test file reference into internal/core symbols.
+	for i := range r.Architecture.Services {
+		if r.Architecture.Services[i].Name == "internal/core" {
+			r.Architecture.Services[i].HasTests = true
+			r.Architecture.Services[i].CoverageRatio = 0.5
+			r.Architecture.Services[i].TestFiles = []string{"internal/core/core_test.go"}
+		}
+	}
+	store := newMockStore(r)
+	eng := New(store, []string{"/tmp"})
+
+	detail, err := eng.GetComponentDetail(context.Background(), "/tmp", "internal/core")
+	if err != nil {
+		t.Fatalf("GetComponentDetail: %v", err)
+	}
+	if !detail.HasTests {
+		t.Error("HasTests should be true")
+	}
+	if detail.CoverageRatio != 0.5 {
+		t.Errorf("CoverageRatio = %f, want 0.5", detail.CoverageRatio)
+	}
+	if len(detail.TestFiles) != 1 {
+		t.Errorf("TestFiles = %v, want [core_test.go]", detail.TestFiles)
+	}
+}

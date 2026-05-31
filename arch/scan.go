@@ -69,6 +69,10 @@ type ScanOpts struct {
 	Format          string // "json", "md", "mermaid"
 	Intent          ScanIntent
 	Since           string // git ref to diff against (e.g. HEAD~1) for incremental scan
+	// TSFileGranularity makes the TypeScript scanner treat each .ts file as its
+	// own component instead of grouping by directory. Useful for strangler fig
+	// migration analysis where per-file coupling matters.
+	TSFileGranularity bool
 }
 
 // NewScanOpts returns ScanOpts with sensible defaults.
@@ -117,7 +121,7 @@ func ScanAndBuild(ctx context.Context, root string, opts ScanOpts) (*ContextRepo
 	level := opts.Intent.ScanLevel()
 
 	// --- L0: structure ---
-	sc := &survey.AutoScanner{Override: opts.ScannerOverride}
+	sc := &survey.AutoScanner{Override: opts.ScannerOverride, TSFileGranularity: opts.TSFileGranularity}
 
 	// Incremental scan: if Since is set, identify changed packages and merge.
 	if opts.Since != "" {

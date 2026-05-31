@@ -17,6 +17,9 @@ type AutoScanner struct {
 	Override string
 	// LSPCmd overrides the LSP server command (e.g. "rust-analyzer").
 	LSPCmd string
+	// TSFileGranularity makes the TypeScript scanner treat each .ts file as its
+	// own namespace component instead of grouping by directory.
+	TSFileGranularity bool
 }
 
 func (s *AutoScanner) Scan(root string) (*model.Project, error) {
@@ -26,7 +29,7 @@ func (s *AutoScanner) Scan(root string) (*model.Project, error) {
 		absRoot, _ := filepath.Abs(root)
 		subs := discoverSubProjects(absRoot)
 		if len(subs) > 1 {
-			scanner = &CompositeScanner{}
+			scanner = &CompositeScanner{TSFileGranularity: s.TSFileGranularity}
 		}
 	}
 
@@ -51,7 +54,7 @@ func (s *AutoScanner) resolve(root string) Scanner {
 	case "rust":
 		return &RustScanner{}
 	case "typescript":
-		return &TypeScriptScanner{}
+		return &TypeScriptScanner{Granularity: s.granularity()}
 	case "python":
 		return &PythonScanner{}
 	case "composite":
@@ -62,6 +65,9 @@ func (s *AutoScanner) resolve(root string) Scanner {
 
 	// For languages with dedicated scanners, use the shared registry.
 	if lang != model.LangUnknown {
+		if lang == model.LangTypeScript && s.TSFileGranularity {
+			return &TypeScriptScanner{Granularity: FileLevel}
+		}
 		return ScannerFromRegistry(lang, root)
 	}
 
@@ -86,6 +92,13 @@ func DetectLanguage(root string) model.Language {
 // DefaultLSPServer returns the conventional LSP server command for a language.
 func DefaultLSPServer(l model.Language) string {
 	return DefaultLSPServers[l]
+}
+
+func (s *AutoScanner) granularity() Granularity {
+	if s.TSFileGranularity {
+		return FileLevel
+	}
+	return DirLevel
 }
 
 func splitFirst(cmd string) string {

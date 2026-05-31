@@ -11,7 +11,10 @@ import (
 // CompositeScanner detects multiple sub-projects within a root directory
 // and merges their scan results into a single Project. This handles
 // polyglot repositories (e.g. Rust backend + TypeScript frontend).
-type CompositeScanner struct{}
+type CompositeScanner struct {
+	// TSFileGranularity propagates to TypeScriptScanner sub-project scans.
+	TSFileGranularity bool
+}
 
 type subProject struct {
 	relPath string
@@ -50,6 +53,9 @@ func (s *CompositeScanner) Scan(root string) (*model.Project, error) {
 	for _, sub := range subs {
 		subRoot := filepath.Join(absRoot, sub.relPath)
 		sc := ScannerFromRegistry(sub.lang, subRoot)
+		if sub.lang == model.LangTypeScript && s.TSFileGranularity {
+			sc = &TypeScriptScanner{Granularity: FileLevel}
+		}
 		subProj, err := sc.Scan(subRoot)
 		if err != nil {
 			continue
