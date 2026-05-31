@@ -867,15 +867,21 @@ func (p *Engine) SearchSymbolsFiltered(ctx context.Context, path, pattern, file 
 }
 
 // symbolFileMatches returns true when the symbol's stored file path matches
-// the filter. Handles both exact matches and suffix matches for the case where
-// scanners store relative paths but callers provide absolute paths.
+// the filter. Handles both directions:
+//   - filter is absolute, symFile is relative: symFile is a suffix of filter
+//   - filter is relative, symFile is absolute: filter is a suffix of symFile
+//   - both absolute or both relative: exact match
 func symbolFileMatches(symFile, filter string) bool {
 	symClean := filepath.ToSlash(filepath.Clean(symFile))
 	if symClean == filter {
 		return true
 	}
-	// Absolute filter ends with the relative symFile.
-	return strings.HasSuffix(filter, "/"+symClean)
+	// Absolute filter, relative symFile (e.g. TS scanner).
+	if strings.HasSuffix(filter, "/"+symClean) {
+		return true
+	}
+	// Relative filter, absolute symFile (e.g. Go PackagesScanner).
+	return strings.HasSuffix(symClean, "/"+filter)
 }
 
 // CallerSite is a type alias for port.CallerSite, kept for backward compatibility.
