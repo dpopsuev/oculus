@@ -1,12 +1,14 @@
 .PHONY: test cover lint vet docker-lsp test-integration bench bench-mesh
 
-# Run all tests
+# Run all tests. -p 4 caps packages running in parallel; the default
+# GOMAXPROCS=16 causes multiple gopls instances to compete for CPU, making
+# analyzer and engine tests intermittently exceed their timeouts.
 test:
-	go test ./...
+	go test -p 4 ./...
 
 # Run tests with coverage profile
 cover:
-	go test -coverprofile=/tmp/oculus-coverage.out ./...
+	go test -p 4 -coverprofile=/tmp/oculus-coverage.out ./...
 	go tool cover -func=/tmp/oculus-coverage.out | tail -1
 	@echo "Full report: go tool cover -html=/tmp/oculus-coverage.out"
 

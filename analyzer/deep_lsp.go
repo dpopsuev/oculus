@@ -125,6 +125,8 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 	nodeSet := make(map[string]oculus.Symbol)
 	var edges []oculus.CallEdge
 	visited := make(map[string]bool)
+	// sigCache is read and written from multiple goroutines; protect with sigMu.
+	var sigMu sync.Mutex
 	sigCache := make(map[string]*[2][]string)
 
 	g, gCtx := errgroup.WithContext(ctx)
@@ -166,7 +168,7 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 			inWorkspace := isWorkspaceURI(out.To.URI, absRoot)
 
 			calleeParams, calleeReturns := resolveCalleeTypes(
-				conn, sigCache, out.To.Name, calleePkg,
+				conn, sigCache, &sigMu, out.To.Name, calleePkg,
 				out.To.URI, out.To.Range.Start.Line, out.To.Range.Start.Character,
 			)
 
@@ -234,13 +236,16 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 }
 
 // resolveCalleeTypes extracts callee param/return types via textDocument/hover
-// at the callee's definition position. Cached by callee FQN.
+// at the callee's definition position. Cached by callee FQN under mu.
 func resolveCalleeTypes(
-	conn *lspConn, cache map[string]*[2][]string,
+	conn *lspConn, cache map[string]*[2][]string, mu *sync.Mutex,
 	calleeName, calleePkg, calleeURI string, defLine, defCol int,
 ) (paramTypes, returnTypes []string) {
 	fqn := calleePkg + "." + calleeName
-	if cached, ok := cache[fqn]; ok {
+	mu.Lock()
+	cached, hit := cache[fqn]
+	mu.Unlock()
+	if hit {
 		if cached != nil {
 			return cached[0], cached[1]
 		}
@@ -250,21 +255,29 @@ func resolveCalleeTypes(
 	defPath := strings.TrimPrefix(calleeURI, "file://")
 	hover, err := conn.hoverAt(defPath, defLine, defCol)
 	if err != nil || hover == "" {
+		mu.Lock()
 		cache[fqn] = nil
+		mu.Unlock()
 		return nil, nil
 	}
 
 	sig := extractSignatureFromHover(hover)
 	if sig == "" {
+		mu.Lock()
 		cache[fqn] = nil
+		mu.Unlock()
 		return nil, nil
 	}
 	params, returns := parseSignatureTypes(sig)
 	if len(params) == 0 && len(returns) == 0 {
+		mu.Lock()
 		cache[fqn] = nil
+		mu.Unlock()
 		return nil, nil
 	}
+	mu.Lock()
 	cache[fqn] = &[2][]string{params, returns}
+	mu.Unlock()
 	return params, returns
 }
 

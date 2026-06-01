@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -172,14 +173,20 @@ func TestRacer_Invalidate(t *testing.T) {
 // context cancellation even when attempts ignore ctx and block forever.
 // Reproduces OCL-BUG-5.
 func TestRacer_ContextCancelWithHangingAttempt(t *testing.T) {
+	// done is closed by Cleanup so the goroutines exit when the test ends.
+	// Using a channel instead of select{} prevents goroutine leaks across runs.
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done) })
+
 	r := NewRacer(
 		func(s string) bool { return s == "" },
 		Attempt[string]{Name: "hangs-a", Quality: QualityLSP, Fn: func(ctx context.Context) (string, error) {
-			// Simulates an analyzer that ignores context — blocks forever.
-			select {}
+			<-done
+			return "", errors.New("done")
 		}},
 		Attempt[string]{Name: "hangs-b", Quality: QualityTreeSitter, Fn: func(ctx context.Context) (string, error) {
-			select {}
+			<-done
+			return "", errors.New("done")
 		}},
 	)
 
@@ -205,14 +212,17 @@ func TestRacer_ContextCancelWithHangingAttempt(t *testing.T) {
 // goroutine exits when context is cancelled, even with a hanging attempt.
 // Reproduces OCL-BUG-5 (background drain path).
 func TestRacer_BackgroundDrainRespectsContext(t *testing.T) {
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done) })
+
 	r := NewRacer(
 		func(s string) bool { return s == "" },
 		Attempt[string]{Name: "fast", Quality: QualityTreeSitter, Fn: func(ctx context.Context) (string, error) {
 			return "fast-result", nil
 		}},
 		Attempt[string]{Name: "hangs", Quality: QualityLSP, Fn: func(ctx context.Context) (string, error) {
-			// Blocks forever — drain goroutine must not wait for this.
-			select {}
+			<-done
+			return "", errors.New("done")
 		}},
 	)
 
