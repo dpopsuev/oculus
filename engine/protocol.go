@@ -889,16 +889,21 @@ type CallerSite = port.CallerSite
 
 // CallersReport holds all call sites for a given symbol.
 type CallersReport struct {
-	Symbol  string       `json:"symbol"`
-	Callers []CallerSite `json:"callers"`
-	Summary string       `json:"summary"`
+	Symbol          string       `json:"symbol"`
+	Callers         []CallerSite `json:"callers"`
+	Summary         string       `json:"summary"`
+	CallGraphStatus string       `json:"call_graph_status,omitempty"`
 }
 
 // CalleesReport holds all functions called by a given symbol.
 type CalleesReport struct {
-	Symbol  string       `json:"symbol"`
-	Callees []CallerSite `json:"callees"`
-	Summary string       `json:"summary"`
+	Symbol          string       `json:"symbol"`
+	Callees         []CallerSite `json:"callees"`
+	Summary         string       `json:"summary"`
+	// CallGraphStatus is non-empty when the result may be incomplete.
+	// "partial" means gopls was unavailable and only static edges were used;
+	// results for this symbol may be empty even if it has real callees.
+	CallGraphStatus string `json:"call_graph_status,omitempty"`
 }
 
 func (p *Engine) GetCallees(ctx context.Context, path, symbol string, cacheKey ...string) (*CalleesReport, error) {
@@ -925,10 +930,15 @@ func (p *Engine) GetCallees(ctx context.Context, path, symbol string, cacheKey .
 		}
 	}
 
+	status := ""
+	if len(cg.Edges) == 0 {
+		status = "partial — call graph has 0 edges; gopls may be unavailable; results for this symbol may be incomplete"
+	}
 	return &CalleesReport{
-		Symbol:  symbol,
-		Callees: callees,
-		Summary: fmt.Sprintf("%s calls %d function(s)", symbol, len(callees)),
+		Symbol:          symbol,
+		Callees:         callees,
+		Summary:         fmt.Sprintf("%s calls %d function(s)", symbol, len(callees)),
+		CallGraphStatus: status,
 	}, nil
 }
 
@@ -1083,7 +1093,11 @@ func (p *Engine) GetCallers(ctx context.Context, path, symbol string, cacheKey .
 	}
 
 	summary := fmt.Sprintf("%d caller(s) of %s", len(callers), symbol)
-	return &CallersReport{Symbol: symbol, Callers: callers, Summary: summary}, nil
+	status := ""
+	if len(cg.Edges) == 0 {
+		status = "partial — call graph has 0 edges; gopls may be unavailable; results for this symbol may be incomplete"
+	}
+	return &CallersReport{Symbol: symbol, Callers: callers, Summary: summary, CallGraphStatus: status}, nil
 }
 
 // GetCallersAt returns callers of the symbol at a given source position using

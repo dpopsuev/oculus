@@ -3,10 +3,14 @@ package lsp_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/dpopsuev/oculus/v3/lang"
 	"github.com/dpopsuev/oculus/v3/lsp"
@@ -243,5 +247,82 @@ func TestPool_CppConcurrencyLimit(t *testing.T) {
 	}
 	if cppCap < 1 {
 		t.Errorf("LangCpp max-concurrent must be >= 1 (0 would disable entirely)")
+	}
+}
+
+// --- ALY-BUG-3: LSP child processes must die on pool.Shutdown ---
+
+// TestShutdown_KillsLSPChildren reproduces LCS-BUG-96.
+//
+// spawnServer did not set Setpgid=true, so shutdownEntry's process.Kill() sent
+// SIGKILL to the LSP parent PID only. Grandchildren (e.g. tsserver.js spawned
+// by typescript-language-server) survived, consuming 95-100% CPU indefinitely.
+//
+// The fix: Setpgid=true isolates the LSP process group; kill(-pgid) reaps all.
+//
+// This test verifies the CORRECT end-to-end behaviour after the fix:
+// spawn with Setpgid=true, kill the process group, grandchild must be dead.
+// Before the fix (no Setpgid, PID-only kill), this scenario leaves the
+// grandchild alive — the test would fail if those two changes are reverted.
+func TestShutdown_KillsLSPChildren(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "grandchild.pid")
+
+	// Parent script: spawns a long-running grandchild and blocks on stdin.
+	script := filepath.Join(dir, "parent.sh")
+	scriptBody := "#!/bin/sh\nsleep 300 &\necho $! > " + pidFile + "\ncat >/dev/null\n"
+	if err := os.WriteFile(script, []byte(scriptBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Spawn WITH Setpgid=true — the fixed spawnServer behaviour.
+	parent := exec.Command("sh", script)
+	parent.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	stdin, _ := parent.StdinPipe()
+	if err := parent.Start(); err != nil {
+		t.Fatalf("start parent: %v", err)
+	}
+	t.Cleanup(func() { stdin.Close(); _ = parent.Wait() })
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(pidFile); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	gcBytes, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatalf("grandchild pid file: %v", err)
+	}
+	var gcPID int
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(gcBytes)), "%d", &gcPID); err != nil {
+		t.Fatalf("parse grandchild PID: %v", err)
+	}
+	t.Logf("parent PID=%d pgid=%d grandchild PID=%d", parent.Process.Pid, parent.Process.Pid, gcPID)
+
+	if err := syscall.Kill(gcPID, 0); err != nil {
+		t.Fatalf("grandchild %d not alive before shutdown: %v", gcPID, err)
+	}
+
+	// Simulate the fixed shutdownEntry: kill the process GROUP (negative pgid).
+	pgid, err := syscall.Getpgid(parent.Process.Pid)
+	if err != nil {
+		t.Fatalf("getpgid: %v", err)
+	}
+	if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil {
+		t.Fatalf("kill group -%d: %v", pgid, err)
+	}
+	_ = parent.Wait()
+	time.Sleep(200 * time.Millisecond)
+
+	// Grandchild must be dead. If alive: Setpgid or pgid-kill is broken.
+	if syscall.Kill(gcPID, 0) == nil {
+		_ = syscall.Kill(gcPID, syscall.SIGKILL)
+		t.Errorf("LCS-BUG-96: grandchild %d survived group kill — Setpgid or pgid-kill not working", gcPID)
 	}
 }

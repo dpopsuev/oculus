@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/dpopsuev/oculus/v3/lang"
@@ -44,10 +45,8 @@ const DefaultMaxActive = 3
 // the wait timeout expires. Callers should fall back to non-LSP analyzers.
 var ErrPoolAtCapacity = errors.New("lsp pool: at capacity")
 
-// defaultLangLimits caps concurrent LSP servers per language. Resource-heavy
-// servers like clangd (full compiler, parallel indexing) get a lower cap than
-// lightweight servers like gopls (~400MB each). Uncapped languages inherit the
-// pool-wide DefaultMaxActive limit.
+// C and C++ servers (clangd) are 10× heavier than Go servers (gopls) during
+// background indexing; cap them to 1 concurrent instance.
 var defaultLangLimits = map[lang.Language]int{
 	lang.C:   1,
 	lang.Cpp: 1,
@@ -84,8 +83,6 @@ func NewPool() *RealPool {
 	return p
 }
 
-// MaxConcurrent returns the per-language concurrency limit. Languages without
-// an explicit limit inherit the pool-wide DefaultMaxActive cap.
 func (p *RealPool) MaxConcurrent(language lang.Language) int {
 	if limit, ok := p.langLimits[language]; ok {
 		return limit
@@ -159,7 +156,6 @@ func (p *RealPool) Get(language lang.Language, root string) (*Client, error) {
 			return entry.client, nil
 		}
 	}
-	// Check per-language concurrency cap while still holding the lock.
 	if limit, ok := p.langLimits[language]; ok && p.langActive[language] >= limit {
 		p.mu.Unlock()
 		return nil, fmt.Errorf("lsp pool: %v: per-language concurrency limit (%d) reached", language, limit)
@@ -289,6 +285,7 @@ func spawnServer(language lang.Language, absRoot string) (*poolEntry, error) {
 	cmd := exec.Command(bin, regEntry.Args...)
 	cmd.Dir = absRoot
 	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -389,8 +386,8 @@ func prewarm(client *Client, root string) {
 }
 
 // shutdownEntry sends LSP shutdown+exit and cleans up process resources.
-// If the server doesn't exit within 3 seconds, it is force-killed to
-// prevent orphaned processes on the host.
+// If the server doesn't exit within 3 seconds it kills the process group so
+// grandchildren (e.g. tsserver) are reaped along with the parent.
 func shutdownEntry(entry *poolEntry) {
 	if entry.dead.Load() {
 		entry.stdin.Close()
@@ -405,7 +402,12 @@ func shutdownEntry(entry *poolEntry) {
 		select {
 		case <-deadline:
 			if entry.cmd.Process != nil {
-				_ = entry.cmd.Process.Kill()
+				pgid, err := syscall.Getpgid(entry.cmd.Process.Pid)
+				if err == nil {
+					_ = syscall.Kill(-pgid, syscall.SIGKILL)
+				} else {
+					_ = entry.cmd.Process.Kill()
+				}
 			}
 			return
 		case <-time.After(100 * time.Millisecond):

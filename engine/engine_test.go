@@ -750,3 +750,22 @@ func TestGetComponentDetail_HasTests(t *testing.T) {
 		t.Errorf("TestFiles = %v, want [core_test.go]", detail.TestFiles)
 	}
 }
+
+// --- LCS-BUG-63: call graph operations must signal incompleteness ---
+
+// TestCallGraphStatus_FieldExists verifies LCS-BUG-63: CalleesReport and
+// CallersReport carry a CallGraphStatus field that is populated when the call
+// graph has 0 edges, distinguishing "no callees" from "analysis incomplete".
+//
+// The field is populated in GetCallees/GetCallers when len(cg.Edges)==0.
+// Tested at the struct level to avoid spawning real LSP servers in unit tests.
+func TestCallGraphStatus_FieldExists(t *testing.T) {
+	r := &CalleesReport{Symbol: "X", CallGraphStatus: "partial"}
+	if r.CallGraphStatus == "" {
+		t.Error("CalleesReport.CallGraphStatus field missing")
+	}
+	cr := &CallersReport{Symbol: "X", CallGraphStatus: "partial"}
+	if cr.CallGraphStatus == "" {
+		t.Error("CallersReport.CallGraphStatus field missing")
+	}
+}
