@@ -44,27 +44,53 @@ const DefaultMaxActive = 3
 // the wait timeout expires. Callers should fall back to non-LSP analyzers.
 var ErrPoolAtCapacity = errors.New("lsp pool: at capacity")
 
+// defaultLangLimits caps concurrent LSP servers per language. Resource-heavy
+// servers like clangd (full compiler, parallel indexing) get a lower cap than
+// lightweight servers like gopls (~400MB each). Uncapped languages inherit the
+// pool-wide DefaultMaxActive limit.
+var defaultLangLimits = map[lang.Language]int{
+	lang.C:   1,
+	lang.Cpp: 1,
+}
+
 // RealPool manages reusable LSP server connections keyed by (language, root).
 // Thread-safe via sync.Mutex. Concurrency bounded by semaphore.
 type RealPool struct {
-	mu      sync.Mutex
-	conns   map[poolKey]*poolEntry
-	stopped bool
-	ttl     time.Duration
-	done    chan struct{}
-	sem     chan struct{} // concurrency semaphore
+	mu         sync.Mutex
+	conns      map[poolKey]*poolEntry
+	stopped    bool
+	ttl        time.Duration
+	done       chan struct{}
+	sem        chan struct{} // concurrency semaphore (pool-wide)
+	langLimits map[lang.Language]int
+	langActive map[lang.Language]int
 }
 
 // NewPool creates a new connection pool for long-running (serve) mode.
 func NewPool() *RealPool {
+	limits := make(map[lang.Language]int, len(defaultLangLimits))
+	for l, v := range defaultLangLimits {
+		limits[l] = v
+	}
 	p := &RealPool{
-		conns: make(map[poolKey]*poolEntry),
-		ttl:   DefaultTTL,
-		done:  make(chan struct{}),
-		sem:   make(chan struct{}, DefaultMaxActive),
+		conns:      make(map[poolKey]*poolEntry),
+		ttl:        DefaultTTL,
+		done:       make(chan struct{}),
+		sem:        make(chan struct{}, DefaultMaxActive),
+		langLimits: limits,
+		langActive: make(map[lang.Language]int),
 	}
 	go p.reapLoop()
 	return p
+}
+
+// MaxConcurrent returns the per-language concurrency limit. Languages without
+// an explicit limit inherit the pool-wide DefaultMaxActive cap.
+func (p *RealPool) MaxConcurrent(language lang.Language) int {
+	if limit, ok := p.langLimits[language]; ok {
+		return limit
+	}
+	return DefaultMaxActive
 }
 
 // reapLoop periodically evicts idle entries past TTL.
@@ -94,6 +120,9 @@ func (p *RealPool) reapIdle() {
 			select {
 			case <-p.sem:
 			default:
+			}
+			if p.langActive[key.lang] > 0 {
+				p.langActive[key.lang]--
 			}
 		}
 	}
@@ -130,18 +159,30 @@ func (p *RealPool) Get(language lang.Language, root string) (*Client, error) {
 			return entry.client, nil
 		}
 	}
+	// Check per-language concurrency cap while still holding the lock.
+	if limit, ok := p.langLimits[language]; ok && p.langActive[language] >= limit {
+		p.mu.Unlock()
+		return nil, fmt.Errorf("lsp pool: %v: per-language concurrency limit (%d) reached", language, limit)
+	}
+	p.langActive[language]++
 	p.mu.Unlock()
 
-	// Acquire a concurrency slot — blocks FIFO if at capacity.
+	// Acquire a pool-wide concurrency slot — blocks FIFO if at capacity.
 	select {
 	case p.sem <- struct{}{}:
 	case <-time.After(10 * time.Second):
+		p.mu.Lock()
+		p.langActive[language]--
+		p.mu.Unlock()
 		return nil, ErrPoolAtCapacity
 	}
 
 	entry, err := spawnServer(language, absRoot)
 	if err != nil {
-		<-p.sem // release slot on spawn failure
+		<-p.sem
+		p.mu.Lock()
+		p.langActive[language]--
+		p.mu.Unlock()
 		return nil, err
 	}
 

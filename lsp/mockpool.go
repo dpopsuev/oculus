@@ -77,6 +77,9 @@ func (p *MockPool) Get(language lang.Language, root string) (*Client, error) {
 
 func (p *MockPool) Release(lang.Language, string) {}
 
+// MaxConcurrent returns the global default for MockPool (no per-language cap in tests).
+func (p *MockPool) MaxConcurrent(_ lang.Language) int { return DefaultMaxActive }
+
 // References implements Pool.References for MockPool. It opens the file via
 // didOpen and sends textDocument/references. The mock server returns empty
 // results by default.

@@ -75,6 +75,11 @@ var singleFileServers = map[string]bool{
 var skipAutoStartServers = map[string]bool{
 	"omnisharp": true, // complex multi-arg invocation
 	"jdtls":     true, // requires Java + data-dir setup
+	// clangd spawns parallel clang processes for background indexing (defaults
+	// to all available CPUs). Auto-starting it on any deep analysis call caused
+	// 88 GB committed memory and load average 60 on a 16-core machine
+	// (OCL-BUG-11). Require an explicit WarmLSP call to activate clangd.
+	"clangd": true,
 }
 
 func init() {

@@ -10,8 +10,9 @@ import (
 // forcing analyzers to fall back to cold-start per request.
 type StubPool struct{}
 
-func (s *StubPool) Get(lang.Language, string) (*Client, error)                   { return nil, ErrNoPool }
-func (s *StubPool) Release(lang.Language, string)                                {}
+func (s *StubPool) Get(lang.Language, string) (*Client, error)                    { return nil, ErrNoPool }
+func (s *StubPool) Release(lang.Language, string)                                 {}
 func (s *StubPool) References(context.Context, string, int, int) ([]Location, error) { return nil, ErrNoPool }
-func (s *StubPool) Shutdown(context.Context) error                               { return nil }
-func (s *StubPool) Status() PoolStatus                                           { return PoolStatus{} }
+func (s *StubPool) MaxConcurrent(lang.Language) int                               { return 0 }
+func (s *StubPool) Shutdown(context.Context) error                                { return nil }
+func (s *StubPool) Status() PoolStatus                                            { return PoolStatus{} }

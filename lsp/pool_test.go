@@ -194,3 +194,54 @@ func TestMockPool_References_MockServer(t *testing.T) {
 		t.Error("expected non-nil (empty) slice, got nil")
 	}
 }
+
+// --- OCL-BUG-11: clangd must not auto-spawn ---
+
+// TestRealPool_CppGet_RefusesWithoutExplicitWarm reproduces OCL-BUG-11.
+// pool.Get(LangCpp) caused clangd to auto-spawn on any deep analysis call,
+// committing 80+ GB of virtual memory on a 16-core machine.
+//
+// Given a RealPool
+// When Get is called for LangCpp without a prior WarmLSP call
+// Then ErrNoLSPServer is returned — clangd must not be auto-started
+func TestRealPool_CppGet_RefusesWithoutExplicitWarm(t *testing.T) {
+	if _, err := exec.LookPath("clangd"); err != nil {
+		t.Skip("clangd not installed — test only meaningful when clangd is present")
+	}
+	dir := t.TempDir()
+	pool := lsp.NewPool()
+	defer pool.Shutdown(context.Background()) //nolint:errcheck
+
+	_, err := pool.Get(lang.Cpp, dir)
+	if err == nil {
+		t.Fatal("pool.Get(LangCpp) succeeded — clangd was auto-started; this is OCL-BUG-11")
+	}
+	if !errors.Is(err, lsp.ErrNoLSPServer) {
+		t.Errorf("expected ErrNoLSPServer, got: %v", err)
+	}
+}
+
+// --- OCL-BUG-13: per-language concurrency limit ---
+
+// TestPool_CppConcurrencyLimit reproduces OCL-BUG-13.
+// The pool uses a single semaphore (DefaultMaxActive=3) shared across all
+// languages. gopls ~400MB/instance; clangd ~4-8GB/instance during indexing.
+// Holding 3 clangd instances = ~24GB, not the ~1.2GB the comment assumes.
+//
+// Given the pool's per-language limits
+// When the effective max-concurrent for LangCpp is queried
+// Then it is strictly less than the effective max-concurrent for LangGo
+func TestPool_CppConcurrencyLimit(t *testing.T) {
+	pool := lsp.NewPool()
+	defer pool.Shutdown(context.Background()) //nolint:errcheck
+
+	goCap := pool.MaxConcurrent(lang.Go)
+	cppCap := pool.MaxConcurrent(lang.Cpp)
+
+	if cppCap >= goCap {
+		t.Errorf("LangCpp max-concurrent=%d should be < LangGo max-concurrent=%d — OCL-BUG-13: clangd is 10x heavier than gopls", cppCap, goCap)
+	}
+	if cppCap < 1 {
+		t.Errorf("LangCpp max-concurrent must be >= 1 (0 would disable entirely)")
+	}
+}

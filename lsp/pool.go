@@ -89,6 +89,11 @@ type Pool interface {
 	// then textDocument/references. Returns ErrNoPool from StubPool.
 	References(ctx context.Context, file string, line, char int) ([]Location, error)
 
+	// MaxConcurrent returns the maximum number of simultaneous LSP server
+	// instances allowed for the given language. Resource-heavy servers
+	// (e.g. clangd) have a lower limit than lightweight ones (e.g. gopls).
+	MaxConcurrent(language lang.Language) int
+
 	// Shutdown gracefully stops all managed LSP servers. Sends LSP shutdown
 	// and exit notifications, then kills processes.
 	Shutdown(ctx context.Context) error
