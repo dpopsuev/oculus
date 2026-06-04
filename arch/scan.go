@@ -14,10 +14,9 @@ import (
 	"golang.org/x/mod/modfile"
 	"golang.org/x/sync/errgroup"
 
+	oculus "github.com/dpopsuev/oculus/v3"
 	"github.com/dpopsuev/oculus/v3/analyzer"
-	archanchors "github.com/dpopsuev/oculus/v3/arch/anchors"
 	archgit "github.com/dpopsuev/oculus/v3/arch/git"
-	oculusgit "github.com/dpopsuev/oculus/v3/git"
 	"github.com/dpopsuev/oculus/v3/graph"
 	olang "github.com/dpopsuev/oculus/v3/lang"
 	"github.com/dpopsuev/oculus/v3/model"
@@ -277,7 +276,7 @@ func runL3Full(ctx context.Context, root, modPath string, opts ScanOpts, proj *m
 	var (
 		coverage []archgit.CoverageResult
 		authors  map[string][]archgit.Author
-		anchors  []archanchors.SemanticAnchor
+		anchors  []oculus.SemanticAnchor
 	)
 	g, _ := errgroup.WithContext(ctx)
 	if opts.IncludeCoverage && proj.Language == model.LangGo {
@@ -324,7 +323,7 @@ func incrementalScan(ctx context.Context, root string, opts ScanOpts, _ *survey.
 
 // changedPackages returns package directories with changes since the given git ref.
 func changedPackages(root, since string) []string {
-	files, err := oculusgit.ChangedFilesSince(root, since)
+	files, err := archgit.ChangedFilesSince(root, since)
 	if err != nil {
 		return nil
 	}
@@ -346,16 +345,16 @@ func changedPackages(root, since string) []string {
 	return pkgs
 }
 
-func extractProjectAnchors(root string, proj *model.Project, modPath string) []archanchors.SemanticAnchor {
+func extractProjectAnchors(root string, proj *model.Project, modPath string) []oculus.SemanticAnchor {
 	absRoot, _ := filepath.Abs(root)
-	var all []archanchors.SemanticAnchor
+	var all []oculus.SemanticAnchor
 	for _, ns := range proj.Namespaces {
 		rel := shortImportPath(modPath, ns.ImportPath)
 		pkgDir := filepath.Join(absRoot, rel)
 		if rel == "." {
 			pkgDir = absRoot
 		}
-		anchors := archanchors.ExtractAnchors(pkgDir, rel)
+		anchors := oculus.ExtractAnchors(pkgDir, rel)
 		all = append(all, anchors...)
 	}
 	return all

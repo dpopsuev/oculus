@@ -9,7 +9,7 @@ import (
 
 	"github.com/dpopsuev/oculus/v3/analyzer"
 	"github.com/dpopsuev/oculus/v3/arch"
-	clinichexa "github.com/dpopsuev/oculus/v3/clinic/hexa"
+	"github.com/dpopsuev/oculus/v3/clinic"
 	"github.com/dpopsuev/oculus/v3/diagram/core"
 )
 
@@ -77,7 +77,7 @@ func TestIntegration_HexaDiagram(t *testing.T) {
 	report := integrationScan(t)
 	fa := analyzer.NewFallback(root, nil)
 	classes, _ := fa.Classes(context.Background(), root)
-	hexaClass := clinichexa.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
+	hexaClass := clinic.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
 
 	roles := make(map[string]string, len(hexaClass.Components))
 	for _, c := range hexaClass.Components {

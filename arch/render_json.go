@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"sort"
 
-	archanchors "github.com/dpopsuev/oculus/v3/arch/anchors"
+	oculus "github.com/dpopsuev/oculus/v3"
 	archgit "github.com/dpopsuev/oculus/v3/arch/git"
 	"github.com/dpopsuev/oculus/v3/graph"
 )
@@ -20,7 +20,7 @@ type jsonReport struct {
 	RecentCommits  []archgit.PackageCommit      `json:"recent_commits,omitempty"`
 	Authors        map[string][]archgit.Author  `json:"authors,omitempty"`
 	FileHotSpots   []archgit.HotFile            `json:"file_hot_spots,omitempty"`
-	Anchors        []archanchors.SemanticAnchor `json:"anchors,omitempty"`
+	Anchors        []oculus.SemanticAnchor `json:"anchors,omitempty"`
 }
 
 type jsonComponent struct {

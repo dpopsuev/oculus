@@ -9,8 +9,8 @@ import (
 
 	"github.com/dpopsuev/oculus/v3/arch"
 	"github.com/dpopsuev/oculus/v3/clinic"
-	clinichexa "github.com/dpopsuev/oculus/v3/clinic/hexa"
-	clinicsolid "github.com/dpopsuev/oculus/v3/clinic/solid"
+	
+	
 	"github.com/dpopsuev/oculus/v3/impact"
 	"github.com/dpopsuev/oculus/v3/port"
 )
@@ -68,14 +68,14 @@ func TestDogfood_RoleAwareScanReducesFalsePositives(t *testing.T) {
 	}
 	impls, _ := fa.Implements(context.Background(), root)
 
-	hexaClass := clinichexa.ComputeHexaClassification(services, edges, classes)
+	hexaClass := clinic.ComputeHexaClassification(services, edges, classes)
 
 	// --- WITHOUT roles ---
-	solidWithout := clinicsolid.ComputeSOLIDScan(services, edges, classes, impls, hexaClass, root, nil, nil)
+	solidWithout := clinic.ComputeSOLIDScan(services, edges, classes, impls, hexaClass, root, nil, nil)
 
 	// --- WITH roles ---
-	roles := clinichexa.ResolveRoles(hexaClass, nil)
-	solidWith := clinicsolid.ComputeSOLIDScan(services, edges, classes, impls, hexaClass, root, roles, nil)
+	roles := clinic.ResolveRoles(hexaClass, nil)
+	solidWith := clinic.ComputeSOLIDScan(services, edges, classes, impls, hexaClass, root, roles, nil)
 
 	t.Logf("SOLID violations without roles: %d", len(solidWithout.Violations))
 	t.Logf("SOLID violations with    roles: %d", len(solidWith.Violations))
@@ -100,10 +100,10 @@ func TestDogfood_RoleAwareScanReducesFalsePositives(t *testing.T) {
 }
 
 // countSRPFor counts SRP violations whose Component starts with prefix.
-func countSRPFor(violations []clinicsolid.SOLIDViolation, prefix string) int {
+func countSRPFor(violations []clinic.SOLIDViolation, prefix string) int {
 	n := 0
 	for _, v := range violations {
-		if v.Principle == clinicsolid.PrincipleSRP && len(v.Component) >= len(prefix) && v.Component[:len(prefix)] == prefix {
+		if v.Principle == clinic.PrincipleSRP && len(v.Component) >= len(prefix) && v.Component[:len(prefix)] == prefix {
 			n++
 		}
 	}

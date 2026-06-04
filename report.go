@@ -1,7 +1,7 @@
 package oculus
 
 import (
-	archanchors "github.com/dpopsuev/oculus/v3/arch/anchors"
+	
 	archgit "github.com/dpopsuev/oculus/v3/arch/git"
 	"github.com/dpopsuev/oculus/v3/graph"
 	"github.com/dpopsuev/oculus/v3/model"
@@ -127,7 +127,7 @@ type GitContext struct {
 
 // DeepContext holds deep analysis data requiring AST/LSP inspection.
 type DeepContext struct {
-	Anchors []archanchors.SemanticAnchor `json:"anchors,omitempty"`
+	Anchors []SemanticAnchor `json:"anchors,omitempty"`
 }
 
 // ContextReport is the full output of a ScanAndBuild invocation.

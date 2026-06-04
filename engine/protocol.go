@@ -26,11 +26,11 @@ import (
 	archgit "github.com/dpopsuev/oculus/v3/arch/git"
 	"github.com/dpopsuev/oculus/v3/book"
 	"github.com/dpopsuev/oculus/v3/clinic"
-	clinichexa "github.com/dpopsuev/oculus/v3/clinic/hexa"
-	clinicnaming "github.com/dpopsuev/oculus/v3/clinic/naming"
-	clinicsolid "github.com/dpopsuev/oculus/v3/clinic/solid"
+	
+	
+	
 	"github.com/dpopsuev/oculus/v3/constraint"
-	gitpkg "github.com/dpopsuev/oculus/v3/git"
+	gitpkg "github.com/dpopsuev/oculus/v3/arch/git"
 	"github.com/dpopsuev/oculus/v3/graph"
 	"github.com/dpopsuev/oculus/v3/history"
 	"github.com/dpopsuev/oculus/v3/impact"
@@ -2263,7 +2263,7 @@ func (p *Engine) GetTrustBoundaries(ctx context.Context, path string, cacheKey .
 
 // --- Code Health Clinic methods ---
 
-func (p *Engine) GetHexaValidation(ctx context.Context, path string, cacheKey ...string) (*clinichexa.HexaValidationReport, error) {
+func (p *Engine) GetHexaValidation(ctx context.Context, path string, cacheKey ...string) (*clinic.HexaValidationReport, error) {
 	path = p.resolvePath(path)
 	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
@@ -2271,10 +2271,10 @@ func (p *Engine) GetHexaValidation(ctx context.Context, path string, cacheKey ..
 	}
 	fa := analyzer.NewFallback(path, p.pool)
 	classes, _ := fa.Classes(ctx, path)
-	return clinichexa.ComputeHexaViolations(report.Architecture.Services, report.Architecture.Edges, classes), nil
+	return clinic.ComputeHexaViolations(report.Architecture.Services, report.Architecture.Edges, classes), nil
 }
 
-func (p *Engine) GetSOLIDScan(ctx context.Context, path string, cacheKey ...string) (*clinicsolid.SOLIDReport, error) {
+func (p *Engine) GetSOLIDScan(ctx context.Context, path string, cacheKey ...string) (*clinic.SOLIDReport, error) {
 	path = p.resolvePath(path)
 	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
@@ -2283,29 +2283,29 @@ func (p *Engine) GetSOLIDScan(ctx context.Context, path string, cacheKey ...stri
 	fa := analyzer.NewFallback(path, p.pool)
 	classes, _ := fa.Classes(ctx, path)
 	impls, _ := fa.Implements(ctx, path)
-	hexaClass := clinichexa.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
+	hexaClass := clinic.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
 	desired, _ := p.db.GetDesiredState(ctx, path)
 	roles, accepted := resolveRolesAndAccepted(hexaClass, desired)
-	return clinicsolid.ComputeSOLIDScan(report.Architecture.Services, report.Architecture.Edges, classes, impls, hexaClass, path, roles, accepted), nil
+	return clinic.ComputeSOLIDScan(report.Architecture.Services, report.Architecture.Edges, classes, impls, hexaClass, path, roles, accepted), nil
 }
 
-func (p *Engine) GetSymbolQuality(ctx context.Context, path string, cacheKey ...string) (*clinicnaming.SymbolQualityReport, error) {
+func (p *Engine) GetSymbolQuality(ctx context.Context, path string, cacheKey ...string) (*clinic.SymbolQualityReport, error) {
 	path = p.resolvePath(path)
 	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
 	rules := rulesFromServices(report.Architecture.Services)
-	return clinicnaming.ComputeSymbolQuality(report.Architecture.Services, report.Architecture.Edges, rules), nil
+	return clinic.ComputeSymbolQuality(report.Architecture.Services, report.Architecture.Edges, rules), nil
 }
 
-func (p *Engine) GetVocabMap(ctx context.Context, path string, cacheKey ...string) (*clinicnaming.VocabMapReport, error) {
+func (p *Engine) GetVocabMap(ctx context.Context, path string, cacheKey ...string) (*clinic.VocabMapReport, error) {
 	path = p.resolvePath(path)
 	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
-	return clinicnaming.ComputeVocabMap(report.Architecture.Services), nil
+	return clinic.ComputeVocabMap(report.Architecture.Services), nil
 }
 
 func (p *Engine) GetPatternScan(ctx context.Context, path string, cacheKey ...string) (*clinic.PatternScanReport, error) {
@@ -2317,7 +2317,7 @@ func (p *Engine) GetPatternScan(ctx context.Context, path string, cacheKey ...st
 	fa := analyzer.NewFallback(path, p.pool)
 	classes, _ := fa.Classes(ctx, path)
 	impls, _ := fa.Implements(ctx, path)
-	hexaClass := clinichexa.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
+	hexaClass := clinic.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
 	desired, _ := p.db.GetDesiredState(ctx, path)
 	roles, accepted := resolveRolesAndAccepted(hexaClass, desired)
 	patternReport := clinic.ComputePatternScan(report.Architecture.Services, report.Architecture.Edges, report.Cycles, classes, impls, roles, accepted)
@@ -2438,8 +2438,8 @@ func (p *Engine) GetCachedReport(ctx context.Context, cacheKey string) (*arch.Co
 
 // resolveRolesAndAccepted extracts roles and accepted violations from
 // hexa classification and desired state. Either may be nil.
-func resolveRolesAndAccepted(hexaClass *clinichexa.HexaClassificationReport, desired *port.DesiredState) (map[string]clinichexa.HexaRole, []port.AcceptedViolation) {
-	var roles map[string]clinichexa.HexaRole
+func resolveRolesAndAccepted(hexaClass *clinic.HexaClassificationReport, desired *port.DesiredState) (map[string]clinic.HexaRole, []port.AcceptedViolation) {
+	var roles map[string]clinic.HexaRole
 	var accepted []port.AcceptedViolation
 
 	if hexaClass != nil {
@@ -2447,7 +2447,7 @@ func resolveRolesAndAccepted(hexaClass *clinichexa.HexaClassificationReport, des
 		if desired != nil {
 			overrides = desired.Roles
 		}
-		roles = clinichexa.ResolveRoles(hexaClass, overrides)
+		roles = clinic.ResolveRoles(hexaClass, overrides)
 	}
 	if desired != nil {
 		accepted = desired.Accepted

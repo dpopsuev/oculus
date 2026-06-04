@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/dpopsuev/oculus/v3/arch"
-	gitpkg "github.com/dpopsuev/oculus/v3/git"
+	gitpkg "github.com/dpopsuev/oculus/v3/arch/git"
 	"github.com/dpopsuev/oculus/v3/port"
 )
 

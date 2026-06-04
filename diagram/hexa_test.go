@@ -7,7 +7,6 @@ import (
 
 	"github.com/dpopsuev/oculus/v3/arch"
 	"github.com/dpopsuev/oculus/v3/diagram/core"
-	"github.com/dpopsuev/oculus/v3/diagram/metrics"
 )
 
 func hexaTheme() *core.ResolvedTheme {
@@ -186,7 +185,7 @@ func TestIsHexaViolation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.from+"->"+tt.to, func(t *testing.T) {
-			got := metrics.IsHexaViolation(tt.from, tt.to)
+			got := IsHexaViolation(tt.from, tt.to)
 			if got != tt.want {
 				t.Errorf("IsHexaViolation(%q, %q) = %v, want %v", tt.from, tt.to, got, tt.want)
 			}

@@ -10,9 +10,9 @@ import (
 
 	"github.com/dpopsuev/oculus/v3/arch"
 	"github.com/dpopsuev/oculus/v3/clinic"
-	clinichexa "github.com/dpopsuev/oculus/v3/clinic/hexa"
-	clinicnaming "github.com/dpopsuev/oculus/v3/clinic/naming"
-	clinicsolid "github.com/dpopsuev/oculus/v3/clinic/solid"
+	
+	
+	
 	"github.com/dpopsuev/oculus/v3/constraint"
 	"github.com/dpopsuev/oculus/v3/port"
 	"github.com/dpopsuev/oculus/v3/survey"
@@ -223,22 +223,22 @@ func fullClinic(ctx context.Context, b *strings.Builder, path string, report *ar
 	if classes, err := fa.Classes(ctx, path); err == nil {
 		impls, _ := fa.Implements(ctx, path)
 
-		hexaClass := clinichexa.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
+		hexaClass := clinic.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
 		desired, _ := deps.DesiredState(ctx, path)
 		roles, accepted := ResolveRolesAndAccepted(hexaClass, desired)
 
 		patternReport := clinic.ComputePatternScan(report.Architecture.Services, report.Architecture.Edges, report.Cycles, classes, impls, roles, accepted)
 		fmt.Fprintf(b, "\n## Patterns & Smells\n%s\n", patternReport.Summary)
 
-		hexaReport := clinichexa.ComputeHexaViolations(report.Architecture.Services, report.Architecture.Edges, classes)
+		hexaReport := clinic.ComputeHexaViolations(report.Architecture.Services, report.Architecture.Edges, classes)
 		fmt.Fprintf(b, "\n## Hexagonal Architecture\n%s\n", hexaReport.Summary)
 
-		solidReport := clinicsolid.ComputeSOLIDScan(report.Architecture.Services, report.Architecture.Edges, classes, impls, hexaClass, path, roles, accepted)
+		solidReport := clinic.ComputeSOLIDScan(report.Architecture.Services, report.Architecture.Edges, classes, impls, hexaClass, path, roles, accepted)
 		fmt.Fprintf(b, "\n## SOLID Principles\n%s\n", solidReport.Summary)
 	}
 
 	rules := RulesFromServices(report.Architecture.Services)
-	sqReport := clinicnaming.ComputeSymbolQuality(report.Architecture.Services, report.Architecture.Edges, rules)
+	sqReport := clinic.ComputeSymbolQuality(report.Architecture.Services, report.Architecture.Edges, rules)
 	fmt.Fprintf(b, "\n## Symbol Quality\n%s\n", sqReport.Summary)
 }
 
@@ -250,27 +250,27 @@ func codeHealth(ctx context.Context, b *strings.Builder, path string, report *ar
 	classes, _ := fa.Classes(ctx, path)
 	impls, _ := fa.Implements(ctx, path)
 
-	hexaClass := clinichexa.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
+	hexaClass := clinic.ComputeHexaClassification(report.Architecture.Services, report.Architecture.Edges, classes)
 
 	patternReport := clinic.ComputePatternScan(report.Architecture.Services, report.Architecture.Edges, report.Cycles, classes, impls, nil, nil)
 	fmt.Fprintf(b, "## Patterns & Smells\n%s\n\n", patternReport.Summary)
 
-	hexaReport := clinichexa.ComputeHexaViolations(report.Architecture.Services, report.Architecture.Edges, classes)
+	hexaReport := clinic.ComputeHexaViolations(report.Architecture.Services, report.Architecture.Edges, classes)
 	fmt.Fprintf(b, "## Hexagonal Architecture\n%s\n\n", hexaReport.Summary)
 
-	solidReport := clinicsolid.ComputeSOLIDScan(report.Architecture.Services, report.Architecture.Edges, classes, impls, hexaClass, path, nil, nil)
+	solidReport := clinic.ComputeSOLIDScan(report.Architecture.Services, report.Architecture.Edges, classes, impls, hexaClass, path, nil, nil)
 	fmt.Fprintf(b, "## SOLID Principles\n%s\n\n", solidReport.Summary)
 
 	rules := RulesFromServices(report.Architecture.Services)
-	sqReport := clinicnaming.ComputeSymbolQuality(report.Architecture.Services, report.Architecture.Edges, rules)
+	sqReport := clinic.ComputeSymbolQuality(report.Architecture.Services, report.Architecture.Edges, rules)
 	fmt.Fprintf(b, "## Symbol Quality\n%s\n", sqReport.Summary)
 }
 
 // --- Helpers exported for use by parent protocol package ---
 
 // ResolveRolesAndAccepted resolves hexa roles and accepted violations from a classification report and desired state.
-func ResolveRolesAndAccepted(hexaClass *clinichexa.HexaClassificationReport, desired *port.DesiredState) (map[string]clinichexa.HexaRole, []port.AcceptedViolation) {
-	var roles map[string]clinichexa.HexaRole
+func ResolveRolesAndAccepted(hexaClass *clinic.HexaClassificationReport, desired *port.DesiredState) (map[string]clinic.HexaRole, []port.AcceptedViolation) {
+	var roles map[string]clinic.HexaRole
 	var accepted []port.AcceptedViolation
 
 	if hexaClass != nil {
@@ -278,7 +278,7 @@ func ResolveRolesAndAccepted(hexaClass *clinichexa.HexaClassificationReport, des
 		if desired != nil {
 			overrides = desired.Roles
 		}
-		roles = clinichexa.ResolveRoles(hexaClass, overrides)
+		roles = clinic.ResolveRoles(hexaClass, overrides)
 	}
 	if desired != nil {
 		accepted = desired.Accepted
