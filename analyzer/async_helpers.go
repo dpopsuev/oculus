@@ -5,27 +5,24 @@ import (
 	"github.com/dpopsuev/oculus/v3/ts"
 )
 
-// hasKeywordChild reports whether any direct child (or its first child) of node
-// has Content == keyword. Handles both bare keyword tokens and wrapper nodes
-// like C# [modifier]→[async] or Kotlin [modifiers]→[function_modifier]→[suspend].
+// hasKeywordChild reports whether any node within maxDepth levels of node
+// has Content == keyword. Handles bare keyword tokens and wrapper nodes like
+// C# [modifier]→[async] or Kotlin [modifiers]→[function_modifier]→[suspend].
 func hasKeywordChild(node ts.Node, src []byte, keyword string) bool {
-	for i := 0; i < int(node.ChildCount()); i++ {
-		child := node.Child(i)
+	return nodeContainsKeyword(node, src, keyword, 3)
+}
+
+func nodeContainsKeyword(n ts.Node, src []byte, keyword string, depth int) bool {
+	if depth == 0 {
+		return false
+	}
+	for i := 0; i < int(n.ChildCount()); i++ {
+		child := n.Child(i)
 		if child.Content(src) == keyword {
 			return true
 		}
-		// One level deeper (C# modifier wrapper, Kotlin modifiers block)
-		for j := 0; j < int(child.ChildCount()); j++ {
-			gc := child.Child(j)
-			if gc.Content(src) == keyword {
-				return true
-			}
-			// Two levels deeper (Kotlin modifiers → function_modifier → suspend)
-			for k := 0; k < int(gc.ChildCount()); k++ {
-				if gc.Child(k).Content(src) == keyword {
-					return true
-				}
-			}
+		if nodeContainsKeyword(child, src, keyword, depth-1) {
+			return true
 		}
 	}
 	return false

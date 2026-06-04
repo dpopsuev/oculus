@@ -71,7 +71,7 @@ type pyprojectTOML struct {
 	Tool struct {
 		Poetry struct {
 			Name         string                 `toml:"name"`
-			Dependencies map[string]interface{} `toml:"dependencies"`
+			Dependencies map[string]any `toml:"dependencies"`
 		} `toml:"poetry"`
 	} `toml:"tool"`
 }
@@ -242,17 +242,27 @@ func (s *PythonScanner) extractPythonSymbols(dir string, ns *model.Namespace) {
 		for sc.Scan() {
 			lineCount++
 			line := sc.Text()
-			if m := rePyDef.FindStringSubmatch(line); m != nil {
-				addPythonSymbol(ns, seen, m[1], model.SymbolFunction, entry.Name(), lineCount)
-			} else if m := rePyAsyncDef.FindStringSubmatch(line); m != nil {
-				addPythonSymbol(ns, seen, m[1], model.SymbolFunction, entry.Name(), lineCount)
-			} else if m := rePyClass.FindStringSubmatch(line); m != nil {
-				addPythonSymbol(ns, seen, m[1], model.SymbolClass, entry.Name(), lineCount)
-			}
+			addPythonSymbolFromLine(ns, seen, line, entry.Name(), lineCount)
 		}
 		f.Close()
 		fileObj.Lines = lineCount
 		ns.AddFile(fileObj)
+	}
+}
+
+// addPythonSymbolFromLine matches the first Python declaration on line and
+// records the symbol. At most one symbol per line (def/async def/class).
+func addPythonSymbolFromLine(ns *model.Namespace, seen map[string]bool, line, filePath string, lineNum int) {
+	if m := rePyDef.FindStringSubmatch(line); m != nil {
+		addPythonSymbol(ns, seen, m[1], model.SymbolFunction, filePath, lineNum)
+		return
+	}
+	if m := rePyAsyncDef.FindStringSubmatch(line); m != nil {
+		addPythonSymbol(ns, seen, m[1], model.SymbolFunction, filePath, lineNum)
+		return
+	}
+	if m := rePyClass.FindStringSubmatch(line); m != nil {
+		addPythonSymbol(ns, seen, m[1], model.SymbolClass, filePath, lineNum)
 	}
 }
 
@@ -358,42 +368,44 @@ func (s *PythonScanner) extractPythonImports(dir string, _ *model.Namespace, imp
 		sc := bufio.NewScanner(f)
 		for sc.Scan() {
 			line := strings.TrimSpace(sc.Text())
-
-			var module string
-			if m := rePyFromImport.FindStringSubmatch(line); m != nil {
-				module = m[1]
-			} else if m := rePyImport.FindStringSubmatch(line); m != nil {
-				module = m[1]
-			}
-
+			module := parsePyImportModule(line)
 			if module == "" || strings.HasPrefix(module, ".") {
 				continue
 			}
 
 			topLevel := strings.SplitN(module, ".", 2)[0]
-			dotPath := module
-
-			internalKey := strings.ReplaceAll(dotPath, ".", "/")
+			internalKey := strings.ReplaceAll(module, ".", "/")
 			if seen[internalKey] {
 				continue
 			}
 			seen[internalKey] = true
 
-			target := resolvePyImport(internalKey, pyIndex, internalPkgs)
-			if target != "" {
+			if target := resolvePyImport(internalKey, pyIndex, internalPkgs); target != "" {
 				if target != importPath {
 					proj.DependencyGraph.AddEdge(importPath, target, false)
 				}
-			} else {
-				normalized := normalizePkgName(topLevel)
-				if !seen["ext:"+normalized] {
-					seen["ext:"+normalized] = true
-					proj.DependencyGraph.AddEdge(importPath, normalized, true)
-				}
+				continue
+			}
+			normalized := normalizePkgName(topLevel)
+			if !seen["ext:"+normalized] {
+				seen["ext:"+normalized] = true
+				proj.DependencyGraph.AddEdge(importPath, normalized, true)
 			}
 		}
 		f.Close()
 	}
+}
+
+// parsePyImportModule extracts the module name from a Python import line.
+// Returns "" for unrecognised lines.
+func parsePyImportModule(line string) string {
+	if m := rePyFromImport.FindStringSubmatch(line); m != nil {
+		return m[1]
+	}
+	if m := rePyImport.FindStringSubmatch(line); m != nil {
+		return m[1]
+	}
+	return ""
 }
 
 // resolveToNamespace maps an import key (e.g. "domain/entity") to its
@@ -449,14 +461,7 @@ func (s *PythonScanner) ScanFile(path string) (*model.Project, error) {
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		lineCount++
-		line := sc.Text()
-		if m := rePyDef.FindStringSubmatch(line); m != nil {
-			addPythonSymbol(ns, seen, m[1], model.SymbolFunction, base, lineCount)
-		} else if m := rePyAsyncDef.FindStringSubmatch(line); m != nil {
-			addPythonSymbol(ns, seen, m[1], model.SymbolFunction, base, lineCount)
-		} else if m := rePyClass.FindStringSubmatch(line); m != nil {
-			addPythonSymbol(ns, seen, m[1], model.SymbolClass, base, lineCount)
-		}
+		addPythonSymbolFromLine(ns, seen, sc.Text(), base, lineCount)
 	}
 
 	fileObj := model.NewFile(base, stem)

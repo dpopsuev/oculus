@@ -74,112 +74,96 @@ func ScannerFromRegistry(lang model.Language, root string) Scanner {
 	return ls.ScannerFactory(root)
 }
 
-func init() {
-	Register(&LanguageSupport{
+// builtinLanguages is the default language registry. Each entry is registered
+// at startup via init(). External callers may call Register() to add more.
+var builtinLanguages = []LanguageSupport{
+	{
 		Language: model.LangGo,
 		Markers:  []string{"go.mod"},
 		ScannerFactory: func(_ string) Scanner {
 			return &PackagesScanner{Fallback: &GoScanner{}}
 		},
 		Rules: &lang.GoRules{},
-	})
-	Register(&LanguageSupport{
+	},
+	{
 		Language: model.LangRust,
 		Markers:  []string{"Cargo.toml"},
-		ScannerFactory: func(_ string) Scanner {
-			return &RustScanner{}
-		},
-		Rules: &lang.RustRules{},
-	})
-	Register(&LanguageSupport{
+		ScannerFactory: func(_ string) Scanner { return &RustScanner{} },
+		Rules:    &lang.RustRules{},
+	},
+	{
 		Language: model.LangPython,
 		Markers:  []string{"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"},
-		ScannerFactory: func(_ string) Scanner {
-			return &PythonScanner{}
-		},
+		ScannerFactory: func(_ string) Scanner { return &PythonScanner{} },
 		SkipDirs: PythonSkipDirs,
 		Rules:    &lang.PythonRules{},
-	})
-	Register(&LanguageSupport{
+	},
+	{
 		Language: model.LangTypeScript,
 		Markers:  []string{"tsconfig.json"},
-		ScannerFactory: func(_ string) Scanner {
-			return &TypeScriptScanner{}
-		},
+		ScannerFactory: func(_ string) Scanner { return &TypeScriptScanner{} },
 		SkipDirs: TSSkipDirs,
 		Rules:    &lang.TypeScriptRules{},
-	})
-	Register(&LanguageSupport{
-		Language: model.LangC,
-		Markers:  []string{"CMakeLists.txt"},
-		ScannerFactory: func(_ string) Scanner {
-			return &CtagsScanner{}
-		},
-		Rules: &lang.GenericRules{},
-	})
-	Register(&LanguageSupport{
-		Language: model.LangCpp,
-		Markers:  []string{"CMakeLists.txt"},
-		ScannerFactory: func(_ string) Scanner {
-			return &CtagsScanner{}
-		},
-		Rules: &lang.GenericRules{},
-	})
-	Register(&LanguageSupport{
-		Language: model.LangJava,
-		Markers:  []string{"pom.xml", "build.gradle"},
-		ScannerFactory: func(_ string) Scanner {
-			return &CtagsScanner{}
-		},
-		Rules: &lang.GenericRules{},
-	})
-	Register(&LanguageSupport{
+	},
+	{
+		Language:       model.LangC,
+		Markers:        []string{"CMakeLists.txt"},
+		ScannerFactory: func(_ string) Scanner { return &CtagsScanner{} },
+		Rules:          &lang.GenericRules{},
+	},
+	{
+		Language:       model.LangCpp,
+		Markers:        []string{"CMakeLists.txt"},
+		ScannerFactory: func(_ string) Scanner { return &CtagsScanner{} },
+		Rules:          &lang.GenericRules{},
+	},
+	{
+		Language:       model.LangJava,
+		Markers:        []string{"pom.xml", "build.gradle"},
+		ScannerFactory: func(_ string) Scanner { return &CtagsScanner{} },
+		Rules:          &lang.GenericRules{},
+	},
+	{
 		Language: model.LangJavaScript,
 		Markers:  []string{"package.json"},
-		ScannerFactory: func(_ string) Scanner {
-			return &TypeScriptScanner{}
-		},
+		ScannerFactory: func(_ string) Scanner { return &TypeScriptScanner{} },
 		SkipDirs: TSSkipDirs,
 		Rules:    &lang.TypeScriptRules{},
-	})
-	Register(&LanguageSupport{
-		Language: model.LangKotlin,
-		Markers:  []string{"build.gradle.kts"},
-		ScannerFactory: func(_ string) Scanner {
-			return &CtagsScanner{}
-		},
-		Rules: &lang.GenericRules{},
-	})
-	Register(&LanguageSupport{
-		Language: model.LangZig,
-		Markers:  []string{"build.zig"},
-		ScannerFactory: func(_ string) Scanner {
-			return &CtagsScanner{}
-		},
-		Rules: &lang.GenericRules{},
-	})
-	Register(&LanguageSupport{
-		Language: model.LangCSharp,
-		Markers:  []string{"global.json", "Directory.Build.props"},
-		ScannerFactory: func(_ string) Scanner {
-			return &CtagsScanner{}
-		},
-		Rules: &lang.GenericRules{},
-	})
-	Register(&LanguageSupport{
-		Language: model.LangSwift,
-		Markers:  []string{"Package.swift"},
-		ScannerFactory: func(_ string) Scanner {
-			return &CtagsScanner{}
-		},
-		Rules: &lang.GenericRules{},
-	})
-	Register(&LanguageSupport{
-		Language: model.LangLua,
-		Markers:  []string{".luarc.json", ".luacheckrc", "lua"},
-		ScannerFactory: func(_ string) Scanner {
-			return &CtagsScanner{}
-		},
-		Rules: &lang.GenericRules{},
-	})
+	},
+	{
+		Language:       model.LangKotlin,
+		Markers:        []string{"build.gradle.kts"},
+		ScannerFactory: func(_ string) Scanner { return &CtagsScanner{} },
+		Rules:          &lang.GenericRules{},
+	},
+	{
+		Language:       model.LangZig,
+		Markers:        []string{"build.zig"},
+		ScannerFactory: func(_ string) Scanner { return &CtagsScanner{} },
+		Rules:          &lang.GenericRules{},
+	},
+	{
+		Language:       model.LangCSharp,
+		Markers:        []string{"global.json", "Directory.Build.props"},
+		ScannerFactory: func(_ string) Scanner { return &CtagsScanner{} },
+		Rules:          &lang.GenericRules{},
+	},
+	{
+		Language:       model.LangSwift,
+		Markers:        []string{"Package.swift"},
+		ScannerFactory: func(_ string) Scanner { return &CtagsScanner{} },
+		Rules:          &lang.GenericRules{},
+	},
+	{
+		Language:       model.LangLua,
+		Markers:        []string{".luarc.json", ".luacheckrc", "lua"},
+		ScannerFactory: func(_ string) Scanner { return &CtagsScanner{} },
+		Rules:          &lang.GenericRules{},
+	},
+}
+
+func init() {
+	for i := range builtinLanguages {
+		Register(&builtinLanguages[i])
+	}
 }

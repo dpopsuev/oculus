@@ -303,20 +303,11 @@ func (s *TypeScriptScanner) extractExports(line string, ns *model.Namespace, see
 }
 
 func (s *TypeScriptScanner) extractImportEdge(line, fromDir string, aliases []pathAlias, graph *model.DependencyGraph) {
-	// Skip type-only imports — they are erased at compile time and
-	// don't create runtime dependencies. Prevents false-positive cycles.
+	// Skip type-only imports — erased at compile time, no runtime dependency.
 	if reImportTypeOnly.MatchString(line) {
 		return
 	}
-
-	var spec string
-	if m := reImportFrom.FindStringSubmatch(line); m != nil {
-		spec = m[1]
-	} else if m := reImportSide.FindStringSubmatch(line); m != nil {
-		spec = m[1]
-	} else if m := reRequire.FindStringSubmatch(line); m != nil {
-		spec = m[1]
-	}
+	spec := parseImportSpec(line)
 	if spec == "" {
 		return
 	}
@@ -326,15 +317,27 @@ func (s *TypeScriptScanner) extractImportEdge(line, fromDir string, aliases []pa
 		if resolved != fromDir {
 			graph.AddEdge(fromDir, resolved, false)
 		}
-	} else if dir, ok := resolveAlias(spec, aliases); ok {
+		return
+	}
+	if dir, ok := resolveAlias(spec, aliases); ok {
 		// Path alias resolved to a local namespace — internal edge.
 		if dir != fromDir {
 			graph.AddEdge(fromDir, dir, false)
 		}
-	} else {
-		pkgName := barePackageName(spec)
-		graph.AddEdge(fromDir, pkgName, true)
+		return
 	}
+	graph.AddEdge(fromDir, barePackageName(spec), true)
+}
+
+// parseImportSpec extracts the module specifier from an import/require line.
+// Returns "" if the line contains no recognisable import syntax.
+func parseImportSpec(line string) string {
+	for _, re := range []*regexp.Regexp{reImportFrom, reImportSide, reRequire} {
+		if m := re.FindStringSubmatch(line); m != nil {
+			return m[1]
+		}
+	}
+	return ""
 }
 
 func resolveRelativeImport(fromDir, spec string) string {

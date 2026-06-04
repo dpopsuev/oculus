@@ -4,7 +4,7 @@
 package ts
 
 // Language identifies a tree-sitter grammar.
-type Language interface{}
+type Language any
 
 // Parser parses source code into a syntax tree.
 type Parser interface {

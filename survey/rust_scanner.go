@@ -48,7 +48,7 @@ type cargoDep struct {
 type cargoManifest struct {
 	Workspace *cargoWorkspace        `toml:"workspace"`
 	Package   *cargoPackage          `toml:"package"`
-	Deps      map[string]interface{} `toml:"dependencies"`
+	Deps      map[string]any `toml:"dependencies"`
 }
 
 func (s *RustScanner) Scan(root string) (*model.Project, error) {
@@ -229,11 +229,11 @@ func resolveWorkspaceMember(root, member string) ([]string, error) {
 	return dirs, nil
 }
 
-func parseCargoDep(v interface{}) cargoDep {
+func parseCargoDep(v any) cargoDep {
 	switch val := v.(type) {
 	case string:
 		return cargoDep{Version: val}
-	case map[string]interface{}:
+	case map[string]any:
 		d := cargoDep{}
 		if p, ok := val["path"].(string); ok {
 			d.Path = p
