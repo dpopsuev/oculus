@@ -79,12 +79,17 @@ func (f *FallbackAnalyzer) Classes(ctx context.Context, _ string) ([]oculus.Clas
 	if err != nil {
 		return nil, err
 	}
+	level := slog.LevelInfo
+	if result.Degraded {
+		level = slog.LevelWarn
+	}
 	if result.Winner != "" {
-		slog.LogAttrs(ctx, slog.LevelInfo, "racer: Classes",
+		slog.LogAttrs(ctx, level, "racer: Classes",
 			slog.String("winner", result.Winner),
 			slog.Int("quality", int(result.Quality)),
 			slog.Duration("elapsed", result.Elapsed),
 			slog.Bool("cached", result.Cached),
+			slog.Bool("degraded", result.Degraded),
 			slog.Int("count", len(result.Value)))
 	}
 	return result.Value, nil

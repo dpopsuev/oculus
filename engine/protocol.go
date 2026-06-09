@@ -52,6 +52,7 @@ var (
 	ErrUnknownPreset         = errors.New("unknown preset")
 	ErrComponentNotFound     = errors.New("component not found")
 	ErrNoCommitsFound        = errors.New("no commits found in range")
+	ErrSymbolNotFound        = errors.New("symbol not found in index — try symbol_search to discover the correct name")
 )
 
 // Sentinel errors for scan failures.
@@ -837,7 +838,7 @@ func (p *Engine) SearchSymbolsFiltered(ctx context.Context, path, pattern, file 
 		return nil, err
 	}
 
-	lower := strings.ToLower(pattern)
+	terms := parseSymbolTerms(pattern)
 	fileClean := filepath.ToSlash(filepath.Clean(file))
 	var matches []SymbolMatch
 	for i := range report.Architecture.Services {
@@ -846,7 +847,7 @@ func (p *Engine) SearchSymbolsFiltered(ctx context.Context, path, pattern, file 
 			if file != "" && !symbolFileMatches(sym.File, fileClean) {
 				continue
 			}
-			if pattern != "" && !strings.Contains(strings.ToLower(sym.Name), lower) {
+			if !symbolMatchesTerms(sym.Name, terms) {
 				continue
 			}
 			matches = append(matches, SymbolMatch{
@@ -864,6 +865,39 @@ func (p *Engine) SearchSymbolsFiltered(ctx context.Context, path, pattern, file 
 		summary = fmt.Sprintf("%d symbol(s) in %s matching %q", len(matches), file, pattern)
 	}
 	return &SymbolSearchReport{Query: pattern, Matches: matches, Summary: summary}, nil
+}
+
+// parseSymbolTerms splits a search pattern into individual terms.
+// Supports pipe (write|render) and space (write render) separators.
+// Returns nil when pattern is empty (wildcard — match everything).
+func parseSymbolTerms(pattern string) []string {
+	if pattern == "" {
+		return nil
+	}
+	// Normalise: replace | with space, then split on whitespace.
+	normalised := strings.ReplaceAll(pattern, "|", " ")
+	var terms []string
+	for _, t := range strings.Fields(normalised) {
+		if t != "" {
+			terms = append(terms, strings.ToLower(t))
+		}
+	}
+	return terms
+}
+
+// symbolMatchesTerms returns true when the symbol name contains at least one
+// of the terms (case-insensitive substring). Empty terms = wildcard.
+func symbolMatchesTerms(name string, terms []string) bool {
+	if len(terms) == 0 {
+		return true
+	}
+	lower := strings.ToLower(name)
+	for _, t := range terms {
+		if strings.Contains(lower, t) {
+			return true
+		}
+	}
+	return false
 }
 
 // symbolFileMatches returns true when the symbol's stored file path matches
@@ -1042,18 +1076,31 @@ func (p *Engine) GetCallers(ctx context.Context, path, symbol string, cacheKey .
 		return nil, ErrComponentRequired
 	}
 
-	da := analyzer.CachedDeepFallback(path, p.pool)
-	cg, err := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+	// Load the architecture report to check symbol existence.
+	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
-		return nil, fmt.Errorf("call graph: %w", err)
+		return nil, err
+	}
+	inPublicIndex := symbolExistsInReport(report, symbol)
+
+	da := analyzer.CachedDeepFallback(path, p.pool)
+	cg, cgErr := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+	if cgErr != nil {
+		// Analyzer unavailable. If symbol is not in the public index either,
+		// return a clear error rather than a silent empty.
+		if !inPublicIndex {
+			return nil, fmt.Errorf("%w: %q — try symbol_search to find the correct name", ErrSymbolNotFound, symbol)
+		}
+		cg = &oculus.CallGraph{}
 	}
 
 	seen := make(map[string]bool)
 	var callers []CallerSite
 
 	// Search call graph edges (function calls).
+	// Match exact FQN or unqualified suffix (e.g. "format" matches "pkg.format").
 	for _, edge := range cg.Edges {
-		if edge.Callee == symbol {
+		if !calleeMatches(edge.Callee, symbol) {
 			key := edge.Caller + ":" + edge.File
 			if seen[key] {
 				continue
@@ -1076,7 +1123,7 @@ func (p *Engine) GetCallers(ctx context.Context, path, symbol string, cacheKey .
 	sources := analyzer.ResolveSourceFunctions(path, p.pool)
 	for _, fn := range sources {
 		for _, callee := range fn.Callees {
-			if callee == symbol {
+			if !calleeMatches(callee, symbol) {
 				key := fn.Name + ":" + fn.File
 				if seen[key] {
 					continue
@@ -1092,12 +1139,50 @@ func (p *Engine) GetCallers(ctx context.Context, path, symbol string, cacheKey .
 		}
 	}
 
+	// If the symbol was not in the public index AND the call graph has no edges
+	// matching it, it genuinely doesn't exist — return a diagnostic error.
+	if !inPublicIndex && len(callers) == 0 {
+		return nil, fmt.Errorf("%w: %q — try symbol_search to find the correct name", ErrSymbolNotFound, symbol)
+	}
+
 	summary := fmt.Sprintf("%d caller(s) of %s", len(callers), symbol)
 	status := ""
-	if len(cg.Edges) == 0 {
+	if cgErr != nil {
+		status = fmt.Sprintf("partial — analyzer unavailable (%v); results may be incomplete", cgErr)
+	} else if len(cg.Edges) == 0 {
 		status = "partial — call graph has 0 edges; gopls may be unavailable; results for this symbol may be incomplete"
 	}
 	return &CallersReport{Symbol: symbol, Callers: callers, Summary: summary, CallGraphStatus: status}, nil
+}
+
+// calleeMatches returns true when the callee string equals symbol (exact FQN)
+// or ends with a package/dot separator followed by symbol (unqualified match).
+// This allows agents to pass short names like "_write_output" or "format"
+// without knowing the fully-qualified package path.
+func calleeMatches(callee, symbol string) bool {
+	if callee == symbol {
+		return true
+	}
+	// Suffix match: "pkg.format" matches "format", "a/b.format" matches "format".
+	for _, sep := range []byte{'.', '/'} {
+		if idx := len(callee) - len(symbol) - 1; idx >= 0 && callee[idx] == sep && callee[idx+1:] == symbol {
+			return true
+		}
+	}
+	return false
+}
+
+// symbolExistsInReport returns true when the symbol name matches any symbol
+// in the scanned architecture services. Case-sensitive, exact match.
+func symbolExistsInReport(report *arch.ContextReport, symbol string) bool {
+	for i := range report.Architecture.Services {
+		for _, sym := range report.Architecture.Services[i].Symbols {
+			if sym.Name == symbol {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // GetCallersAt returns callers of the symbol at a given source position using

@@ -1,0 +1,44 @@
+package engine
+
+import (
+	"context"
+	"testing"
+)
+
+// TestNED17_GetIntraCoupling_ReturnsFileEdges verifies LCS-NED-17:
+// coupling view=intra component=X returns file-to-file coupling edges
+// within one component rather than cross-component edges.
+//
+// Given a report with file-level services within "agents/"
+// When GetIntraCoupling is called with component="agents"
+// Then file-to-file edges within agents/ are returned with weights
+func TestNED17_GetIntraCoupling_WithinComponent(t *testing.T) {
+	report := testReportWithFileGranularity()
+	store := newMockStore(report)
+	eng := New(store, []string{"/tmp"})
+
+	r, err := eng.GetIntraCoupling(context.Background(), "/tmp", "agents")
+	if err != nil {
+		t.Fatalf("GetIntraCoupling: %v", err)
+	}
+	if r == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if len(r.Edges) == 0 {
+		t.Error("expected intra-component coupling edges")
+	}
+	for _, e := range r.Edges {
+		if len(e.From) < 7 || e.From[:7] != "agents/" {
+			t.Errorf("edge From=%q is outside agents/ component", e.From)
+		}
+	}
+}
+
+// TestNED17_GetIntraCoupling_UnknownComponent returns error.
+func TestNED17_GetIntraCoupling_UnknownComponent(t *testing.T) {
+	eng, _ := newTestEngine()
+	_, err := eng.GetIntraCoupling(context.Background(), "/tmp", "nonexistent")
+	if err == nil {
+		t.Error("expected error for unknown component")
+	}
+}

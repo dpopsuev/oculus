@@ -76,3 +76,29 @@ func testDesiredState() *port.DesiredState {
 		},
 	}
 }
+
+// testReportWithFileGranularity returns a report where the "agents" directory
+// is represented as file-level services (as if file_granularity=true was used).
+// This simulates what a file-granularity scan of a Python project returns.
+func testReportWithFileGranularity() *arch.ContextReport {
+	return &arch.ContextReport{
+		ScanCore: arch.ScanCore{
+			ModulePath: "github.com/example/project",
+			Scanner:    "test",
+			Architecture: arch.ArchModel{
+				Title: "project",
+				Services: []arch.ArchService{
+					{Name: "agents/turn_buffer.py", LOC: 120, Language: model.LangPython, Symbols: model.SymbolsFromNames("TurnBuffer", "flush")},
+					{Name: "agents/renderer.py", LOC: 200, Language: model.LangPython, Symbols: model.SymbolsFromNames("StreamRenderer", "render")},
+					{Name: "agents/widgets.py", LOC: 80, Language: model.LangPython, Symbols: model.SymbolsFromNames("Widget", "draw")},
+					{Name: "core/engine.py", LOC: 300, Language: model.LangPython, Symbols: model.SymbolsFromNames("Engine", "run")},
+				},
+				Edges: []arch.ArchEdge{
+					{From: "agents/turn_buffer.py", To: "agents/renderer.py", Weight: 1, CallSites: 3},
+					{From: "agents/renderer.py", To: "agents/widgets.py", Weight: 1, CallSites: 5},
+					{From: "core/engine.py", To: "agents/turn_buffer.py", Weight: 1, CallSites: 2},
+				},
+			},
+		},
+	}
+}

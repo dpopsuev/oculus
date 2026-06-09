@@ -36,6 +36,10 @@ type RaceResult[T any] struct {
 	Quality QualityTier
 	Elapsed time.Duration
 	Cached  bool
+	// Degraded is true when the result comes from a below-threshold attempt
+	// (no higher-quality analyzer was available). Callers should surface a
+	// warning alongside the result rather than treating it as authoritative.
+	Degraded bool
 }
 
 // Racer races multiple analyzers in parallel. The first non-empty result
@@ -111,6 +115,7 @@ func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
 
 	// Wait for first non-empty result.
 	var winner *RaceResult[T]
+	var bestDegraded *RaceResult[T] // best non-empty result below min quality
 	remaining := len(r.attempts)
 
 	for remaining > 0 {
@@ -136,6 +141,18 @@ func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
 					slog.Bool("empty", r.isEmpty(res.value)),
 					slog.Int("min_quality", int(r.minQuality)),
 				)
+				// Track best non-empty below-threshold as degraded fallback.
+				if !r.isEmpty(res.value) {
+					if bestDegraded == nil || res.quality > bestDegraded.Quality {
+						bestDegraded = &RaceResult[T]{
+							Value:    res.value,
+							Winner:   res.name,
+							Quality:  res.quality,
+							Elapsed:  res.elapsed,
+							Degraded: true,
+						}
+					}
+				}
 				continue
 			}
 
@@ -184,15 +201,20 @@ func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
 		}
 	}
 
-	// All attempts empty or errored.
-	if winner == nil {
-		var zero T
-		if r.minQuality > 0 {
-			return &RaceResult[T]{Value: zero}, ErrNoQualifiedResult
-		}
-		return &RaceResult[T]{Value: zero}, nil
+	// All attempts finished. Return winner, degrade, or error.
+	if winner != nil {
+		return winner, nil
 	}
-	return winner, nil
+	if bestDegraded != nil {
+		// Non-empty results exist but all below threshold. Return the best one
+		// marked Degraded so callers can warn the user appropriately.
+		return bestDegraded, nil
+	}
+	var zero T
+	if r.minQuality > 0 {
+		return &RaceResult[T]{Value: zero}, ErrNoQualifiedResult
+	}
+	return &RaceResult[T]{Value: zero}, nil
 }
 
 // Invalidate clears the cached result. Next Race() runs fresh.
