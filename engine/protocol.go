@@ -940,13 +940,38 @@ type CalleesReport struct {
 	CallGraphStatus string `json:"call_graph_status,omitempty"`
 }
 
+const callGraphPartialStatus = "partial — call graph has 0 edges; gopls may be unavailable; results for this symbol may be incomplete"
+
+func (p *Engine) callGraph(ctx context.Context, path string) (*oculus.CallGraph, error) {
+	da := analyzer.CachedDeepFallback(path, p.pool)
+	return da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+}
+
+// callerCollector deduplicates caller sites by (caller, file).
+type callerCollector struct {
+	seen map[string]bool
+	sites []CallerSite
+}
+
+func newCallerCollector() callerCollector {
+	return callerCollector{seen: make(map[string]bool)}
+}
+
+func (c *callerCollector) add(site CallerSite) {
+	key := site.Caller + ":" + site.File
+	if c.seen[key] {
+		return
+	}
+	c.seen[key] = true
+	c.sites = append(c.sites, site)
+}
+
 func (p *Engine) GetCallees(ctx context.Context, path, symbol string, cacheKey ...string) (*CalleesReport, error) {
 	path = p.resolvePath(path)
 	if symbol == "" {
 		return nil, ErrComponentRequired
 	}
-	da := analyzer.CachedDeepFallback(path, p.pool)
-	cg, err := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+	cg, err := p.callGraph(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("call graph: %w", err)
 	}
@@ -966,7 +991,7 @@ func (p *Engine) GetCallees(ctx context.Context, path, symbol string, cacheKey .
 
 	status := ""
 	if len(cg.Edges) == 0 {
-		status = "partial — call graph has 0 edges; gopls may be unavailable; results for this symbol may be incomplete"
+		status = callGraphPartialStatus
 	}
 	return &CalleesReport{
 		Symbol:          symbol,
@@ -987,8 +1012,7 @@ type CallPathReport struct {
 
 func (p *Engine) GetCallPath(ctx context.Context, path, from, to string, cacheKey ...string) (*CallPathReport, error) {
 	path = p.resolvePath(path)
-	da := analyzer.CachedDeepFallback(path, p.pool)
-	cg, err := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+	cg, err := p.callGraph(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("call graph: %w", err)
 	}
@@ -1034,8 +1058,7 @@ func (p *Engine) GetSymbolBlastRadius(ctx context.Context, path, symbol string, 
 	if symbol == "" {
 		return nil, ErrComponentRequired
 	}
-	da := analyzer.CachedDeepFallback(path, p.pool)
-	cg, err := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+	cg, err := p.callGraph(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("call graph: %w", err)
 	}
@@ -1061,9 +1084,7 @@ func (p *Engine) GetDiffIntelligence(ctx context.Context, path, since string, ca
 	if err != nil {
 		return nil, fmt.Errorf("git diff: %w", err)
 	}
-	// Build call graph for symbol-level oculus.
-	da := analyzer.CachedDeepFallback(path, p.pool)
-	cg, err := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+	cg, err := p.callGraph(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("call graph: %w", err)
 	}
@@ -1076,37 +1097,25 @@ func (p *Engine) GetCallers(ctx context.Context, path, symbol string, cacheKey .
 		return nil, ErrComponentRequired
 	}
 
-	// Load the architecture report to check symbol existence.
 	report, err := p.getOrScan(ctx, path, cacheKey...)
 	if err != nil {
 		return nil, err
 	}
 	inPublicIndex := symbolExistsInReport(report, symbol)
 
-	da := analyzer.CachedDeepFallback(path, p.pool)
-	cg, cgErr := da.CallGraph(ctx, path, oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth})
+	cg, cgErr := p.callGraph(ctx, path)
 	if cgErr != nil {
-		// Analyzer unavailable. If symbol is not in the public index either,
-		// return a clear error rather than a silent empty.
 		if !inPublicIndex {
-			return nil, fmt.Errorf("%w: %q — try symbol_search to find the correct name", ErrSymbolNotFound, symbol)
+			return nil, fmt.Errorf("%w: %q", ErrSymbolNotFound, symbol)
 		}
 		cg = &oculus.CallGraph{}
 	}
 
-	seen := make(map[string]bool)
-	var callers []CallerSite
+	cc := newCallerCollector()
 
-	// Search call graph edges (function calls).
-	// Match exact FQN or unqualified suffix (e.g. "format" matches "pkg.format").
 	for _, edge := range cg.Edges {
-		if !calleeMatches(edge.Callee, symbol) {
-			key := edge.Caller + ":" + edge.File
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			callers = append(callers, CallerSite{
+		if calleeMatches(edge.Callee, symbol) {
+			cc.add(CallerSite{
 				Caller:       edge.Caller,
 				CallerPkg:    edge.CallerPkg,
 				Line:         edge.Line,
@@ -1116,20 +1125,13 @@ func (p *Engine) GetCallers(ctx context.Context, path, symbol string, cacheKey .
 		}
 	}
 
-	// Search for type references (struct literal constructions).
-	// The call graph only contains function→function edges. To find
-	// struct constructions (Config{...}), scan the source-level data
-	// where Callees includes type names from composite literals.
+	// Source-level data includes struct constructions (Config{...}) that
+	// the call graph's function→function edges miss.
 	sources := analyzer.ResolveSourceFunctions(path, p.pool)
 	for _, fn := range sources {
 		for _, callee := range fn.Callees {
-			if !calleeMatches(callee, symbol) {
-				key := fn.Name + ":" + fn.File
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
-				callers = append(callers, CallerSite{
+			if calleeMatches(callee, symbol) {
+				cc.add(CallerSite{
 					Caller:    fn.Name,
 					CallerPkg: fn.Package,
 					Line:      fn.Line,
@@ -1139,20 +1141,18 @@ func (p *Engine) GetCallers(ctx context.Context, path, symbol string, cacheKey .
 		}
 	}
 
-	// If the symbol was not in the public index AND the call graph has no edges
-	// matching it, it genuinely doesn't exist — return a diagnostic error.
-	if !inPublicIndex && len(callers) == 0 {
-		return nil, fmt.Errorf("%w: %q — try symbol_search to find the correct name", ErrSymbolNotFound, symbol)
+	if !inPublicIndex && len(cc.sites) == 0 {
+		return nil, fmt.Errorf("%w: %q", ErrSymbolNotFound, symbol)
 	}
 
-	summary := fmt.Sprintf("%d caller(s) of %s", len(callers), symbol)
+	summary := fmt.Sprintf("%d caller(s) of %s", len(cc.sites), symbol)
 	status := ""
 	if cgErr != nil {
 		status = fmt.Sprintf("partial — analyzer unavailable (%v); results may be incomplete", cgErr)
 	} else if len(cg.Edges) == 0 {
-		status = "partial — call graph has 0 edges; gopls may be unavailable; results for this symbol may be incomplete"
+		status = callGraphPartialStatus
 	}
-	return &CallersReport{Symbol: symbol, Callers: callers, Summary: summary, CallGraphStatus: status}, nil
+	return &CallersReport{Symbol: symbol, Callers: cc.sites, Summary: summary, CallGraphStatus: status}, nil
 }
 
 // calleeMatches returns true when the callee string equals symbol (exact FQN)

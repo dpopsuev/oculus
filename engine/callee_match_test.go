@@ -2,7 +2,7 @@ package engine
 
 import "testing"
 
-// TestCalleeMatches verifies NED-15's suffix-match logic for unqualified names.
+// TestCalleeMatches verifies suffix-match logic for unqualified names.
 //
 // Given callee FQNs like "pkg.format" or "a/b/pkg.format"
 // When calleeMatches is called with the unqualified name "format"

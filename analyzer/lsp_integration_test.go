@@ -180,10 +180,10 @@ func TestLSPIntegration_GoReference(t *testing.T) {
 	}
 }
 
-// TestLSPIntegration_WorkspaceSymbolBug54 reproduces LCS-BUG-54:
-// gopls workspace/symbol returns null/empty, causing probe/callgraph
-// to fail on a fully valid Go repo.
-func TestLSPIntegration_WorkspaceSymbolBug54(t *testing.T) {
+// TestLSPIntegration_WorkspaceSymbol_ReturnsNodes verifies that gopls
+// workspace/symbol returns symbols on a valid Go repo, enabling
+// probe/callgraph to build a non-empty call graph.
+func TestLSPIntegration_WorkspaceSymbol_ReturnsNodes(t *testing.T) {
 	if err := testcontainer.Available(""); err != nil {
 		t.Skipf("skipping LSP integration: %v", err)
 	}

@@ -8,20 +8,15 @@ import (
 	"github.com/dpopsuev/oculus/v3/analyzer"
 )
 
-// TestBug101_Racer_BelowThreshold_ReturnsDegraded reproduces LCS-BUG-101:
-// When all analyzer attempts produce results but none meet the minimum quality
-// threshold, Race() returns ErrNoQualifiedResult and throws away the results.
-// The agent sees an opaque error with no actionable output.
-//
-// Fix: when below-threshold results exist, return the best one with
-// Degraded=true rather than erroring. The caller decides whether to use it.
+// TestRacer_BelowThreshold_ReturnsDegraded verifies that when all analyzer
+// attempts produce results but none meet the minimum quality threshold,
+// Race() returns the best result with Degraded=true rather than an opaque error.
 //
 // Given a racer with min quality 50
 // And one attempt with quality 10 that returns non-empty results
 // When Race() runs
 // Then it returns the best below-threshold result with Degraded=true
-// And no error
-func TestBug101_Racer_BelowThreshold_ReturnsDegraded(t *testing.T) {
+func TestRacer_BelowThreshold_ReturnsDegraded(t *testing.T) {
 	r := analyzer.NewRacer(
 		func(v []string) bool { return len(v) == 0 },
 		analyzer.Attempt[[]string]{
@@ -35,20 +30,19 @@ func TestBug101_Racer_BelowThreshold_ReturnsDegraded(t *testing.T) {
 
 	result, err := r.Race(context.Background())
 	if err != nil {
-		t.Fatalf("BUG-101: below-threshold result should be returned as degraded, not error: %v", err)
+		t.Fatalf("below-threshold result should be returned as degraded, not error: %v", err)
 	}
 	if len(result.Value) == 0 {
-		t.Fatal("BUG-101: degraded result has zero values — should return what we have")
+		t.Fatal("degraded result has zero values — should return what we have")
 	}
 	if !result.Degraded {
-		t.Error("BUG-101: result should be marked Degraded=true when below quality threshold")
+		t.Error("result should be marked Degraded=true when below quality threshold")
 	}
 }
 
-// TestBug101_Racer_NoResults_StillErrors verifies that when all attempts
-// genuinely return empty results (not just below-threshold), the error
-// is still returned. Degraded only applies when there is content to return.
-func TestBug101_Racer_NoResults_StillErrors(t *testing.T) {
+// TestRacer_NoResults_StillErrors verifies that when all attempts genuinely
+// return empty results (not just below-threshold), the error is still returned.
+func TestRacer_NoResults_StillErrors(t *testing.T) {
 	r := analyzer.NewRacer(
 		func(v []string) bool { return len(v) == 0 },
 		analyzer.Attempt[[]string]{
@@ -66,9 +60,9 @@ func TestBug101_Racer_NoResults_StillErrors(t *testing.T) {
 	}
 }
 
-// TestBug101_Racer_AboveThreshold_NotDegraded verifies that a result meeting
-// the threshold is returned with Degraded=false (no regression).
-func TestBug101_Racer_AboveThreshold_NotDegraded(t *testing.T) {
+// TestRacer_AboveThreshold_NotDegraded verifies that a result meeting the
+// threshold is returned with Degraded=false (no regression).
+func TestRacer_AboveThreshold_NotDegraded(t *testing.T) {
 	r := analyzer.NewRacer(
 		func(v []string) bool { return len(v) == 0 },
 		analyzer.Attempt[[]string]{
