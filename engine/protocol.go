@@ -1604,61 +1604,70 @@ type QueryResult struct {
 
 func (p *Engine) AnswerQuery(ctx context.Context, path, query string, cacheKey ...string) (*QueryResult, error) {
 	path = p.resolvePath(path)
+	action := matchQueryAction(query)
+	if action == "" {
+		return &QueryResult{
+			Query:  query,
+			Action: "none",
+			Answer: "No matching pattern. Try: riskiest, cycles, violations, health, overview, what changed",
+		}, nil
+	}
+	return p.dispatchQueryAction(ctx, path, query, action, cacheKey...)
+}
+
+var queryPatterns = []struct {
+	keywords []string
+	action   string
+}{
+	{[]string{"risk", "hot"}, "coupling view=hot_spots"},
+	{[]string{"cycle", "circular"}, "cycles"},
+	{[]string{"depend", "import", "who uses"}, "deps"},
+	{[]string{"violat", "layer"}, "violations"},
+	{[]string{"change", "diff", "what changed"}, "scan_diff"},
+	{[]string{"overview", "architect"}, "preset=architecture_review"},
+	{[]string{"health", "status"}, "preset=health_check"},
+	{[]string{"onboard", "getting started"}, "preset=onboarding"},
+}
+
+func matchQueryAction(query string) string {
 	q := strings.ToLower(query)
-
-	type pattern struct {
-		keywords []string
-		action   string
-	}
-	patterns := []pattern{
-		{[]string{"risk", "hot"}, "coupling view=hot_spots"},
-		{[]string{"cycle", "circular"}, "cycles"},
-		{[]string{"depend", "import", "who uses"}, "deps"},
-		{[]string{"violat", "layer"}, "violations"},
-		{[]string{"change", "diff", "what changed"}, "scan_diff"},
-		{[]string{"overview", "architect"}, "preset=architecture_review"},
-		{[]string{"health", "status"}, "preset=health_check"},
-		{[]string{"onboard", "getting started"}, "preset=onboarding"},
-	}
-
-	for _, pat := range patterns {
+	for _, pat := range queryPatterns {
 		for _, kw := range pat.keywords {
 			if strings.Contains(q, kw) {
-				switch {
-				case strings.HasPrefix(pat.action, "coupling"):
-					report, err := p.getOrScan(ctx, path, cacheKey...)
-					if err != nil {
-						return nil, err
-					}
-					return &QueryResult{Query: query, Action: pat.action, Answer: report.HotSpots}, nil
-				case pat.action == "cycles":
-					r, err := p.GetCycles(ctx, path, nil, cacheKey...)
-					if err != nil {
-						return nil, err
-					}
-					return &QueryResult{Query: query, Action: pat.action, Answer: r}, nil
-				case pat.action == "violations":
-					r, err := p.GetViolations(ctx, path, nil, cacheKey...)
-					if err != nil {
-						return nil, err
-					}
-					return &QueryResult{Query: query, Action: pat.action, Answer: r}, nil
-				default:
-					return &QueryResult{
-						Query:  query,
-						Action: pat.action,
-						Answer: fmt.Sprintf("Suggested action: analysis %s", pat.action),
-					}, nil
-				}
+				return pat.action
 			}
 		}
 	}
+	return ""
+}
 
-	return &QueryResult{
-		Query:  query,
-		Action: "none",
-		Answer: "No matching pattern. Try: riskiest, cycles, violations, health, overview, what changed",
-	}, nil
+func (p *Engine) dispatchQueryAction(ctx context.Context, path, query, action string, cacheKey ...string) (*QueryResult, error) {
+	switch {
+	case strings.HasPrefix(action, "coupling"):
+		report, err := p.getOrScan(ctx, path, cacheKey...)
+		if err != nil {
+			return nil, err
+		}
+		return &QueryResult{Query: query, Action: action, Answer: report.HotSpots}, nil
+	case action == "cycles":
+		r, err := p.GetCycles(ctx, path, nil, cacheKey...)
+		if err != nil {
+			return nil, err
+		}
+		return &QueryResult{Query: query, Action: action, Answer: r}, nil
+	case action == "violations":
+		r, err := p.GetViolations(ctx, path, nil, cacheKey...)
+		if err != nil {
+			return nil, err
+		}
+		return &QueryResult{Query: query, Action: action, Answer: r}, nil
+	default:
+		return &QueryResult{
+			Query:  query,
+			Action: action,
+			Answer: fmt.Sprintf("Suggested action: analysis %s", action),
+		}, nil
+	}
 }
 
 // GenerateHints returns follow-up action suggestions based on analysis findings.
@@ -1836,20 +1845,7 @@ func (p *Engine) GetComponentRangeDiff(ctx context.Context, path, beforeSHA, aft
 	componentFiles := make(map[string][]string)
 	var untracked []string
 	for _, f := range changedFiles {
-		fSlash := filepath.ToSlash(f)
-		comp, ok := fileToComponent[fSlash]
-		// Also try matching by directory prefix.
-		if !ok {
-			dir := filepath.Dir(fSlash)
-			for k, v := range fileToComponent {
-				if strings.HasPrefix(k, dir+"/") || filepath.Dir(k) == dir {
-					comp = v
-					ok = true
-					break
-				}
-			}
-		}
-		if ok {
+		if comp, ok := resolveFileComponent(f, fileToComponent); ok {
 			componentFiles[comp] = append(componentFiles[comp], f)
 		} else {
 			untracked = append(untracked, f)
@@ -1877,6 +1873,20 @@ func (p *Engine) GetComponentRangeDiff(ctx context.Context, path, beforeSHA, aft
 		UntrackedFiles:    untracked,
 		Summary:           summary,
 	}, nil
+}
+
+func resolveFileComponent(file string, index map[string]string) (string, bool) {
+	f := filepath.ToSlash(file)
+	if comp, ok := index[f]; ok {
+		return comp, true
+	}
+	dir := filepath.Dir(f)
+	for k, v := range index {
+		if strings.HasPrefix(k, dir+"/") || filepath.Dir(k) == dir {
+			return v, true
+		}
+	}
+	return "", false
 }
 
 func min8(s string) int {
@@ -2721,15 +2731,13 @@ func (p *Engine) Health(ctx context.Context) *HealthResult {
 	// Per-language LSP server availability checks.
 	for language, cmdStr := range lang.DefaultLSPServers {
 		bin := strings.Fields(cmdStr)[0]
-		if _, err := exec.LookPath(bin); err == nil {
-			r.Checks = append(r.Checks, HealthCheck{
-				Name: "lsp:" + string(language), OK: true, Detail: bin,
-			})
-		} else {
-			r.Checks = append(r.Checks, HealthCheck{
-				Name: "lsp:" + string(language), OK: true, Detail: bin + " not found (optional)",
-			})
+		detail := bin
+		if _, err := exec.LookPath(bin); err != nil {
+			detail += " not found (optional)"
 		}
+		r.Checks = append(r.Checks, HealthCheck{
+			Name: "lsp:" + string(language), OK: true, Detail: detail,
+		})
 	}
 
 	// Pool status if available.
