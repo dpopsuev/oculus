@@ -62,3 +62,46 @@ func TestLSPScannerEmptyCmd(t *testing.T) {
 		t.Fatal("expected error for empty ServerCmd")
 	}
 }
+
+// TestLSPScannerWithGopls_CallEdges verifies end-to-end call edge extraction
+// with a real gopls server.
+//
+// Given a Go module where main() calls lib.Hello()
+// When LSPScanner scans the module
+// Then DependencyGraph contains an edge from the caller's namespace to lib
+func TestLSPScannerWithGopls_CallEdges(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping LSP integration test in short mode")
+	}
+
+	if _, err := exec.LookPath("gopls"); err != nil {
+		t.Skip("gopls not available on PATH")
+	}
+
+	dir := setupModule(t, map[string]string{
+		"go.mod":     "module example.com/calltest\n\ngo 1.21\n",
+		"main.go":    "package main\n\nimport \"example.com/calltest/lib\"\n\nfunc main() {\n\tlib.Hello()\n}\n",
+		"lib/lib.go": "package lib\n\nfunc Hello() string { return \"hi\" }\n",
+	})
+
+	sc := &survey.LSPScanner{ServerCmd: "gopls serve"}
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+
+	if proj.DependencyGraph == nil {
+		t.Fatal("no dependency graph")
+	}
+
+	foundEdge := false
+	for _, e := range proj.DependencyGraph.Edges {
+		t.Logf("edge: %s -> %s (weight=%d)", e.From, e.To, e.Weight)
+		if e.To == "lib" {
+			foundEdge = true
+		}
+	}
+	if !foundEdge {
+		t.Error("expected an edge to 'lib' namespace from call hierarchy, got none")
+	}
+}

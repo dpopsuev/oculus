@@ -2,11 +2,12 @@ package survey
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 
-	"github.com/dpopsuev/oculus/v3/model"
 	"github.com/dpopsuev/oculus/v3/lang"
+	"github.com/dpopsuev/oculus/v3/model"
 )
 
 // LanguageSupport describes how to scan a particular language.
@@ -74,6 +75,17 @@ func ScannerFromRegistry(lang model.Language, root string) Scanner {
 	return ls.ScannerFactory(root)
 }
 
+// lspWithFallback returns a scanner factory that prefers the LSP scanner
+// when the named server binary is on PATH, falling back to the given scanner.
+func lspWithFallback(serverCmd string, fallback Scanner) func(string) Scanner {
+	return func(_ string) Scanner {
+		if _, err := exec.LookPath(serverCmd); err == nil {
+			return &LSPScanner{ServerCmd: serverCmd}
+		}
+		return fallback
+	}
+}
+
 // builtinLanguages is the default language registry. Each entry is registered
 // at startup via init(). External callers may call Register() to add more.
 var builtinLanguages = []LanguageSupport{
@@ -108,19 +120,19 @@ var builtinLanguages = []LanguageSupport{
 	{
 		Language:       model.LangC,
 		Markers:        []string{"CMakeLists.txt"},
-		ScannerFactory: func(_ string) Scanner { return &CtagsScanner{} },
+		ScannerFactory: lspWithFallback("clangd", &CtagsScanner{}),
 		Rules:          &lang.GenericRules{},
 	},
 	{
 		Language:       model.LangCpp,
 		Markers:        []string{"CMakeLists.txt"},
-		ScannerFactory: func(_ string) Scanner { return &CtagsScanner{} },
+		ScannerFactory: lspWithFallback("clangd", &CtagsScanner{}),
 		Rules:          &lang.GenericRules{},
 	},
 	{
 		Language:       model.LangJava,
 		Markers:        []string{"pom.xml", "build.gradle"},
-		ScannerFactory: func(_ string) Scanner { return &CtagsScanner{} },
+		ScannerFactory: lspWithFallback("jdtls", &CtagsScanner{}),
 		Rules:          &lang.GenericRules{},
 	},
 	{

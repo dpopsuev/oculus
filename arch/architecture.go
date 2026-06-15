@@ -109,9 +109,12 @@ func buildPackageEdges(proj *model.Project, modPath string, m ArchModel, opts Sy
 		if opts.ExcludeTests && (strings.HasPrefix(fromRel, "testkit/") || strings.HasPrefix(toRel, "testkit/")) {
 			continue
 		}
-		proto := protoImport
-		if e.External {
+		proto := e.Protocol
+		switch {
+		case e.External:
 			proto = protoExternal
+		case proto == "":
+			proto = protoImport
 		}
 		m.Edges = append(m.Edges, ArchEdge{
 			From:     fromRel,
@@ -206,9 +209,12 @@ func buildGroupEdges(proj *model.Project, modPath string, m ArchModel, opts Sync
 		}
 		key := [2]string{fromGroup, toGroup}
 		edgeWeights[key] += e.Weight
-		if e.External {
+		switch {
+		case e.External:
 			edgeProto[key] = protoExternal
-		} else if edgeProto[key] == "" {
+		case e.Protocol != "" && e.Protocol != protoImport:
+			edgeProto[key] = e.Protocol
+		case edgeProto[key] == "":
 			edgeProto[key] = protoImport
 		}
 	}

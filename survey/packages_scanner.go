@@ -168,12 +168,13 @@ func extractTypedSymbols(pkg *packages.Package, ns *model.Namespace) {
 				}
 				seen[name] = true
 				sym := &model.Symbol{
-					Name:     name,
-					Kind:     model.SymbolFunction,
-					Exported: ast.IsExported(name),
-					File:     filePath,
-					Line:     pkg.Fset.Position(d.Pos()).Line,
-					EndLine:  pkg.Fset.Position(d.End()).Line,
+					Name:      name,
+					Kind:      model.SymbolFunction,
+					Exported:  ast.IsExported(name),
+					Signature: formatFuncSignature(pkg.Fset, d),
+					File:      filePath,
+					Line:      pkg.Fset.Position(d.Pos()).Line,
+					EndLine:   pkg.Fset.Position(d.End()).Line,
 				}
 				if deps, ok := symbolDeps[name]; ok {
 					for dep := range deps {

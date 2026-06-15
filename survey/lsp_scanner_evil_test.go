@@ -1,10 +1,11 @@
 // Package survey_test contains timeout tests for LSPScanner using adversarial
-// ("evil") LSP server behaviours. The test binary itself acts as the evil LSP
-// server subprocess via TestMain: when EVIL_LSP_MODE is set in the environment
-// the binary runs ServeEvil and exits without running any tests.
+// ("evil") LSP server behaviours and mock-based unit tests for call hierarchy
+// extraction. The test binary itself acts as the LSP server subprocess via
+// TestMain: environment variables select the mode.
 package survey_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,11 +16,25 @@ import (
 )
 
 // TestMain intercepts child-process invocations where this test binary is used
-// as a fake LSP server. EVIL_LSP_MODE is set by the parent test via t.Setenv;
-// the child inherits it and calls ServeEvil instead of running tests.
+// as a fake LSP server.
+//
+//   - EVIL_LSP_MODE → adversarial server (hangs at lifecycle points)
+//   - MOCK_LSP_CONFIG → configured mock server (reads JSON config from file)
 func TestMain(m *testing.M) {
 	if mode := os.Getenv("EVIL_LSP_MODE"); mode != "" {
 		mockserver.ServeEvil(os.Stdin, os.Stdout, mode)
+		os.Exit(0)
+	}
+	if cfgPath := os.Getenv("MOCK_LSP_CONFIG"); cfgPath != "" {
+		data, err := os.ReadFile(cfgPath)
+		if err != nil {
+			os.Exit(1)
+		}
+		var cfg mockserver.Config
+		if json.Unmarshal(data, &cfg) != nil {
+			os.Exit(1)
+		}
+		_ = mockserver.Serve(os.Stdin, os.Stdout, cfg)
 		os.Exit(0)
 	}
 	os.Exit(m.Run())

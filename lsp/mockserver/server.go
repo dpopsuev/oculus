@@ -43,11 +43,12 @@ const (
 
 // Config controls the mock server behavior.
 type Config struct {
-	Symbols                    []Symbol      // workspace/symbol results
-	Edges                      []CallEdge    // callHierarchy/outgoingCalls results
-	Latency                    time.Duration // artificial delay per response
-	IndexingDelay              time.Duration // workspace/symbol returns empty until this elapses (simulates server indexing)
-	RequireWorkspaceSymbolCap  bool          // if true, return null for workspace/symbol unless client advertised the capability
+	Symbols                    []Symbol          // workspace/symbol results
+	Edges                      []CallEdge        // callHierarchy/outgoingCalls results
+	Signatures                 map[string]string // symbol name → hover signature text
+	Latency                    time.Duration     // artificial delay per response
+	IndexingDelay              time.Duration     // workspace/symbol returns empty until this elapses (simulates server indexing)
+	RequireWorkspaceSymbolCap  bool              // if true, return null for workspace/symbol unless client advertised the capability
 }
 
 // Serve runs the mock LSP server on the given reader/writer pair.
@@ -107,9 +108,7 @@ func Serve(r io.Reader, w io.Writer, cfg Config) error {
 		case "callHierarchy/outgoingCalls":
 			result = buildOutgoingCalls(cfg.Edges, params)
 		case "textDocument/hover":
-			result = map[string]any{
-				"contents": map[string]any{"value": "func stub()"},
-			}
+			result = buildHover(cfg.Symbols, cfg.Signatures, params)
 		case "textDocument/documentSymbol":
 			result = buildDocumentSymbols(cfg.Symbols, params)
 		case "textDocument/didOpen":
@@ -297,6 +296,34 @@ func ServeEvil(r io.Reader, w io.Writer, mode string) {
 			}
 		}
 	}
+}
+
+func buildHover(symbols []Symbol, signatures map[string]string, params json.RawMessage) any {
+	var p struct {
+		Position struct {
+			Line int `json:"line"`
+		} `json:"position"`
+		TextDocument struct {
+			URI string `json:"uri"`
+		} `json:"textDocument"`
+	}
+	json.Unmarshal(params, &p)
+
+	for _, s := range symbols {
+		if s.URI == p.TextDocument.URI && s.Line == p.Position.Line {
+			sig := signatures[s.Name]
+			if sig == "" {
+				sig = s.Name
+			}
+			return map[string]any{
+				"contents": map[string]any{
+					"kind":  "markdown",
+					"value": sig,
+				},
+			}
+		}
+	}
+	return nil
 }
 
 func buildDocumentSymbols(symbols []Symbol, params json.RawMessage) []map[string]any {

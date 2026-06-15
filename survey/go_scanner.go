@@ -2,11 +2,13 @@ package survey
 
 import (
 	"bufio"
+	"bytes"
 	"cmp"
 	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"maps"
 	"os"
@@ -133,12 +135,13 @@ func extractSymbols(f *ast.File, fset *token.FileSet, filePath string, pkg *mode
 			}
 			seen[name] = true
 			pkg.AddSymbol(&model.Symbol{
-				Name:     name,
-				Kind:     model.SymbolFunction,
-				Exported: ast.IsExported(name),
-				File:     filePath,
-				Line:     fset.Position(d.Pos()).Line,
-				EndLine:  fset.Position(d.End()).Line,
+				Name:      name,
+				Kind:      model.SymbolFunction,
+				Exported:  ast.IsExported(name),
+				Signature: formatFuncSignature(fset, d),
+				File:      filePath,
+				Line:      fset.Position(d.Pos()).Line,
+				EndLine:   fset.Position(d.End()).Line,
 			})
 
 		case *ast.GenDecl:
@@ -159,16 +162,22 @@ func extractGenDeclSymbols(d *ast.GenDecl, fset *token.FileSet, filePath string,
 			}
 			seen[name] = true
 			kind := model.SymbolStruct
-			if _, ok := s.Type.(*ast.InterfaceType); ok {
+			sig := ""
+			switch t := s.Type.(type) {
+			case *ast.InterfaceType:
 				kind = model.SymbolInterface
+				sig = formatInterfaceSignature(fset, name, t)
+			case *ast.StructType:
+				sig = formatStructSignature(fset, name, t)
 			}
 			ns.AddSymbol(&model.Symbol{
-				Name:     name,
-				Kind:     kind,
-				Exported: ast.IsExported(name),
-				File:     filePath,
-				Line:     fset.Position(s.Pos()).Line,
-				EndLine:  fset.Position(s.End()).Line,
+				Name:      name,
+				Kind:      kind,
+				Exported:  ast.IsExported(name),
+				Signature: sig,
+				File:      filePath,
+				Line:      fset.Position(s.Pos()).Line,
+				EndLine:   fset.Position(s.End()).Line,
 			})
 
 		case *ast.ValueSpec:
@@ -277,4 +286,57 @@ func (s *GoScanner) ScanFile(path string) (*model.Project, error) {
 	proj.DependencyGraph = model.NewDependencyGraph()
 	proj.AddNamespace(pkg)
 	return proj, nil
+}
+
+func formatFuncSignature(fset *token.FileSet, d *ast.FuncDecl) string {
+	stub := &ast.FuncDecl{
+		Name: d.Name,
+		Type: d.Type,
+		Recv: d.Recv,
+	}
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, fset, stub); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(buf.String())
+}
+
+func formatInterfaceSignature(fset *token.FileSet, name string, t *ast.InterfaceType) string {
+	if t.Methods == nil || len(t.Methods.List) == 0 {
+		return fmt.Sprintf("interface %s {}", name)
+	}
+	methods := make([]string, 0, len(t.Methods.List))
+	for _, m := range t.Methods.List {
+		var buf bytes.Buffer
+		if err := printer.Fprint(&buf, fset, m.Type); err != nil {
+			continue
+		}
+		sig := strings.TrimPrefix(buf.String(), "func")
+		for _, n := range m.Names {
+			methods = append(methods, n.Name+sig)
+		}
+	}
+	return fmt.Sprintf("interface %s { %s }", name, strings.Join(methods, "; "))
+}
+
+func formatStructSignature(fset *token.FileSet, name string, t *ast.StructType) string {
+	if t.Fields == nil || len(t.Fields.List) == 0 {
+		return fmt.Sprintf("struct %s {}", name)
+	}
+	fields := make([]string, 0, len(t.Fields.List))
+	for _, f := range t.Fields.List {
+		var buf bytes.Buffer
+		if err := printer.Fprint(&buf, fset, f.Type); err != nil {
+			continue
+		}
+		typStr := buf.String()
+		if len(f.Names) == 0 {
+			fields = append(fields, typStr)
+			continue
+		}
+		for _, n := range f.Names {
+			fields = append(fields, n.Name+" "+typStr)
+		}
+	}
+	return fmt.Sprintf("struct %s { %s }", name, strings.Join(fields, "; "))
 }

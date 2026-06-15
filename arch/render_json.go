@@ -36,8 +36,9 @@ type jsonComponent struct {
 }
 
 type jsonSymbol struct {
-	Name string `json:"name"`
-	Kind string `json:"kind"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Signature string `json:"signature,omitempty"`
 }
 
 type jsonEdge struct {
@@ -68,7 +69,7 @@ func RenderJSON(report *ContextReport) ([]byte, error) {
 			AvgNesting: svc.AvgNesting,
 		}
 		for _, sym := range svc.Symbols {
-			c.Symbols = append(c.Symbols, jsonSymbol{Name: sym.Name, Kind: sym.Kind.String()})
+			c.Symbols = append(c.Symbols, jsonSymbol{Name: sym.Name, Kind: sym.Kind.String(), Signature: sym.Signature})
 		}
 		components = append(components, c)
 	}
@@ -122,7 +123,7 @@ func buildSymbolIndex(report *ContextReport) map[string][]jsonSymbol {
 		var syms []jsonSymbol
 		for _, s := range ns.Symbols {
 			if s.Exported {
-				syms = append(syms, jsonSymbol{Name: s.Name, Kind: s.Kind.String()})
+				syms = append(syms, jsonSymbol{Name: s.Name, Kind: s.Kind.String(), Signature: s.Signature})
 			}
 		}
 		if len(syms) > 0 {

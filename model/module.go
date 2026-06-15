@@ -68,12 +68,21 @@ func (l *Language) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// CrawlStats reports how many symbols were crawled for call hierarchy
+// vs skipped due to budget limits. Nil when no budget was applied.
+type CrawlStats struct {
+	Total   int `json:"total"`
+	Crawled int `json:"crawled"`
+	Skipped int `json:"skipped"`
+}
+
 // Project represents a source code project (module, crate, package, etc.).
 type Project struct {
 	Path            string           `json:"path"`
 	Language        Language         `json:"language,omitempty"`
 	Namespaces      []*Namespace     `json:"namespaces"`
 	DependencyGraph *DependencyGraph `json:"dependency_graph,omitempty"`
+	CrawlStats      *CrawlStats     `json:"crawl_stats,omitempty"`
 }
 
 // NewProject creates a project with the given root path.
@@ -127,6 +136,7 @@ type Symbol struct {
 	Name         string     `json:"name"`
 	Kind         SymbolKind `json:"kind"`
 	Exported     bool       `json:"exported"`
+	Signature    string     `json:"signature,omitempty"`
 	File         string     `json:"file,omitempty"`
 	Line         int        `json:"line,omitempty"`
 	EndLine      int        `json:"end_line,omitempty"`
@@ -259,6 +269,22 @@ func (g *DependencyGraph) AddEdge(from, to string, external bool) {
 	g.Edges = append(g.Edges, DependencyEdge{From: from, To: to, External: external, Weight: 1})
 }
 
+// AddCallEdge records a call-hierarchy dependency. If an import edge already
+// exists between the same namespaces, the edge is upgraded to "call" protocol
+// (call implies import). Otherwise a new "call" edge is created.
+func (g *DependencyGraph) AddCallEdge(from, to string) {
+	for i := range g.Edges {
+		if g.Edges[i].From == from && g.Edges[i].To == to {
+			g.Edges[i].Weight++
+			if g.Edges[i].Protocol == "" || g.Edges[i].Protocol == "import" {
+				g.Edges[i].Protocol = "call"
+			}
+			return
+		}
+	}
+	g.Edges = append(g.Edges, DependencyEdge{From: from, To: to, Protocol: "call", Weight: 1})
+}
+
 // SetEdgeCoupling updates CallSites and LOCSurface for an existing edge.
 func (g *DependencyGraph) SetEdgeCoupling(from, to string, callSites, locSurface int) {
 	for i := range g.Edges {
@@ -289,6 +315,7 @@ type DependencyEdge struct {
 	From       string `json:"from"`
 	To         string `json:"to"`
 	External   bool   `json:"external"`
+	Protocol   string `json:"protocol,omitempty"`
 	Weight     int    `json:"weight,omitempty"`
 	CallSites  int    `json:"call_sites,omitempty"`
 	LOCSurface int    `json:"loc_surface,omitempty"`

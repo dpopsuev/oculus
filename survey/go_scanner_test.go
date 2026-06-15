@@ -3,6 +3,7 @@ package survey_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dpopsuev/oculus/v3/model"
@@ -118,6 +119,17 @@ func helper() {}
 		if s.Exported != tt.exported {
 			t.Errorf("%s.exported = %v, want %v", tt.name, s.Exported, tt.exported)
 		}
+	}
+
+	if s := symMap["NewServer"]; s.Signature == "" {
+		t.Error("NewServer should have a signature")
+	} else if !strings.Contains(s.Signature, "func NewServer()") {
+		t.Errorf("NewServer.Signature = %q, want contains 'func NewServer()'", s.Signature)
+	}
+	if s := symMap["Handler"]; s.Signature == "" {
+		t.Error("Handler should have a signature")
+	} else if !strings.Contains(s.Signature, "Handle()") {
+		t.Errorf("Handler.Signature = %q, want contains 'Handle()'", s.Signature)
 	}
 }
 
