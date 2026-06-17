@@ -1,7 +1,7 @@
 package engine
 
 // Three invariants:
-//   1. sgLoad/sgStore honour sgCacheTTL — stale graphs are evicted on next
+//   1. sgLoad/sgStore honour sgTTL — stale graphs are evicted on next
 //      access; sgStore sweeps stale siblings on every write.
 //   2. getOrScan deduplicates concurrent cold calls for the same (path, sha)
 //      tuple — only one arch.ScanAndBuild runs, PutReport called at most once.
@@ -41,7 +41,7 @@ func TestSgLoad_FreshEntry_Hit(t *testing.T) {
 	}
 }
 
-// TestSgLoad_StaleEntry_Evicted verifies that an entry older than sgCacheTTL
+// TestSgLoad_StaleEntry_Evicted verifies that an entry older than sgTTL
 // is treated as a miss and removed from the map so it can be GC'd.
 func TestSgLoad_StaleEntry_Evicted(t *testing.T) {
 	eng := New(&mockStore{headSHA: "abc"}, nil)
@@ -49,7 +49,7 @@ func TestSgLoad_StaleEntry_Evicted(t *testing.T) {
 
 	// Backdating: write directly to bypass sgStore's "now" timestamp.
 	eng.sgMu.Lock()
-	eng.sgEntries["proj@abc"] = &sgEntry{sg: sg, at: time.Now().Add(-(sgCacheTTL + time.Second))}
+	eng.sgEntries["proj@abc"] = &sgEntry{sg: sg, at: time.Now().Add(-(eng.sgTTL + time.Second))}
 	eng.sgMu.Unlock()
 
 	got, ok := eng.sgLoad("proj@abc")
@@ -85,8 +85,8 @@ func TestSgStore_EvictsStaleEntriesOnWrite(t *testing.T) {
 
 	// Pre-populate: two stale entries that should be swept.
 	eng.sgMu.Lock()
-	eng.sgEntries["stale1@sha"] = &sgEntry{sg: &oculus.SymbolGraph{}, at: time.Now().Add(-(sgCacheTTL + time.Second))}
-	eng.sgEntries["stale2@sha"] = &sgEntry{sg: &oculus.SymbolGraph{}, at: time.Now().Add(-(sgCacheTTL + time.Second))}
+	eng.sgEntries["stale1@sha"] = &sgEntry{sg: &oculus.SymbolGraph{}, at: time.Now().Add(-(eng.sgTTL + time.Second))}
+	eng.sgEntries["stale2@sha"] = &sgEntry{sg: &oculus.SymbolGraph{}, at: time.Now().Add(-(eng.sgTTL + time.Second))}
 	eng.sgMu.Unlock()
 
 	eng.sgStore("fresh@sha", &oculus.SymbolGraph{})

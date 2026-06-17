@@ -81,10 +81,6 @@ type HealthCheckable interface {
 	HistoryDir() string
 }
 
-// sgCacheTTL bounds the lifetime of in-process SymbolGraph objects.
-// Eviction happens on the next Load or Store after the TTL elapses.
-const sgCacheTTL = 30 * time.Minute
-
 // scanBuildTimeout caps the shared arch.ScanAndBuild started by getOrScan.
 // It is longer than any caller deadline so individual callers can time out
 // without cancelling the shared scan mid-way.
@@ -93,6 +89,11 @@ const scanBuildTimeout = 30 * time.Minute
 type sgEntry struct {
 	sg *oculus.SymbolGraph
 	at time.Time
+}
+
+// EngineConfig holds optional configuration for Engine construction.
+type EngineConfig struct {
+	SGCacheTTL time.Duration // 0 → 30m default
 }
 
 // Engine encapsulates all Locus business logic.
@@ -106,6 +107,7 @@ type Engine struct {
 
 	sgMu      sync.Mutex
 	sgEntries map[string]*sgEntry // TTL-bounded; swept on each Store
+	sgTTL     time.Duration       // bounds the lifetime of in-process SymbolGraph objects
 
 	scanSfg singleflight.Group // one arch.ScanAndBuild per (path, sha) at a time
 
@@ -116,10 +118,21 @@ type Engine struct {
 // New creates a Protocol with the given store, workspace roots, and optional
 // LSP connection pool. Pass nil pool for CLI mode (cold-start per request).
 func New(s Store, workspaces []string, pool ...lsp.Pool) *Engine {
+	return NewWithConfig(s, workspaces, EngineConfig{}, pool...)
+}
+
+// NewWithConfig creates an Engine with explicit configuration.
+// SGCacheTTL defaults to 30 minutes when zero.
+func NewWithConfig(s Store, workspaces []string, cfg EngineConfig, pool ...lsp.Pool) *Engine {
+	ttl := cfg.SGCacheTTL
+	if ttl == 0 {
+		ttl = 30 * time.Minute
+	}
 	p := &Engine{
 		db:         s,
 		workspaces: workspaces,
 		sgEntries:  make(map[string]*sgEntry),
+		sgTTL:      ttl,
 	}
 	if len(pool) > 0 {
 		p.pool = pool[0]
@@ -135,11 +148,28 @@ func (p *Engine) sgLoad(key string) (*oculus.SymbolGraph, bool) {
 	if !ok {
 		return nil, false
 	}
-	if time.Since(e.at) > sgCacheTTL {
+	if time.Since(e.at) > p.sgTTL {
 		delete(p.sgEntries, key)
 		return nil, false
 	}
 	return e.sg, true
+}
+
+// SGCacheLen returns the number of entries currently in the symbol graph cache.
+func (p *Engine) SGCacheLen() int {
+	p.sgMu.Lock()
+	defer p.sgMu.Unlock()
+	return len(p.sgEntries)
+}
+
+// SGCacheFlush evicts all entries from the symbol graph cache and returns the
+// number of entries that were removed.
+func (p *Engine) SGCacheFlush() int {
+	p.sgMu.Lock()
+	defer p.sgMu.Unlock()
+	n := len(p.sgEntries)
+	p.sgEntries = make(map[string]*sgEntry)
+	return n
 }
 
 // sgStore adds sg and sweeps all expired entries.
@@ -147,7 +177,7 @@ func (p *Engine) sgStore(key string, sg *oculus.SymbolGraph) {
 	p.sgMu.Lock()
 	defer p.sgMu.Unlock()
 	for k, e := range p.sgEntries {
-		if time.Since(e.at) > sgCacheTTL {
+		if time.Since(e.at) > p.sgTTL {
 			delete(p.sgEntries, k)
 		}
 	}

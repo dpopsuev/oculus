@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,6 +53,14 @@ var defaultLangLimits = map[lang.Language]int{
 	lang.Cpp: 1,
 }
 
+// PoolConfig holds optional overrides for pool tuning.
+// Zero values fall back to package defaults.
+type PoolConfig struct {
+	MaxActive  int
+	TTL        time.Duration
+	LangLimits map[lang.Language]int
+}
+
 // RealPool manages reusable LSP server connections keyed by (language, root).
 // Thread-safe via sync.Mutex. Concurrency bounded by semaphore.
 type RealPool struct {
@@ -67,15 +76,33 @@ type RealPool struct {
 
 // NewPool creates a new connection pool for long-running (serve) mode.
 func NewPool() *RealPool {
-	limits := make(map[lang.Language]int, len(defaultLangLimits))
-	for l, v := range defaultLangLimits {
-		limits[l] = v
+	return NewPoolWithConfig(PoolConfig{})
+}
+
+// NewPoolWithConfig creates a connection pool with explicit overrides.
+// Zero-valued fields fall back to package defaults.
+func NewPoolWithConfig(cfg PoolConfig) *RealPool {
+	maxActive := cfg.MaxActive
+	if maxActive == 0 {
+		maxActive = DefaultMaxActive
 	}
+	ttl := cfg.TTL
+	if ttl == 0 {
+		ttl = DefaultTTL
+	}
+
+	src := cfg.LangLimits
+	if src == nil {
+		src = defaultLangLimits
+	}
+	limits := make(map[lang.Language]int, len(src))
+	maps.Copy(limits, src)
+
 	p := &RealPool{
 		conns:      make(map[poolKey]*poolEntry),
-		ttl:        DefaultTTL,
+		ttl:        ttl,
 		done:       make(chan struct{}),
-		sem:        make(chan struct{}, DefaultMaxActive),
+		sem:        make(chan struct{}, maxActive),
 		langLimits: limits,
 		langActive: make(map[lang.Language]int),
 	}
@@ -104,10 +131,12 @@ func (p *RealPool) reapLoop() {
 	}
 }
 
-func (p *RealPool) reapIdle() {
+// ReapIdle evicts idle or dead entries and returns the number evicted.
+func (p *RealPool) ReapIdle() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	count := 0
 	now := time.Now()
 	for key, entry := range p.conns {
 		if entry.dead.Load() || now.Sub(entry.lastUsed) > p.ttl {
@@ -121,8 +150,26 @@ func (p *RealPool) reapIdle() {
 			if p.langActive[key.lang] > 0 {
 				p.langActive[key.lang]--
 			}
+			count++
 		}
 	}
+	return count
+}
+
+func (p *RealPool) reapIdle() { p.ReapIdle() }
+
+// PIDs returns the OS process IDs of all live LSP server processes.
+func (p *RealPool) PIDs() []int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	var pids []int
+	for _, entry := range p.conns {
+		if !entry.dead.Load() && entry.cmd.Process != nil {
+			pids = append(pids, entry.cmd.Process.Pid)
+		}
+	}
+	return pids
 }
 
 // Get returns a warm LSP client for the given language and workspace root.
