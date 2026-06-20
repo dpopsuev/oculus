@@ -12,17 +12,33 @@ import "context"
 //	    return oculus.NewFuncIndexSource(parsePythonFunctions(root))
 //	})
 type FuncIndexSource struct {
-	funcs []Symbol
-	index map[string]*Symbol // keyed by function name
+	funcs       []Symbol
+	index       map[string]*Symbol   // keyed by function name (legacy, kept for Roots)
+	resolver    *CallResolver
+	fileImports map[string][]string  // file path → imported module paths
 }
 
+// FileImports maps source file paths to their import module paths.
+// Pass to NewFuncIndexSource to enable import-aware call resolution.
+type FileImports map[string][]string
+
 // NewFuncIndexSource creates a SymbolSource from a parsed function list.
-func NewFuncIndexSource(funcs []Symbol) *FuncIndexSource {
+// Optional FileImports enables the import_map resolution strategy.
+func NewFuncIndexSource(funcs []Symbol, imports ...FileImports) *FuncIndexSource {
 	idx := make(map[string]*Symbol, len(funcs))
 	for i := range funcs {
 		idx[funcs[i].Name] = &funcs[i]
 	}
-	return &FuncIndexSource{funcs: funcs, index: idx}
+	var fi map[string][]string
+	if len(imports) > 0 && imports[0] != nil {
+		fi = imports[0]
+	}
+	return &FuncIndexSource{
+		funcs:       funcs,
+		index:       idx,
+		resolver:    NewCallResolver(funcs),
+		fileImports: fi,
+	}
 }
 
 var _ SymbolSource = (*FuncIndexSource)(nil)
@@ -61,27 +77,35 @@ func (s *FuncIndexSource) Children(_ context.Context, sym Symbol) ([]SourceRelat
 			return nil, nil
 		}
 	}
+
+	var imports []string
+	if s.fileImports != nil {
+		imports = s.fileImports[fn.File]
+	}
+
 	var rels []SourceRelation
 	for _, callee := range fn.Callees {
-		cf, ok := s.index[callee]
-		if !ok {
+		res := s.resolver.Resolve(callee, fn.Package, fn.File, imports)
+		if res.Symbol == nil {
 			continue
 		}
 		rels = append(rels, SourceRelation{
-			Target:      s.toSymbol(cf),
+			Target:      s.toSymbol(res.Symbol),
 			Kind:        "call",
 			InWorkspace: true,
+			Confidence:  res.Confidence,
 		})
 	}
 	for callee, kind := range fn.AsyncCallees {
-		cf, ok := s.index[callee]
-		if !ok {
+		res := s.resolver.Resolve(callee, fn.Package, fn.File, imports)
+		if res.Symbol == nil {
 			continue
 		}
 		rels = append(rels, SourceRelation{
-			Target:      s.toSymbol(cf),
+			Target:      s.toSymbol(res.Symbol),
 			Kind:        kind,
 			InWorkspace: true,
+			Confidence:  res.Confidence,
 		})
 	}
 	return rels, nil

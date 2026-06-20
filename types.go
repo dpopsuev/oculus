@@ -149,6 +149,8 @@ type CallEdge struct {
 	// Populated by the LSP deep analyzer from fromRanges; used by asyncContextAt.
 	SiteLine int `json:"site_line,omitempty"`
 	SiteCol  int `json:"site_col,omitempty"`
+	// Confidence is the resolution confidence (0.0–1.0) from the call resolver.
+	Confidence float64 `json:"confidence,omitempty"`
 }
 
 // Symbol is the canonical representation of any code symbol.

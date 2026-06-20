@@ -20,7 +20,7 @@ func init() {
 		if len(funcs) == 0 {
 			return nil
 		}
-		return oculus.NewFuncIndexSource(funcs)
+		return oculus.NewFuncIndexSource(funcs, ExtractFileImports(root))
 	})
 }
 

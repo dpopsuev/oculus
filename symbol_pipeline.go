@@ -134,6 +134,7 @@ func (p *SymbolPipeline) CallGraph(ctx context.Context, _ string, opts CallGraph
 				ParamTypes:  paramTypes,
 				ReturnTypes: returnTypes,
 				Kind:        rel.Kind,
+				Confidence:  rel.Confidence,
 			})
 			mu.Unlock()
 
