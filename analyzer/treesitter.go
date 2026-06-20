@@ -22,12 +22,14 @@ var ErrUnsupportedLanguage = errors.New("tree-sitter: unsupported language")
 // with tree-sitter grammars. Accuracy is ~70% (syntactic, not semantic).
 // Parsed ASTs are cached per root to avoid re-parsing across method calls.
 type TreeSitterAnalyzer struct {
-	mu     sync.Mutex
-	cached map[string][]parsedGoFile // root → parsed files
+	mu         sync.Mutex
+	cachedGo   map[string][]parsedFile // root → parsed Go files
+	cachedRust map[string][]parsedFile // root → parsed Rust files
+	cachedPy   map[string][]parsedFile // root → parsed Python files
 }
 
-// parsedGoFile holds a cached tree-sitter parse result.
-type parsedGoFile struct {
+// parsedFile holds a cached tree-sitter parse result for any language.
+type parsedFile struct {
 	tree ts.Tree
 	src  []byte
 	pkg  string
@@ -39,6 +41,10 @@ func (a *TreeSitterAnalyzer) Classes(ctx context.Context, root string) ([]oculus
 	switch lang {
 	case olang.Go:
 		return a.goClasses(root)
+	case olang.Rust:
+		return a.rustClasses(root)
+	case olang.Python:
+		return a.pythonClasses(root)
 	default:
 		return nil, fmt.Errorf("%w: %v (classes)", ErrUnsupportedLanguage, lang)
 	}
@@ -49,6 +55,10 @@ func (a *TreeSitterAnalyzer) Implements(ctx context.Context, root string) ([]ocu
 	switch lang {
 	case olang.Go:
 		return a.goImplements(root)
+	case olang.Rust:
+		return a.rustImplements(root)
+	case olang.Python:
+		return a.pythonImplements(root)
 	default:
 		return nil, fmt.Errorf("%w: %v (implements)", ErrUnsupportedLanguage, lang)
 	}
@@ -442,17 +452,15 @@ func (a *TreeSitterAnalyzer) walkGoFiles(root string, fn func(ts.Tree, []byte, s
 	return nil
 }
 
-// parseGoFiles returns cached parsed Go files for a root directory.
-// First call parses all files; subsequent calls return the cache.
-func (a *TreeSitterAnalyzer) parseGoFiles(root string) ([]parsedGoFile, error) {
+func (a *TreeSitterAnalyzer) parseGoFiles(root string) ([]parsedFile, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
 
 	a.mu.Lock()
-	if a.cached != nil {
-		if files, ok := a.cached[absRoot]; ok {
+	if a.cachedGo != nil {
+		if files, ok := a.cachedGo[absRoot]; ok {
 			a.mu.Unlock()
 			return files, nil
 		}
@@ -462,7 +470,7 @@ func (a *TreeSitterAnalyzer) parseGoFiles(root string) ([]parsedGoFile, error) {
 	parser := ts.NewParser()
 	parser.SetLanguage(ts.Go())
 
-	var files []parsedGoFile
+	var files []parsedFile
 	err = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -494,7 +502,7 @@ func (a *TreeSitterAnalyzer) parseGoFiles(root string) ([]parsedGoFile, error) {
 			pkg = pkgRoot
 		}
 		pkg = filepath.ToSlash(pkg)
-		files = append(files, parsedGoFile{tree: tree, src: src, pkg: pkg, file: rel})
+		files = append(files, parsedFile{tree: tree, src: src, pkg: pkg, file: rel})
 		return nil
 	})
 	if err != nil {
@@ -502,10 +510,10 @@ func (a *TreeSitterAnalyzer) parseGoFiles(root string) ([]parsedGoFile, error) {
 	}
 
 	a.mu.Lock()
-	if a.cached == nil {
-		a.cached = make(map[string][]parsedGoFile)
+	if a.cachedGo == nil {
+		a.cachedGo = make(map[string][]parsedFile)
 	}
-	a.cached[absRoot] = files
+	a.cachedGo[absRoot] = files
 	a.mu.Unlock()
 
 	return files, nil
