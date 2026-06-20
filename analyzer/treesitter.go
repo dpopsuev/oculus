@@ -26,6 +26,7 @@ type TreeSitterAnalyzer struct {
 	cachedGo   map[string][]parsedFile // root → parsed Go files
 	cachedRust map[string][]parsedFile // root → parsed Rust files
 	cachedPy   map[string][]parsedFile // root → parsed Python files
+	cachedTS   map[string][]parsedFile // root → parsed TypeScript files
 }
 
 // parsedFile holds a cached tree-sitter parse result for any language.
@@ -45,6 +46,8 @@ func (a *TreeSitterAnalyzer) Classes(ctx context.Context, root string) ([]oculus
 		return a.rustClasses(root)
 	case olang.Python:
 		return a.pythonClasses(root)
+	case olang.TypeScript:
+		return a.tsClasses(root)
 	default:
 		return nil, fmt.Errorf("%w: %v (classes)", ErrUnsupportedLanguage, lang)
 	}
@@ -59,6 +62,8 @@ func (a *TreeSitterAnalyzer) Implements(ctx context.Context, root string) ([]ocu
 		return a.rustImplements(root)
 	case olang.Python:
 		return a.pythonImplements(root)
+	case olang.TypeScript:
+		return a.tsImplements(root)
 	default:
 		return nil, fmt.Errorf("%w: %v (implements)", ErrUnsupportedLanguage, lang)
 	}
