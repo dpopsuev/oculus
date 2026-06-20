@@ -32,25 +32,27 @@ func ParseTreeSitterFunctions(root string) []oculus.Symbol {
 
 	var funcs []oculus.Symbol
 	for key, fd := range allFuncs {
-		// Pre-extract callees from tree-sitter AST (single-threaded).
 		var callees []string
+		callArgs := make(map[string][]string)
 		seen := make(map[string]bool)
-		extractCalls(fd.body, fd.src, func(callee string, _ int) {
+		extractCallsWithArgs(fd.body, fd.src, func(callee string, _ int, args []string) {
 			calleeKey, _ := resolveCallee(callee, fd.pkg, allFuncs)
 			if _, found := allFuncs[calleeKey]; found && !seen[callee] {
 				seen[callee] = true
 				callees = append(callees, callee)
+				if len(args) > 0 {
+					callArgs[callee] = args
+				}
 			}
 		})
 
 		exported := isExported(fd.name)
-		// Strip "pkg." prefix from key for the name if present.
 		name := fd.name
 		if dot := strings.LastIndex(key, "."); dot >= 0 && key[dot+1:] == name {
 			// name is already just the function name
 		}
 
-		funcs = append(funcs, oculus.Symbol{
+		sym := oculus.Symbol{
 			Name:        name,
 			Package:     fd.pkg,
 			File:        fd.file,
@@ -60,7 +62,11 @@ func ParseTreeSitterFunctions(root string) []oculus.Symbol {
 			ReturnTypes: fd.returnTypes,
 			Callees:     callees,
 			Exported:    exported,
-		})
+		}
+		if len(callArgs) > 0 {
+			sym.CallArgs = callArgs
+		}
+		funcs = append(funcs, sym)
 	}
 	return funcs
 }

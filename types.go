@@ -150,7 +150,8 @@ type CallEdge struct {
 	SiteLine int `json:"site_line,omitempty"`
 	SiteCol  int `json:"site_col,omitempty"`
 	// Confidence is the resolution confidence (0.0–1.0) from the call resolver.
-	Confidence float64 `json:"confidence,omitempty"`
+	Confidence float64   `json:"confidence,omitempty"`
+	Args       []CallArg `json:"args,omitempty"` // argument→parameter bindings
 }
 
 // Symbol is the canonical representation of any code symbol.
@@ -178,6 +179,10 @@ type Symbol struct {
 	// channel_send, channel_recv, await_call, promise_chain, task_spawn).
 	// Regular synchronous calls stay in Callees.
 	AsyncCallees map[string]string `json:"async_callees,omitempty"`
+
+	// CallArgs maps callee name → argument expressions at the call site.
+	// Populated by tree-sitter extractors for data flow analysis.
+	CallArgs map[string][]string `json:"call_args,omitempty"`
 
 	// Handle for source-specific opaque data (LSP callHierarchyItem, GoAST *ast.FuncDecl)
 	Handle any `json:"-"`
@@ -258,6 +263,14 @@ type ConventionReport struct {
 }
 
 
+// CallArg describes an argument-to-parameter binding at a call site.
+type CallArg struct {
+	Index     int    `json:"index"`                // 0-based argument position
+	Value     string `json:"value"`                // argument expression text
+	ParamName string `json:"param_name,omitempty"` // formal parameter name (if known)
+	FieldPath string `json:"field_path,omitempty"` // dotted path for struct field access (e.g. "req.Body")
+}
+
 // SymbolEdge represents a typed, directed relationship between two symbols.
 // Satisfies graph.Edge via Source()/Target().
 type SymbolEdge struct {
@@ -269,8 +282,9 @@ type SymbolEdge struct {
 	EndLine     int      `json:"end_line,omitempty"`
 	ParamTypes  []string `json:"param_types,omitempty"`
 	ReturnTypes []string `json:"return_types,omitempty"`
-	Weight float64 `json:"weight,omitempty"`
-	Layer  string  `json:"layer,omitempty"` // analysis layer: "goast", "treesitter", "lsp", "regex"
+	Args    []CallArg `json:"args,omitempty"` // argument→parameter bindings (call edges only)
+	Weight  float64   `json:"weight,omitempty"`
+	Layer   string    `json:"layer,omitempty"` // analysis layer: "goast", "treesitter", "lsp", "regex"
 }
 
 // Source implements graph.Edge.

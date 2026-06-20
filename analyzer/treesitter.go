@@ -685,6 +685,58 @@ func extractGoFuncResultTypes(funcNode ts.Node, src []byte) []string {
 	return extractGoFuncParamTypes(resultNode, src)
 }
 
+func extractCallsWithArgs(node ts.Node, src []byte, emit func(callee string, line int, args []string)) {
+	if node == nil {
+		return
+	}
+	if node.Type() == "call_expression" {
+		fn := node.ChildByFieldName("function")
+		if fn != nil {
+			callee := fn.Content(src)
+			if idx := strings.LastIndex(callee, "."); idx >= 0 {
+				callee = callee[idx+1:]
+			}
+			var args []string
+			if argsNode := node.ChildByFieldName("arguments"); argsNode != nil {
+				args = extractArgExprs(argsNode, src)
+			}
+			emit(callee, int(fn.StartPoint().Row)+1, args)
+		}
+	}
+	if node.Type() == "composite_literal" {
+		typeNode := node.ChildByFieldName("type")
+		if typeNode != nil {
+			name := typeNode.Content(src)
+			if idx := strings.LastIndex(name, "."); idx >= 0 {
+				name = name[idx+1:]
+			}
+			if name != "" {
+				emit(name, int(typeNode.StartPoint().Row)+1, nil)
+			}
+		}
+	}
+	for i := 0; i < int(node.ChildCount()); i++ {
+		extractCallsWithArgs(node.Child(i), src, emit)
+	}
+}
+
+// extractArgExprs returns the text of each argument in an argument_list node.
+func extractArgExprs(argsNode ts.Node, src []byte) []string {
+	var args []string
+	for i := 0; i < int(argsNode.ChildCount()); i++ {
+		child := argsNode.Child(i)
+		if !child.IsNamed() {
+			continue
+		}
+		expr := child.Content(src)
+		if len(expr) > 80 {
+			expr = expr[:80] + "…"
+		}
+		args = append(args, expr)
+	}
+	return args
+}
+
 func extractCalls(node ts.Node, src []byte, emit func(callee string, line int)) {
 	if node == nil {
 		return

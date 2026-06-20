@@ -1,6 +1,9 @@
 package oculus
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // FuncIndexSource implements SymbolSource from a pre-parsed function index.
 // Any language that can produce []Symbol gets SymbolSource + DeepAnalyzer
@@ -89,24 +92,32 @@ func (s *FuncIndexSource) Children(_ context.Context, sym Symbol) ([]SourceRelat
 		if res.Symbol == nil {
 			continue
 		}
-		rels = append(rels, SourceRelation{
+		rel := SourceRelation{
 			Target:      s.toSymbol(res.Symbol),
 			Kind:        "call",
 			InWorkspace: true,
 			Confidence:  res.Confidence,
-		})
+		}
+		if argExprs := fn.CallArgs[callee]; len(argExprs) > 0 {
+			rel.Args = bindArgs(argExprs, res.Symbol.ParamTypes)
+		}
+		rels = append(rels, rel)
 	}
 	for callee, kind := range fn.AsyncCallees {
 		res := s.resolver.Resolve(callee, fn.Package, fn.File, imports)
 		if res.Symbol == nil {
 			continue
 		}
-		rels = append(rels, SourceRelation{
+		rel := SourceRelation{
 			Target:      s.toSymbol(res.Symbol),
 			Kind:        kind,
 			InWorkspace: true,
 			Confidence:  res.Confidence,
-		})
+		}
+		if argExprs := fn.CallArgs[callee]; len(argExprs) > 0 {
+			rel.Args = bindArgs(argExprs, res.Symbol.ParamTypes)
+		}
+		rels = append(rels, rel)
 	}
 	return rels, nil
 }
@@ -126,6 +137,29 @@ func (s *FuncIndexSource) Hover(_ context.Context, sym Symbol) (*SourceTypeInfo,
 		ParamTypes:  fn.ParamTypes,
 		ReturnTypes: fn.ReturnTypes,
 	}, nil
+}
+
+// bindArgs creates CallArg bindings from argument expressions and parameter types.
+func bindArgs(argExprs, paramTypes []string) []CallArg {
+	n := len(argExprs)
+	if len(paramTypes) < n {
+		n = len(paramTypes)
+	}
+	if n == 0 {
+		return nil
+	}
+	args := make([]CallArg, n)
+	for i := 0; i < n; i++ {
+		args[i] = CallArg{
+			Index:     i,
+			Value:     argExprs[i],
+			ParamName: paramTypes[i],
+		}
+		if strings.Contains(argExprs[i], ".") {
+			args[i].FieldPath = argExprs[i]
+		}
+	}
+	return args
 }
 
 func (s *FuncIndexSource) toSymbol(fn *Symbol) Symbol {

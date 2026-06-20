@@ -26,10 +26,11 @@ type SymbolSource interface {
 
 // SourceRelation represents a directed relationship between two symbols.
 type SourceRelation struct {
-	Target      Symbol  `json:"target"`
-	Kind        string  `json:"kind"` // "call", "data_store", "reference"
-	InWorkspace bool    `json:"in_workspace"`
-	Confidence  float64 `json:"confidence,omitempty"` // 0.0–1.0 resolution confidence
+	Target      Symbol    `json:"target"`
+	Kind        string    `json:"kind"` // "call", "data_store", "reference"
+	InWorkspace bool      `json:"in_workspace"`
+	Confidence  float64   `json:"confidence,omitempty"` // 0.0–1.0 resolution confidence
+	Args        []CallArg `json:"args,omitempty"`       // argument→parameter bindings
 }
 
 // SourceTypeInfo holds resolved type information for a symbol.
