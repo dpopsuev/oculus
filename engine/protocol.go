@@ -1319,6 +1319,7 @@ const DefaultMeshTimeout = 60 * time.Second
 // SymbolGraphOpts configures GetSymbolGraph behavior.
 type SymbolGraphOpts struct {
 	OnProgress func(oculus.ProgressUpdate) // optional progress callback
+	Quick      bool                        // tree-sitter only, skip LSP — always completes fast
 }
 
 // call graph, type hierarchy, and field reference data.
@@ -1338,7 +1339,13 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 		}
 	}
 
-	da := analyzer.CachedDeepFallback(path, p.pool)
+	quick := len(opts) > 0 && opts[0].Quick
+	var pool lsp.Pool
+	if !quick {
+		pool = p.pool
+	}
+
+	da := analyzer.CachedDeepFallback(path, pool)
 
 	cgOpts := oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth}
 	if len(opts) > 0 && opts[0].OnProgress != nil {
@@ -1353,12 +1360,13 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 	slog.LogAttrs(ctx, slog.LevelDebug, "mesh: call_graph",
 		slog.Duration("duration", time.Since(start)),
 		slog.Int("edges", len(cg.Edges)),
+		slog.Bool("quick", quick),
 	)
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("symbol graph: %w", ctx.Err())
 	}
 
-	fa := analyzer.NewFallback(path, p.pool)
+	fa := analyzer.NewFallback(path, pool)
 
 	start = time.Now()
 	var classes []oculus.ClassInfo
