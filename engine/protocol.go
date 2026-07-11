@@ -2600,9 +2600,16 @@ func (p *Engine) QueryBook(keywords []string, hops int) (*book.BookResult, error
 
 // --- Symbol primitives ---
 
+// symbolGraphQuick is the SymbolGraphOpts used by probe/scenario/callers.
+// Full LSP CallGraph can balloon RSS on large Go repos (dogfood: 27GB on
+// oculus) and miss the MCP analysis deadline. Quick (tree-sitter/GoAST) is
+// fast and good enough for agent navigation; warm+full remains available
+// via GetSymbolGraph without Quick.
+var symbolGraphQuick = SymbolGraphOpts{Quick: true}
+
 // ProbeSymbol returns all vitals for a single symbol.
 func (p *Engine) ProbeSymbol(ctx context.Context, path, symbol string) (*oculus.ProbeResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path)
+	sg, err := p.GetSymbolGraph(ctx, path, symbolGraphQuick)
 	if err != nil {
 		return nil, err
 	}
@@ -2611,7 +2618,7 @@ func (p *Engine) ProbeSymbol(ctx context.Context, path, symbol string) (*oculus.
 
 // GetScenario traces a symbol upstream to entry points and downstream to leaves.
 func (p *Engine) GetScenario(ctx context.Context, path, symbol string, depth int, stress bool) (*oculus.ScenarioResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path)
+	sg, err := p.GetSymbolGraph(ctx, path, symbolGraphQuick)
 	if err != nil {
 		return nil, err
 	}
@@ -2620,7 +2627,7 @@ func (p *Engine) GetScenario(ctx context.Context, path, symbol string, depth int
 
 // GetConvergence finds where N symbols' downstream call trees overlap.
 func (p *Engine) GetConvergence(ctx context.Context, path string, symbols []string) (*oculus.ConvergenceResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path)
+	sg, err := p.GetSymbolGraph(ctx, path, symbolGraphQuick)
 	if err != nil {
 		return nil, err
 	}
@@ -2629,7 +2636,7 @@ func (p *Engine) GetConvergence(ctx context.Context, path string, symbols []stri
 
 // IsolateSymbol removes a symbol and reports what disconnects.
 func (p *Engine) IsolateSymbol(ctx context.Context, path, symbol string) (*oculus.IsolateResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path)
+	sg, err := p.GetSymbolGraph(ctx, path, symbolGraphQuick)
 	if err != nil {
 		return nil, err
 	}
@@ -2638,7 +2645,7 @@ func (p *Engine) IsolateSymbol(ctx context.Context, path, symbol string) (*oculu
 
 // FindIslands identifies symbols unreachable from declared entry points.
 func (p *Engine) FindIslands(ctx context.Context, path string, entryPoints []string) (*oculus.IslandResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path)
+	sg, err := p.GetSymbolGraph(ctx, path, symbolGraphQuick)
 	if err != nil {
 		return nil, err
 	}
@@ -2647,7 +2654,7 @@ func (p *Engine) FindIslands(ctx context.Context, path string, entryPoints []str
 
 // Diagnose probes a symbol and queries the Book with signal-derived keywords.
 func (p *Engine) Diagnose(ctx context.Context, path, symbol string) (*oculus.DiagnoseResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path)
+	sg, err := p.GetSymbolGraph(ctx, path, symbolGraphQuick)
 	if err != nil {
 		return nil, err
 	}
