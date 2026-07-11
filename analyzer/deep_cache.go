@@ -11,19 +11,24 @@ import (
 var deepCache sync.Map // key: "path@sha" → *DeepFallbackAnalyzer
 
 // CachedDeepFallback returns a cached DeepFallbackAnalyzer for the given path.
-// The cache key is (path, HEAD SHA) — a new commit invalidates the cache.
+// The cache key is (path, HEAD SHA, poolPresence) — a new commit or switching
+// between Quick (nil pool) and full (pooled) must not reuse the wrong analyzer.
 func CachedDeepFallback(path string, pool ...lsp.Pool) *DeepFallbackAnalyzer {
 	sha := resolveHead(path)
-	key := path + "@" + sha
+	var p lsp.Pool
+	if len(pool) > 0 {
+		p = pool[0]
+	}
+	poolTag := "nopool"
+	if p != nil {
+		poolTag = "pool"
+	}
+	key := path + "@" + sha + "-" + poolTag
 
 	if cached, ok := deepCache.Load(key); ok {
 		return cached.(*DeepFallbackAnalyzer)
 	}
 
-	var p lsp.Pool
-	if len(pool) > 0 {
-		p = pool[0]
-	}
 	da := NewDeepFallback(path, p)
 	deepCache.Store(key, da)
 	return da

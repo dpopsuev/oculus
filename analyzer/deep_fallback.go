@@ -88,6 +88,11 @@ func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts 
 	if detectedLang == lang.TypeScript || detectedLang == lang.JavaScript {
 		minQuality = QualityTreeSitter
 	}
+	// Quick mode / nil pool: accept GoAST/tree-sitter so probes complete
+	// without waiting on gopls. Full mode keeps QualityLSP.
+	if f.pool == nil {
+		minQuality = QualityTreeSitter
+	}
 
 	racer := NewRacer(func(cg *oculus.CallGraph) bool {
 		return cg == nil || len(cg.Edges) == 0

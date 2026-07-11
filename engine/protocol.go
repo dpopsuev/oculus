@@ -1315,9 +1315,14 @@ func (p *Engine) DetectStateMachines(ctx context.Context, path string, cacheKey 
 
 // GetSymbolGraph builds a unified symbol-level dependency graph by merging
 // DefaultMeshTimeout is the maximum time for GetMesh/GetSymbolGraph when the
-// caller context has no deadline. Aligned with MCP analysisTimeout (5m) and
-// analyzer perAnalyzerTimeout so cold gopls indexing is not cut off at 60s.
+// caller context has no deadline. Aligned with MCP analysisTimeout (5m).
 const DefaultMeshTimeout = 5 * time.Minute
+
+// DefaultLSPAttemptBudget caps the first (LSP-preferring) call-graph attempt
+// before degrading to Quick. Must leave room inside DefaultMeshTimeout /
+// MCP analysisTimeout for the Quick fallback — otherwise probe returns
+// deadline exceeded before degrade can run.
+const DefaultLSPAttemptBudget = 90 * time.Second
 
 // SymbolGraphOpts configures GetSymbolGraph behavior.
 type SymbolGraphOpts struct {
@@ -1406,20 +1411,33 @@ func (p *Engine) buildSymbolGraph(ctx context.Context, path, sha, cacheKey strin
 		cgOpts.OnProgress = onProgress
 	}
 
+	callCtx := ctx
+	var lspCancel context.CancelFunc
+	if !quick {
+		budget := DefaultLSPAttemptBudget
+		if dl, ok := ctx.Deadline(); ok {
+			rem := time.Until(dl)
+			// Leave headroom for Quick degrade inside the parent budget.
+			const quickHeadroom = 45 * time.Second
+			if rem > quickHeadroom && rem-quickHeadroom < budget {
+				budget = rem - quickHeadroom
+			}
+			if budget < 15*time.Second {
+				budget = 15 * time.Second
+			}
+		}
+		callCtx, lspCancel = context.WithTimeout(ctx, budget)
+		defer lspCancel()
+	}
+
 	start := time.Now()
-	cg, err := da.CallGraph(ctx, path, cgOpts)
-	if err != nil && !quick && shouldDegradeSymbolGraph(err, ctx) {
+	cg, err := da.CallGraph(callCtx, path, cgOpts)
+	if err != nil && !quick && shouldDegradeSymbolGraph(err, callCtx) {
 		slog.LogAttrs(ctx, slog.LevelWarn, "mesh: call_graph failed, degrading to Quick",
 			slog.Duration("elapsed", time.Since(start)),
 			slog.Any("error", err),
 		)
-		quickKey := path + "-quick"
-		if sha != "" {
-			quickKey = path + "@" + sha + "-quick"
-		}
-		qCtx, qCancel := context.WithTimeout(context.Background(), DefaultMeshTimeout)
-		defer qCancel()
-		return p.buildSymbolGraph(qCtx, path, sha, quickKey, true, onProgress)
+		return p.degradeToQuickSymbolGraph(path, sha, onProgress)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("call graph: %w", err)
@@ -1429,15 +1447,9 @@ func (p *Engine) buildSymbolGraph(ctx context.Context, path, sha, cacheKey strin
 		slog.Int("edges", len(cg.Edges)),
 		slog.Bool("quick", quick),
 	)
-	if ctx.Err() != nil && !quick {
+	if (ctx.Err() != nil || callCtx.Err() != nil) && !quick {
 		slog.LogAttrs(ctx, slog.LevelWarn, "mesh: deadline during call_graph, degrading to Quick")
-		quickKey := path + "-quick"
-		if sha != "" {
-			quickKey = path + "@" + sha + "-quick"
-		}
-		qCtx, qCancel := context.WithTimeout(context.Background(), DefaultMeshTimeout)
-		defer qCancel()
-		return p.buildSymbolGraph(qCtx, path, sha, quickKey, true, onProgress)
+		return p.degradeToQuickSymbolGraph(path, sha, onProgress)
 	}
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("symbol graph: %w", ctx.Err())
@@ -1475,6 +1487,26 @@ func (p *Engine) buildSymbolGraph(ctx context.Context, path, sha, cacheKey strin
 		p.sgStore(cacheKey, sg)
 	}
 
+	return sg, nil
+}
+
+// degradeToQuickSymbolGraph builds a tree-sitter graph and caches it under both
+// the -quick key and the full key so subsequent probes do not re-burn the LSP budget.
+func (p *Engine) degradeToQuickSymbolGraph(path, sha string, onProgress func(oculus.ProgressUpdate)) (*oculus.SymbolGraph, error) {
+	quickKey := path + "-quick"
+	if sha != "" {
+		quickKey = path + "@" + sha + "-quick"
+	}
+	qCtx, qCancel := context.WithTimeout(context.Background(), DefaultMeshTimeout)
+	defer qCancel()
+	sg, err := p.buildSymbolGraph(qCtx, path, sha, quickKey, true, onProgress)
+	if err != nil {
+		return nil, err
+	}
+	if sha != "" {
+		// Also fill the full key so non-Quick callers hit cache immediately.
+		p.sgStore(path+"@"+sha, sg)
+	}
 	return sg, nil
 }
 

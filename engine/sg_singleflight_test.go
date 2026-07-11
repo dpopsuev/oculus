@@ -17,6 +17,12 @@ func TestGetSymbolGraph_DefaultTimeoutRaised(t *testing.T) {
 	if DefaultMeshTimeout < 5*time.Minute {
 		t.Fatalf("DefaultMeshTimeout = %v, want ≥ 5m", DefaultMeshTimeout)
 	}
+	if DefaultLSPAttemptBudget <= 0 || DefaultLSPAttemptBudget >= DefaultMeshTimeout {
+		t.Fatalf("DefaultLSPAttemptBudget = %v, want (0, DefaultMeshTimeout)", DefaultLSPAttemptBudget)
+	}
+	if DefaultMeshTimeout-DefaultLSPAttemptBudget < 45*time.Second {
+		t.Fatalf("no headroom for Quick degrade: mesh=%v lsp=%v", DefaultMeshTimeout, DefaultLSPAttemptBudget)
+	}
 }
 
 // TestSgStore_QuickKeySeparate ensures Quick graphs do not overwrite full keys.
