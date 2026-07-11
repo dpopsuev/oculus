@@ -90,6 +90,8 @@ const (
 	MinChurnHotSpot = 5
 	// MinNestingHotSpot is the minimum nesting depth for a hot spot.
 	MinNestingHotSpot = 4
+	// MinFanInHubAlone is fan-in high enough to qualify without nesting/churn.
+	MinFanInHubAlone = 5
 	// DefaultGroupingDepth is the default component grouping depth.
 	DefaultGroupingDepth = 2
 	// MaxDepthSearch is the max depth evaluated for suggested depth.
@@ -187,6 +189,8 @@ func ScanAndBuild(ctx context.Context, root string, opts ScanOpts) (*ContextRepo
 	}
 
 	// --- L1: coupling ---
+	// HotSpots computed after L2 when nesting is available; at L1-only we
+	// compute with whatever nesting is present (usually 0).
 	spots := computeHotSpots(archModel)
 	if spots == nil {
 		spots = []HotSpot{}
@@ -235,6 +239,12 @@ func ScanAndBuild(ctx context.Context, root string, opts ScanOpts) (*ContextRepo
 
 	// --- L2: health (churn, nesting, git history) ---
 	runL2Health(ctx, root, modPath, opts, &archModel, report)
+	// Nesting is applied inside runL2Health — recompute so structural hubs qualify.
+	spots = computeHotSpots(archModel)
+	if spots == nil {
+		spots = []HotSpot{}
+	}
+	report.HotSpots = spots
 
 	if level < 3 {
 		return report, nil
@@ -385,20 +395,15 @@ func computeHotSpots(m ArchModel) []HotSpot {
 	for i := range m.Services {
 		s := &m.Services[i]
 		fi := fanIn[s.Name]
-		// A component qualifies as a hot spot under either of two conditions:
-		//   (a) Churn risk: it changes frequently (churn ≥ MinChurnHotSpot),
-		//       regardless of fan-in. A frequently-modified component is risky
-		//       even if only one other package imports it.
-		//   (b) Structural complexity: it is a hub (fan-in ≥ MinFanInHotSpot)
-		//       AND has deep logic (nesting ≥ MinNestingHotSpot). High fan-in
-		//       alone is not a problem; deep nesting in a hub is.
-		//
-		// The previous AND-only condition (fan-in AND (churn OR nesting)) was
-		// too strict for small-to-medium repos where churn and structural
-		// centrality rarely co-occur in the same package (LCS-BUG-74).
+		// A component qualifies as a hot spot under any of:
+		//   (a) Churn risk: changes frequently (churn ≥ MinChurnHotSpot).
+		//   (b) Structural complexity: hub (fan-in ≥ MinFanInHotSpot) AND
+		//       deep logic (nesting ≥ MinNestingHotSpot).
+		//   (c) Central hub: very high fan-in alone (fan-in ≥ MinFanInHubAlone).
 		isChurnHot := s.Churn >= MinChurnHotSpot
 		isStructuralRisk := fi >= MinFanInHotSpot && s.MaxNesting >= MinNestingHotSpot
-		if isChurnHot || isStructuralRisk {
+		isCentralHub := fi >= MinFanInHubAlone
+		if isChurnHot || isStructuralRisk || isCentralHub {
 			spots = append(spots, HotSpot{
 				Component: s.Name,
 				FanIn:     fi,

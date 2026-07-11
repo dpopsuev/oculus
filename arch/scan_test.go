@@ -128,7 +128,7 @@ func TestComputeHotSpots(t *testing.T) {
 			wantNames: []string{"hub"},
 		},
 		{
-			name: "high_fanin_without_nesting_does_not_qualify",
+			name: "moderate_fanin_without_nesting_does_not_qualify",
 			services: []ArchService{
 				{Name: "hub", MaxNesting: MinNestingHotSpot - 1, Churn: MinChurnHotSpot - 1},
 			},
@@ -138,6 +138,20 @@ func TestComputeHotSpots(t *testing.T) {
 				{From: "c", To: "hub"},
 			},
 			wantNames: nil,
+		},
+		{
+			name: "central_hub_fanin_alone_qualifies",
+			services: []ArchService{
+				{Name: "core", MaxNesting: 0, Churn: 0},
+			},
+			edges: []ArchEdge{
+				{From: "a", To: "core"},
+				{From: "b", To: "core"},
+				{From: "c", To: "core"},
+				{From: "d", To: "core"},
+				{From: "e", To: "core"},
+			},
+			wantNames: []string{"core"},
 		},
 		{
 			name:      "nothing_qualifies",

@@ -6,6 +6,7 @@ import (
 	"github.com/dpopsuev/oculus/v3/analyzer"
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/dpopsuev/oculus/v3/arch"
@@ -85,11 +86,48 @@ func archReview(b *strings.Builder, report *arch.ContextReport) {
 	if len(spots) > 0 {
 		b.WriteString("## Hot Spots\n")
 		for _, s := range spots {
-			fmt.Fprintf(b, "- %s (churn:%d, fan-in:%d)\n", s.Component, s.Churn, s.FanIn)
+			fmt.Fprintf(b, "- %s (churn:%d, fan-in:%d, nesting:%d)\n", s.Component, s.Churn, s.FanIn, s.Nesting)
 		}
+		b.WriteString("\n")
 	}
+
+	// Coupling top-N by fan-in — richer than hotspots alone for agent orientation.
+	type coupRow struct {
+		name string
+		fi   int
+		fo   int
+	}
+	fanIn := report.FanIn
+	fanOut := report.FanOut
+	if fanIn == nil {
+		fanIn = map[string]int{}
+	}
+	if fanOut == nil {
+		fanOut = map[string]int{}
+	}
+	rows := make([]coupRow, 0, len(report.Architecture.Services))
+	for _, s := range report.Architecture.Services {
+		rows = append(rows, coupRow{name: s.Name, fi: fanIn[s.Name], fo: fanOut[s.Name]})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].fi != rows[j].fi {
+			return rows[i].fi > rows[j].fi
+		}
+		return rows[i].name < rows[j].name
+	})
+	if n := 10; len(rows) > n {
+		rows = rows[:n]
+	}
+	if len(rows) > 0 {
+		b.WriteString("## Coupling (top by fan-in)\n")
+		for _, r := range rows {
+			fmt.Fprintf(b, "- %s (fan-in:%d, fan-out:%d)\n", r.name, r.fi, r.fo)
+		}
+		b.WriteString("\n")
+	}
+
 	if len(report.Cycles) > 0 {
-		b.WriteString("\n## Cycles\n")
+		b.WriteString("## Cycles\n")
 		for i, c := range report.Cycles {
 			if i >= 3 {
 				fmt.Fprintf(b, "... and %d more\n", len(report.Cycles)-3)
