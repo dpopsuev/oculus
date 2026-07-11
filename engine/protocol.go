@@ -110,6 +110,7 @@ type Engine struct {
 	sgTTL     time.Duration       // bounds the lifetime of in-process SymbolGraph objects
 
 	scanSfg singleflight.Group // one arch.ScanAndBuild per (path, sha) at a time
+	sgSfg   singleflight.Group // one SymbolGraph build per (path, sha[, quick]) at a time
 
 	mirrorMu sync.Mutex
 	mirrors  map[string][]SymbolMirror // keyed by resolved project path
@@ -308,7 +309,7 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 	path = p.resolvePath(path)
 	churnDays := opts.ChurnDays
 	if churnDays == 0 {
-		churnDays = 30
+		churnDays = arch.NewScanOpts().ChurnDays // 90 — match arch defaults
 	}
 
 	sha := p.db.ResolveHEAD(path)
@@ -1313,8 +1314,10 @@ func (p *Engine) DetectStateMachines(ctx context.Context, path string, cacheKey 
 }
 
 // GetSymbolGraph builds a unified symbol-level dependency graph by merging
-// DefaultMeshTimeout is the maximum time for GetMesh/GetSymbolGraph operations.
-const DefaultMeshTimeout = 60 * time.Second
+// DefaultMeshTimeout is the maximum time for GetMesh/GetSymbolGraph when the
+// caller context has no deadline. Aligned with MCP analysisTimeout (5m) and
+// analyzer perAnalyzerTimeout so cold gopls indexing is not cut off at 60s.
+const DefaultMeshTimeout = 5 * time.Minute
 
 // SymbolGraphOpts configures GetSymbolGraph behavior.
 type SymbolGraphOpts struct {
@@ -1324,36 +1327,100 @@ type SymbolGraphOpts struct {
 
 // call graph, type hierarchy, and field reference data.
 func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...SymbolGraphOpts) (*oculus.SymbolGraph, error) {
-	ctx, cancel := context.WithTimeout(ctx, DefaultMeshTimeout)
-	defer cancel()
+	// Only impose DefaultMeshTimeout when the caller has no deadline — preserve
+	// shorter parent budgets (tests) and longer ones (MCP analysisTimeout).
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, DefaultMeshTimeout)
+		defer cancel()
+	}
 
 	path = p.resolvePath(path)
+	quick := len(opts) > 0 && opts[0].Quick
+	var onProgress func(oculus.ProgressUpdate)
+	if len(opts) > 0 {
+		onProgress = opts[0].OnProgress
+	}
 
 	var sha string
 	if p.db != nil {
 		sha = p.db.ResolveHEAD(path)
 	}
+	cacheKey := path + "@" + sha
+	if quick {
+		cacheKey += "-quick"
+	}
 	if sha != "" {
-		if cached, ok := p.sgLoad(path + "@" + sha); ok {
+		if cached, ok := p.sgLoad(cacheKey); ok {
 			return cached, nil
 		}
 	}
 
-	quick := len(opts) > 0 && opts[0].Quick
+	sfKey := cacheKey
+	if sha == "" {
+		sfKey = path
+		if quick {
+			sfKey += "-quick"
+		}
+	}
+
+	// Shared build uses Background + DefaultMeshTimeout so one caller's cancel
+	// does not abort work other waiters need (same pattern as getOrScan/scanSfg).
+	type sgResult struct{ sg *oculus.SymbolGraph }
+	ch := p.sgSfg.DoChan(sfKey, func() (any, error) {
+		if sha != "" {
+			if cached, ok := p.sgLoad(cacheKey); ok {
+				return &sgResult{cached}, nil
+			}
+		}
+		buildCtx, cancel := context.WithTimeout(context.Background(), DefaultMeshTimeout)
+		defer cancel()
+		sg, err := p.buildSymbolGraph(buildCtx, path, sha, cacheKey, quick, onProgress)
+		if err != nil {
+			return nil, err
+		}
+		return &sgResult{sg}, nil
+	})
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res := <-ch:
+		if res.Err != nil {
+			return nil, res.Err
+		}
+		return res.Val.(*sgResult).sg, nil
+	}
+}
+
+// buildSymbolGraph runs the call-graph + type-analysis merge. On LSP timeout
+// with Quick=false, degrades to tree-sitter instead of hard-failing.
+func (p *Engine) buildSymbolGraph(ctx context.Context, path, sha, cacheKey string, quick bool, onProgress func(oculus.ProgressUpdate)) (*oculus.SymbolGraph, error) {
 	var pool lsp.Pool
 	if !quick {
 		pool = p.pool
 	}
 
 	da := analyzer.CachedDeepFallback(path, pool)
-
 	cgOpts := oculus.CallGraphOpts{Depth: oculus.DefaultCallGraphDepth}
-	if len(opts) > 0 && opts[0].OnProgress != nil {
-		cgOpts.OnProgress = opts[0].OnProgress
+	if onProgress != nil {
+		cgOpts.OnProgress = onProgress
 	}
 
 	start := time.Now()
 	cg, err := da.CallGraph(ctx, path, cgOpts)
+	if err != nil && !quick && shouldDegradeSymbolGraph(err, ctx) {
+		slog.LogAttrs(ctx, slog.LevelWarn, "mesh: call_graph failed, degrading to Quick",
+			slog.Duration("elapsed", time.Since(start)),
+			slog.Any("error", err),
+		)
+		quickKey := path + "-quick"
+		if sha != "" {
+			quickKey = path + "@" + sha + "-quick"
+		}
+		qCtx, qCancel := context.WithTimeout(context.Background(), DefaultMeshTimeout)
+		defer qCancel()
+		return p.buildSymbolGraph(qCtx, path, sha, quickKey, true, onProgress)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("call graph: %w", err)
 	}
@@ -1362,6 +1429,16 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 		slog.Int("edges", len(cg.Edges)),
 		slog.Bool("quick", quick),
 	)
+	if ctx.Err() != nil && !quick {
+		slog.LogAttrs(ctx, slog.LevelWarn, "mesh: deadline during call_graph, degrading to Quick")
+		quickKey := path + "-quick"
+		if sha != "" {
+			quickKey = path + "@" + sha + "-quick"
+		}
+		qCtx, qCancel := context.WithTimeout(context.Background(), DefaultMeshTimeout)
+		defer qCancel()
+		return p.buildSymbolGraph(qCtx, path, sha, quickKey, true, onProgress)
+	}
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("symbol graph: %w", ctx.Err())
 	}
@@ -1395,10 +1472,26 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 	)
 
 	if sha != "" {
-		p.sgStore(path+"@"+sha, sg)
+		p.sgStore(cacheKey, sg)
 	}
 
 	return sg, nil
+}
+
+func shouldDegradeSymbolGraph(err error, ctx context.Context) bool {
+	if err == nil {
+		return false
+	}
+	if ctx.Err() != nil {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	if errors.Is(err, analyzer.ErrNoQualifiedResult) {
+		return true
+	}
+	return false
 }
 
 // DetectPipelines finds data transformation pipelines in the symbol graph:
@@ -2631,7 +2724,7 @@ func (p *Engine) getOrScan(ctx context.Context, path string, cacheKeys ...string
 	ch := p.scanSfg.DoChan(sfKey, func() (any, error) {
 		scanCtx, cancel := context.WithTimeout(context.Background(), scanBuildTimeout)
 		defer cancel()
-		r, err := arch.ScanAndBuild(scanCtx, path, arch.ScanOpts{ExcludeTests: true, ChurnDays: 30})
+		r, err := arch.ScanAndBuild(scanCtx, path, arch.ScanOpts{ExcludeTests: true, ChurnDays: arch.NewScanOpts().ChurnDays})
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrScanFailed, err)
 		}
@@ -2668,7 +2761,7 @@ func (p *Engine) scanBranch(ctx context.Context, repoPath, ref string) (*arch.Co
 			_ = checkoutRef(repoPath, currentBranch)
 		}
 	}()
-	report, err := arch.ScanAndBuild(ctx, repoPath, arch.ScanOpts{ExcludeTests: true, ChurnDays: 30})
+	report, err := arch.ScanAndBuild(ctx, repoPath, arch.ScanOpts{ExcludeTests: true, ChurnDays: arch.NewScanOpts().ChurnDays})
 	if err != nil {
 		return nil, err
 	}
@@ -2982,7 +3075,7 @@ func (p *Engine) Evolution(ctx context.Context, opts EvolutionOpts) (*EvolutionR
 			}
 			report, err = arch.ScanAndBuild(ctx, path, arch.ScanOpts{
 				ExcludeTests: true,
-				ChurnDays:    30,
+				ChurnDays:    arch.NewScanOpts().ChurnDays,
 				Depth:        opts.Depth,
 			})
 			if err != nil {
