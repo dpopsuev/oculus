@@ -112,8 +112,21 @@ type Engine struct {
 	scanSfg singleflight.Group // one arch.ScanAndBuild per (path, sha) at a time
 	sgSfg   singleflight.Group // one SymbolGraph build per (path, sha[, quick]) at a time
 
+	// sgFlights tracks in-flight SymbolGraph builds so the last departing
+	// waiter can cancel the shared buildCtx. Without this, a cancelled MCP
+	// probe left Background+DefaultMeshTimeout LSP CallGraph allocating
+	// (dogfood: 20GB+ RSS after curl timeout).
+	sgFlights sync.Map // sfKey → *sgFlight
+
 	mirrorMu sync.Mutex
 	mirrors  map[string][]SymbolMirror // keyed by resolved project path
+}
+
+// sgFlight coordinates cancel of a shared GetSymbolGraph build across waiters.
+type sgFlight struct {
+	mu      sync.Mutex
+	waiters int
+	cancel  context.CancelFunc
 }
 
 // New creates a Protocol with the given store, workspace roots, and optional
@@ -1370,7 +1383,11 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 	}
 
 	// Shared build uses Background + DefaultMeshTimeout so one caller's cancel
-	// does not abort work other waiters need (same pattern as getOrScan/scanSfg).
+	// does not abort work other waiters still need. When the *last* waiter
+	// leaves (ctx.Done), cancel the shared build so LSP stops allocating.
+	flight := p.sgFlightJoin(sfKey)
+	defer p.sgFlightLeave(sfKey, flight)
+
 	type sgResult struct{ sg *oculus.SymbolGraph }
 	ch := p.sgSfg.DoChan(sfKey, func() (any, error) {
 		if sha != "" {
@@ -1379,6 +1396,7 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 			}
 		}
 		buildCtx, cancel := context.WithTimeout(context.Background(), DefaultMeshTimeout)
+		flight.setCancel(cancel)
 		defer cancel()
 		sg, err := p.buildSymbolGraph(buildCtx, path, sha, cacheKey, quick, onProgress)
 		if err != nil {
@@ -1394,6 +1412,40 @@ func (p *Engine) GetSymbolGraph(ctx context.Context, path string, opts ...Symbol
 			return nil, res.Err
 		}
 		return res.Val.(*sgResult).sg, nil
+	}
+}
+
+func (p *Engine) sgFlightJoin(key string) *sgFlight {
+	v, _ := p.sgFlights.LoadOrStore(key, &sgFlight{})
+	f := v.(*sgFlight)
+	f.mu.Lock()
+	f.waiters++
+	f.mu.Unlock()
+	return f
+}
+
+func (p *Engine) sgFlightLeave(key string, f *sgFlight) {
+	f.mu.Lock()
+	f.waiters--
+	n := f.waiters
+	cancel := f.cancel
+	f.mu.Unlock()
+	if n > 0 {
+		return
+	}
+	if cancel != nil {
+		cancel()
+	}
+	p.sgFlights.CompareAndDelete(key, f)
+}
+
+func (f *sgFlight) setCancel(cancel context.CancelFunc) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cancel = cancel
+	// Last waiter already left before the build registered cancel — abort now.
+	if f.waiters == 0 && cancel != nil {
+		cancel()
 	}
 }
 
@@ -1456,6 +1508,9 @@ func (p *Engine) buildSymbolGraph(ctx context.Context, path, sha, cacheKey strin
 	}
 
 	fa := analyzer.NewFallback(path, pool)
+	if quick {
+		fa = analyzer.NewQuickFallback(path)
+	}
 
 	start = time.Now()
 	var classes []oculus.ClassInfo

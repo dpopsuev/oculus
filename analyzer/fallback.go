@@ -21,6 +21,17 @@ type FallbackAnalyzer struct {
 
 // NewFallback creates a FallbackAnalyzer with Racer-backed parallel execution.
 func NewFallback(root string, pool lsp.Pool) *FallbackAnalyzer {
+	return newFallback(root, pool, false)
+}
+
+// NewQuickFallback races only tree-sitter/GoAST type analyzers — never cold-starts
+// gopls. Used by GetSymbolGraph(Quick) so probe/scenario cannot balloon RSS via
+// the racer's background LSP upgrade path.
+func NewQuickFallback(root string) *FallbackAnalyzer {
+	return newFallback(root, nil, true)
+}
+
+func newFallback(root string, pool lsp.Pool, quick bool) *FallbackAnalyzer {
 	analyzers := resolveTypeAnalyzers(root, pool)
 
 	// Build Racer attempts from registered analyzers.
@@ -31,6 +42,11 @@ func NewFallback(root string, pool lsp.Pool) *FallbackAnalyzer {
 
 	for i, entry := range registry {
 		if entry.typeA == nil {
+			continue
+		}
+		// Quick: skip LSP tier (priority 100) — LookPath(gopls) would still
+		// register a cold-start analyzer and race it in the background.
+		if quick && entry.priority >= int(QualityLSP) {
 			continue
 		}
 		a := entry.typeA(root, pool)

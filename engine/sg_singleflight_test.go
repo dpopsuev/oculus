@@ -100,3 +100,52 @@ func TestGetSymbolGraph_ParentDeadlineRespected(t *testing.T) {
 		t.Logf("GetSymbolGraph err (acceptable): %v", err)
 	}
 }
+
+// TestSgFlight_LastWaiterCancelsBuild ensures departing alone cancels the
+// shared buildCtx so LSP CallGraph cannot keep allocating after MCP timeout.
+func TestSgFlight_LastWaiterCancelsBuild(t *testing.T) {
+	eng := New(nil, nil)
+	const key = "cancel-test"
+	flight := eng.sgFlightJoin(key)
+
+	buildCtx, cancel := context.WithCancel(context.Background())
+	flight.setCancel(cancel)
+
+	eng.sgFlightLeave(key, flight)
+
+	select {
+	case <-buildCtx.Done():
+		// expected
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("buildCtx not cancelled after last waiter left")
+	}
+	if _, ok := eng.sgFlights.Load(key); ok {
+		t.Fatal("flight still registered after last waiter left")
+	}
+}
+
+// TestSgFlight_SiblingWaiterKeepsBuildAlive ensures one cancel does not abort
+// a build still needed by another waiter.
+func TestSgFlight_SiblingWaiterKeepsBuildAlive(t *testing.T) {
+	eng := New(nil, nil)
+	const key = "keep-alive-test"
+	a := eng.sgFlightJoin(key)
+	b := eng.sgFlightJoin(key)
+
+	buildCtx, cancel := context.WithCancel(context.Background())
+	a.setCancel(cancel)
+
+	eng.sgFlightLeave(key, a)
+	select {
+	case <-buildCtx.Done():
+		t.Fatal("buildCtx cancelled while sibling waiter still present")
+	case <-time.After(30 * time.Millisecond):
+	}
+
+	eng.sgFlightLeave(key, b)
+	select {
+	case <-buildCtx.Done():
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("buildCtx not cancelled after last sibling left")
+	}
+}
