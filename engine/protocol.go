@@ -308,6 +308,9 @@ func RenderScanSummary(r *ScanResult, driftInfo string) string {
 		cycleStr,
 		report.Scanner,
 		r.CacheKey)
+	if report.MerkleRoot != "" {
+		summary += fmt.Sprintf("\nmerkle_root: %s", report.MerkleRoot)
+	}
 	if driftInfo != "" {
 		summary += "\n" + driftInfo
 	}
