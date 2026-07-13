@@ -1855,11 +1855,11 @@ func (p *Engine) hybridRetrieve(ctx context.Context, path, query string, cacheKe
 		}, nil
 	}
 	pattern := strings.Join(terms, "|")
-	var cands []cand
 	type cand struct {
 		symbol, kind, file string
-		score                int
+		score              int
 	}
+	var cands []cand
 	sr, err := p.SearchSymbols(ctx, path, pattern, cacheKey...)
 	if err == nil {
 		for _, m := range sr.Matches {
