@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,13 +62,25 @@ func ScanProject() {}
 	if r.Action != "hybrid" {
 		t.Fatalf("action=%q, want hybrid (got answer=%v)", r.Action, r.Answer)
 	}
-	s := fmt.Sprintf("%v", r.Answer)
-	if !strings.Contains(strings.ToLower(s), "scanproject") && !strings.Contains(s, "hit") {
-		// Soft: hybrid path ran; SG may be empty on tiny fixtures without edges
-		t.Logf("hybrid answer (may be empty on sparse SG): %v", r.Answer)
+	ans, ok := r.Answer.(HybridAnswer)
+	if !ok {
+		t.Fatalf("answer type %T", r.Answer)
 	}
-	if ans, ok := r.Answer.(HybridAnswer); ok && len(ans.Hits) == 0 {
-		t.Log("hybrid hits empty on fixture — SG fallback found no nodes; acceptable if Action=hybrid")
+	if len(ans.Hits) == 0 {
+		t.Fatal("expected hybrid hits")
+	}
+	var hasChunk bool
+	for _, h := range ans.Hits {
+		if strings.Contains(strings.ToLower(h.Symbol), "scanproject") || strings.Contains(h.Chunk, "ScanProject") {
+			hasChunk = h.Chunk != "" || h.File != ""
+		}
+	}
+	if !hasChunk {
+		// Chunk excerpt preferred; file+symbol still OK.
+		t.Logf("hits=%+v", ans.Hits)
+		if ans.Hits[0].File == "" && ans.Hits[0].Chunk == "" {
+			t.Fatal("expected file or chunk on top hit")
+		}
 	}
 }
 

@@ -99,6 +99,9 @@ type ScanCore struct {
 	// MerkleLeaves are path→leaf hashes used to mark Changed packages on
 	// the next dirty-tree rescan. Omitted from agent-facing summaries.
 	MerkleLeaves map[string]string `json:"merkle_leaves,omitempty"`
+	// ScanMode is "full" (default) or "merge" when package-merge incremental
+	// scan rebuilt only changed packages into a baseline.
+	ScanMode string `json:"scan_mode,omitempty"`
 }
 
 // GraphMetrics holds graph-derived analysis: hot spots, cycles, depths, and violations.

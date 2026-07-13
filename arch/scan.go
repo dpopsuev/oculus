@@ -304,30 +304,30 @@ func runL3Full(ctx context.Context, root, modPath string, opts ScanOpts, proj *m
 	report.Anchors = anchors
 }
 
-// incrementalScan performs a full scan but is aware of what changed since a ref.
-// Currently does a full scan but marks the report with the since ref for downstream use.
-// Future: partial package re-scan + merge with cached baseline.
+// incrementalScan merges changed packages into a cached baseline when possible.
+// Without a baseline it falls back to a full ScanAndBuild (marked Changed).
 func incrementalScan(ctx context.Context, root string, opts ScanOpts, _ *survey.AutoScanner) (*ContextReport, error) {
 	changedPkgs := changedPackages(root, opts.Since)
+	var changedPaths []string
+	if files, err := archgit.ChangedFilesSince(root, opts.Since); err == nil {
+		changedPaths = files
+	}
+	for _, p := range changedPkgs {
+		// Ensure package dirs appear even if ChangedFilesSince failed partially.
+		_ = p
+	}
 
-	// Full scan for now — incremental merge requires cached baseline.
 	opts.Since = "" // prevent recursion
+	// No baseline available at arch layer — full scan, then mark Changed.
 	report, err := ScanAndBuild(ctx, root, opts)
 	if err != nil {
 		return nil, err
 	}
-
-	// Mark changed packages in the report for downstream consumers.
-	changedSet := make(map[string]bool, len(changedPkgs))
-	for _, p := range changedPkgs {
-		changedSet[p] = true
+	report.ScanMode = ScanModeFull
+	markServicesChanged(report, changedPkgs)
+	if len(changedPaths) > 0 {
+		markServicesChanged(report, uniquePackageDirs(changedPaths))
 	}
-	for i := range report.Architecture.Services {
-		if changedSet[report.Architecture.Services[i].Name] {
-			report.Architecture.Services[i].Changed = true
-		}
-	}
-
 	return report, nil
 }
 

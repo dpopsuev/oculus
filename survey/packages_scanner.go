@@ -29,9 +29,18 @@ type PackagesScanner struct {
 }
 
 func (s *PackagesScanner) Scan(root string) (*model.Project, error) {
+	return s.ScanPatterns(root, []string{"./..."})
+}
+
+// ScanPatterns loads only the given go/packages patterns (e.g. "./pkg", "./cmd").
+// Empty patterns default to "./...".
+func (s *PackagesScanner) ScanPatterns(root string, patterns []string) (*model.Project, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
+	}
+	if len(patterns) == 0 {
+		patterns = []string{"./..."}
 	}
 
 	// Ensure Go modules are available. Handles container scans where the
@@ -45,7 +54,7 @@ func (s *PackagesScanner) Scan(root string) (*model.Project, error) {
 		Dir: absRoot,
 	}
 
-	pkgs, err := packages.Load(cfg, "./...")
+	pkgs, err := packages.Load(cfg, patterns...)
 	if err != nil {
 		return s.fallback(root, err)
 	}

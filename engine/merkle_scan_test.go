@@ -118,6 +118,13 @@ func TestScanProject_DirtyTreeInvalidatesSHACache(t *testing.T) {
 	if ms.putReportCalls <= puts {
 		t.Fatal("dirty tree should rescan and PutReport")
 	}
+	if r2.Report.ScanMode != arch.ScanModeMerge && r2.Report.ScanMode != arch.ScanModeFull {
+		t.Fatalf("ScanMode=%q, want merge or full", r2.Report.ScanMode)
+	}
+	// Prefer merge for single-package dirty edit.
+	if r2.Report.ScanMode != arch.ScanModeMerge {
+		t.Logf("ScanMode=%s (merge preferred for single-pkg dirty)", r2.Report.ScanMode)
+	}
 	// pkg/ component should be marked Changed when service names match.
 	var sawChanged bool
 	for _, s := range r2.Report.Architecture.Services {

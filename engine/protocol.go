@@ -118,6 +118,11 @@ type Engine struct {
 
 	mirrorMu sync.Mutex
 	mirrors  map[string][]SymbolMirror // keyed by resolved project path
+
+	embedder Embedder // optional; set via SetEmbedder or LOCUS_EMBED_URL
+
+	dirtyMu sync.Mutex
+	dirty   map[string]bool // workspace paths marked dirty by file watchers
 }
 
 // sgFlight coordinates cancel of a shared GetSymbolGraph build across waiters.
@@ -145,11 +150,42 @@ func NewWithConfig(s Store, workspaces []string, cfg EngineConfig, pool ...lsp.P
 		workspaces: workspaces,
 		sgEntries:  make(map[string]*sgEntry),
 		sgTTL:      ttl,
+		dirty:      make(map[string]bool),
+		embedder:   NewEmbedderFromEnv(),
 	}
 	if len(pool) > 0 {
 		p.pool = pool[0]
 	}
 	return p
+}
+
+// SetEmbedder configures optional vector embeddings for hybrid depth (D2).
+func (p *Engine) SetEmbedder(e Embedder) { p.embedder = e }
+
+// MarkDirty flags a workspace path so the next analysis validates freshness.
+// Used by file watchers; does not trigger a scan by itself.
+func (p *Engine) MarkDirty(path string) {
+	path = p.resolvePath(path)
+	p.dirtyMu.Lock()
+	p.dirty[path] = true
+	p.dirtyMu.Unlock()
+	p.SGCacheFlush()
+}
+
+// ClearDirty clears the dirty flag after a successful rescan.
+func (p *Engine) ClearDirty(path string) {
+	path = p.resolvePath(path)
+	p.dirtyMu.Lock()
+	delete(p.dirty, path)
+	p.dirtyMu.Unlock()
+}
+
+// IsDirty reports whether a watcher marked the path dirty.
+func (p *Engine) IsDirty(path string) bool {
+	path = p.resolvePath(path)
+	p.dirtyMu.Lock()
+	defer p.dirtyMu.Unlock()
+	return p.dirty[path]
 }
 
 // sgLoad returns the cached SymbolGraph for key, evicting it on expiry.
@@ -311,6 +347,9 @@ func RenderScanSummary(r *ScanResult, driftInfo string) string {
 	if report.MerkleRoot != "" {
 		summary += fmt.Sprintf("\nmerkle_root: %s", report.MerkleRoot)
 	}
+	if report.ScanMode != "" {
+		summary += fmt.Sprintf("\nscan_mode: %s", report.ScanMode)
+	}
 	if driftInfo != "" {
 		summary += "\n" + driftInfo
 	}
@@ -342,14 +381,16 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 
 	var prior *arch.ContextReport
 	if cached, hit, err := p.db.GetReport(ctx, path, cacheKey); err == nil && hit {
+		dirty := p.IsDirty(path)
 		// Dirty working tree: SHA unchanged but source Merkle moved → miss.
 		// Legacy entries with empty MerkleRoot keep the SHA hit (one-time
 		// migration happens on the next real rescan that stamps a root).
-		if merkleErr == nil && cached.MerkleRoot != "" && cached.MerkleRoot != merkle.Root {
+		if dirty || (merkleErr == nil && cached.MerkleRoot != "" && cached.MerkleRoot != merkle.Root) {
 			prior = cached
 			p.SGCacheFlush()
-			slog.LogAttrs(ctx, slog.LevelInfo, "scan: merkle mismatch, rescanning",
+			slog.LogAttrs(ctx, slog.LevelInfo, "scan: merkle mismatch or dirty, rescanning",
 				slog.String("path", path),
+				slog.Bool("dirty", dirty),
 				slog.String("cached_merkle", cached.MerkleRoot),
 				slog.String("current_merkle", merkle.Root),
 			)
@@ -369,7 +410,7 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 		}
 	}
 
-	report, err := arch.ScanAndBuild(ctx, path, arch.ScanOpts{
+	archOpts := arch.ScanOpts{
 		ScannerOverride:   opts.Scanner,
 		ExcludeTests:      !opts.IncludeTests,
 		IncludeExternal:   opts.IncludeExternal,
@@ -382,7 +423,19 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 		Intent:            arch.ScanIntent(opts.Intent),
 		Since:             opts.Since,
 		TSFileGranularity: opts.TSFileGranularity,
-	})
+	}
+
+	var report *arch.ContextReport
+	var err error
+	if prior != nil && merkleErr == nil && len(prior.MerkleLeaves) > 0 {
+		changed := cache.Diff(cache.Index{Root: prior.MerkleRoot, Leaves: prior.MerkleLeaves}, merkle)
+		report, err = arch.MergeOrFull(ctx, path, prior, changed, archOpts)
+	} else {
+		report, err = arch.ScanAndBuild(ctx, path, archOpts)
+		if err == nil && report != nil && report.ScanMode == "" {
+			report.ScanMode = arch.ScanModeFull
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrScanFailed, err)
 	}
@@ -403,6 +456,7 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 		abs, _ := filepath.Abs(path)
 		_ = p.db.RecordScan(ctx, string(history.Local), abs, sha, report)
 	}
+	p.ClearDirty(path)
 	return &ScanResult{Report: report, CacheKey: path + "@" + cacheKey, SHA: sha}, nil
 }
 
@@ -1883,6 +1937,7 @@ type HybridHit struct {
 	Kind   string              `json:"kind,omitempty"`
 	File   string              `json:"file,omitempty"`
 	Score  int                 `json:"score"`
+	Chunk  string              `json:"chunk,omitempty"`
 	Probe  *oculus.ProbeResult `json:"probe,omitempty"`
 }
 
@@ -1904,28 +1959,81 @@ func (p *Engine) hybridRetrieve(ctx context.Context, path, query string, cacheKe
 	}
 	pattern := strings.Join(terms, "|")
 	type cand struct {
-		symbol, kind, file string
-		score              int
+		symbol, kind, file, chunk string
+		score                     int
 	}
 	var cands []cand
 	seen := map[string]bool{}
-	addCand := func(symbol, kind, file string, score int) {
+	addCand := func(symbol, kind, file, chunk string, score int) {
 		if symbol == "" || seen[symbol] {
 			return
 		}
 		seen[symbol] = true
-		cands = append(cands, cand{symbol, kind, file, score})
+		cands = append(cands, cand{symbol, kind, file, chunk, score})
 	}
+
+	// Hybrid depth: syntactic chunk BM25 (+ optional embed RRF).
+	if chunks, err := cache.BuildChunksFromFiles(path, 50); err == nil && len(chunks) > 0 {
+		chHits := cache.SearchChunks(chunks, query, 8)
+		if p.embedder != nil && len(chHits) > 0 {
+			texts := make([]string, len(chHits))
+			bm25IDs := make([]string, len(chHits))
+			for i, h := range chHits {
+				texts[i] = h.Text
+				bm25IDs[i] = h.ID
+			}
+			qVecs, err1 := p.embedder.Embed(ctx, []string{query})
+			cVecs, err2 := p.embedder.Embed(ctx, texts)
+			if err1 == nil && err2 == nil && len(qVecs) > 0 {
+				type scored struct {
+					id string
+					s  float64
+				}
+				var emb []scored
+				for i, v := range cVecs {
+					emb = append(emb, scored{chHits[i].ID, cosine(qVecs[0], v)})
+				}
+				sort.Slice(emb, func(i, j int) bool { return emb[i].s > emb[j].s })
+				embIDs := make([]string, len(emb))
+				for i, e := range emb {
+					embIDs[i] = e.id
+				}
+				fused := RRF(bm25IDs, embIDs)
+				byID := map[string]cache.ChunkHit{}
+				for _, h := range chHits {
+					byID[h.ID] = h
+				}
+				var reranked []cache.ChunkHit
+				for _, id := range fused {
+					if h, ok := byID[id]; ok {
+						reranked = append(reranked, h)
+					}
+				}
+				chHits = reranked
+			}
+		}
+		for i, h := range chHits {
+			sym := h.Symbol
+			if sym == "" {
+				sym = h.File
+			}
+			excerpt := h.Text
+			if len(excerpt) > 240 {
+				excerpt = excerpt[:240] + "…"
+			}
+			addCand(sym, h.Kind, h.File, excerpt, 40-i)
+		}
+	}
+
 	sr, err := p.SearchSymbols(ctx, path, pattern, cacheKey...)
 	if err == nil {
 		for _, m := range sr.Matches {
-			addCand(m.Symbol, m.Kind, m.File, 10)
+			addCand(m.Symbol, m.Kind, m.File, "", 10)
 		}
 	} else {
 		slog.LogAttrs(ctx, slog.LevelDebug, "hybrid: package symbol search skipped",
 			slog.Any("error", err))
 	}
-	// Always consult Quick SG — package index is often thin for method names.
 	if sg, sgErr := p.GetSymbolGraph(ctx, path, symbolGraphQuick); sgErr == nil && sg != nil {
 		sortedTerms := append([]string(nil), terms...)
 		sort.Slice(sortedTerms, func(i, j int) bool { return len(sortedTerms[i]) > len(sortedTerms[j]) })
@@ -1945,7 +2053,7 @@ func (p *Engine) hybridRetrieve(ctx context.Context, path, query string, cacheKe
 				}
 			}
 			if best > 0 {
-				addCand(fqn, n.Kind, n.File, best+20) // prefer SG method hits
+				addCand(fqn, n.Kind, n.File, "", best+20)
 			}
 		}
 	}
@@ -1962,7 +2070,7 @@ func (p *Engine) hybridRetrieve(ctx context.Context, path, query string, cacheKe
 		if i >= maxHits {
 			break
 		}
-		hit := HybridHit{Symbol: m.symbol, Kind: m.kind, File: m.file, Score: maxHits - i}
+		hit := HybridHit{Symbol: m.symbol, Kind: m.kind, File: m.file, Score: maxHits - i, Chunk: m.chunk}
 		if pr, perr := p.ProbeSymbol(ctx, path, m.symbol); perr == nil && pr != nil {
 			hit.Probe = pr
 			if pr.FQN != "" {
