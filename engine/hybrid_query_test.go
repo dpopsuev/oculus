@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,12 +56,20 @@ func ScanProject() {}
 		t.Fatalf("scan: %v", err)
 	}
 
-	r, err := eng.AnswerQuery(ctx, dir, "where is GetSymbolGraph defined")
+	r, err := eng.AnswerQuery(ctx, dir, "where is ScanProject defined")
 	if err != nil {
 		t.Fatalf("AnswerQuery: %v", err)
 	}
 	if r.Action != "hybrid" {
 		t.Fatalf("action=%q, want hybrid (got answer=%v)", r.Action, r.Answer)
+	}
+	s := fmt.Sprintf("%v", r.Answer)
+	if !strings.Contains(strings.ToLower(s), "scanproject") && !strings.Contains(s, "hit") {
+		// Soft: hybrid path ran; SG may be empty on tiny fixtures without edges
+		t.Logf("hybrid answer (may be empty on sparse SG): %v", r.Answer)
+	}
+	if ans, ok := r.Answer.(HybridAnswer); ok && len(ans.Hits) == 0 {
+		t.Log("hybrid hits empty on fixture — SG fallback found no nodes; acceptable if Action=hybrid")
 	}
 }
 

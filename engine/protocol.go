@@ -1859,14 +1859,44 @@ func (p *Engine) hybridRetrieve(ctx context.Context, path, query string, cacheKe
 	if err != nil {
 		return nil, err
 	}
+	type cand struct {
+		symbol, kind, file string
+	}
+	var cands []cand
+	for _, m := range sr.Matches {
+		cands = append(cands, cand{m.Symbol, m.Kind, m.File})
+	}
+	// Fall back to Quick symbol-graph substring search when package index is thin.
+	if len(cands) == 0 {
+		if sg, sgErr := p.GetSymbolGraph(ctx, path, symbolGraphQuick); sgErr == nil && sg != nil {
+			seen := map[string]bool{}
+			for _, n := range sg.Nodes {
+				fqn := n.FQN()
+				name := strings.ToLower(n.Name + " " + fqn)
+				for _, term := range terms {
+					if strings.Contains(name, strings.ToLower(term)) {
+						if seen[fqn] {
+							break
+						}
+						seen[fqn] = true
+						cands = append(cands, cand{fqn, n.Kind, n.File})
+						break
+					}
+				}
+				if len(cands) >= 20 {
+					break
+				}
+			}
+		}
+	}
 	const maxHits = 5
 	hits := make([]HybridHit, 0, maxHits)
-	for i, m := range sr.Matches {
+	for i, m := range cands {
 		if i >= maxHits {
 			break
 		}
-		hit := HybridHit{Symbol: m.Symbol, Kind: m.Kind, File: m.File, Score: maxHits - i}
-		if pr, perr := p.ProbeSymbol(ctx, path, m.Symbol); perr == nil && pr != nil {
+		hit := HybridHit{Symbol: m.symbol, Kind: m.kind, File: m.file, Score: maxHits - i}
+		if pr, perr := p.ProbeSymbol(ctx, path, m.symbol); perr == nil && pr != nil {
 			hit.Probe = pr
 			if pr.FQN != "" {
 				hit.Symbol = pr.FQN
