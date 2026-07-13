@@ -25,10 +25,8 @@ import (
 	"github.com/dpopsuev/oculus/v3/arch"
 	archgit "github.com/dpopsuev/oculus/v3/arch/git"
 	"github.com/dpopsuev/oculus/v3/book"
+	"github.com/dpopsuev/oculus/v3/cache"
 	"github.com/dpopsuev/oculus/v3/clinic"
-	
-	
-	
 	"github.com/dpopsuev/oculus/v3/constraint"
 	gitpkg "github.com/dpopsuev/oculus/v3/arch/git"
 	"github.com/dpopsuev/oculus/v3/graph"
@@ -337,23 +335,35 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 		cacheKey += "-file"
 	}
 
+	merkle, merkleErr := cache.BuildMerkle(path)
+
+	var prior *arch.ContextReport
 	if cached, hit, err := p.db.GetReport(ctx, path, cacheKey); err == nil && hit {
-		// CacheKey must include the intent suffix (sha+"-"+intent) so that
-		// analysis tools calling getOrScan with this key find the same DB
-		// entry as the one that was stored here.
-		//
-		// Also ensure the plain-sha slot is warm so that analysis tools
-		// called without a cache_key never trigger a cold getOrScan rescan.
-		// On a cold rescan AutoScanner (no ScannerOverride) may pick
-		// CompositeScanner instead of the scanner used here, producing
-		// sub-project-relative component names that do not match the
-		// names in the intent-keyed report.
-		if cacheKey != sha && sha != "" {
-			if _, plainHit, _ := p.db.GetReport(ctx, path, sha); !plainHit {
-				_ = p.db.PutReport(ctx, path, sha, cached)
+		// Dirty working tree: SHA unchanged but source Merkle moved → miss.
+		// Legacy entries with empty MerkleRoot keep the SHA hit (one-time
+		// migration happens on the next real rescan that stamps a root).
+		if merkleErr == nil && cached.MerkleRoot != "" && cached.MerkleRoot != merkle.Root {
+			prior = cached
+			p.SGCacheFlush()
+			slog.LogAttrs(ctx, slog.LevelInfo, "scan: merkle mismatch, rescanning",
+				slog.String("path", path),
+				slog.String("cached_merkle", cached.MerkleRoot),
+				slog.String("current_merkle", merkle.Root),
+			)
+		} else {
+			// CacheKey must include the intent suffix (sha+"-"+intent) so that
+			// analysis tools calling getOrScan with this key find the same DB
+			// entry as the one that was stored here.
+			//
+			// Also ensure the plain-sha slot is warm so that analysis tools
+			// called without a cache_key never trigger a cold getOrScan rescan.
+			if cacheKey != sha && sha != "" {
+				if _, plainHit, _ := p.db.GetReport(ctx, path, sha); !plainHit {
+					_ = p.db.PutReport(ctx, path, sha, cached)
+				}
 			}
+			return &ScanResult{Report: cached, CacheKey: path + "@" + cacheKey, SHA: sha}, nil
 		}
-		return &ScanResult{Report: cached, CacheKey: path + "@" + cacheKey, SHA: sha}, nil
 	}
 
 	report, err := arch.ScanAndBuild(ctx, path, arch.ScanOpts{
@@ -373,6 +383,11 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrScanFailed, err)
 	}
+	if merkleErr == nil {
+		report.MerkleRoot = merkle.Root
+		report.MerkleLeaves = merkle.Leaves
+		markChangedFromMerkle(report, prior, merkle)
+	}
 	if sha != "" {
 		_ = p.db.PutReport(ctx, path, cacheKey, report)
 		_ = p.db.PutComponentMeta(ctx, path, cacheKey, generateComponentMeta(report))
@@ -386,6 +401,36 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 		_ = p.db.RecordScan(ctx, string(history.Local), abs, sha, report)
 	}
 	return &ScanResult{Report: report, CacheKey: path + "@" + cacheKey, SHA: sha}, nil
+}
+
+// markChangedFromMerkle sets Changed on architecture services whose package
+// directories appear in the Merkle delta vs a prior report. Full rescan still
+// rebuilds the model; this only surfaces the delta signal for agents/UI.
+func markChangedFromMerkle(report, prior *arch.ContextReport, current cache.Index) {
+	if report == nil || prior == nil || len(prior.MerkleLeaves) == 0 {
+		return
+	}
+	changed := cache.Diff(cache.Index{Root: prior.MerkleRoot, Leaves: prior.MerkleLeaves}, current)
+	MarkChangedPackages(report, changed)
+}
+
+// MarkChangedPackages marks services whose names match package dirs from paths.
+func MarkChangedPackages(report *arch.ContextReport, changedPaths []string) {
+	if report == nil || len(changedPaths) == 0 {
+		return
+	}
+	pkgs := cache.Packages(changedPaths)
+	set := make(map[string]bool, len(pkgs)*2)
+	for _, p := range pkgs {
+		set[p] = true
+		set[filepath.Base(p)] = true
+	}
+	for i := range report.Architecture.Services {
+		name := report.Architecture.Services[i].Name
+		if set[name] || set[filepath.ToSlash(name)] {
+			report.Architecture.Services[i].Changed = true
+		}
+	}
 }
 
 func (p *Engine) SuggestDepth(ctx context.Context, path string) (*SuggestDepthResult, error) {

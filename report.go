@@ -93,6 +93,12 @@ type ScanCore struct {
 	ModulePath     string         `json:"module_path"`
 	Scanner        string         `json:"scanner"`
 	SuggestedDepth int            `json:"suggested_depth,omitempty"`
+	// MerkleRoot is a content fingerprint of the working-tree source files
+	// at scan time. Used to invalidate SHA cache hits when the tree is dirty.
+	MerkleRoot string `json:"merkle_root,omitempty"`
+	// MerkleLeaves are path→leaf hashes used to mark Changed packages on
+	// the next dirty-tree rescan. Omitted from agent-facing summaries.
+	MerkleLeaves map[string]string `json:"merkle_leaves,omitempty"`
 }
 
 // GraphMetrics holds graph-derived analysis: hot spots, cycles, depths, and violations.

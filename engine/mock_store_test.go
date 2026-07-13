@@ -50,8 +50,13 @@ func (m *mockStore) GetReport(_ context.Context, _, sha string) (*arch.ContextRe
 	return m.report, m.reportHit, m.reportErr
 }
 
-func (m *mockStore) PutReport(_ context.Context, _, _ string, _ *arch.ContextReport) error {
+func (m *mockStore) PutReport(_ context.Context, _, sha string, report *arch.ContextReport) error {
 	m.putReportCalls++
+	if m.reportsBySHA != nil {
+		m.reportsBySHA[sha] = report
+	}
+	m.report = report
+	m.reportHit = true
 	return nil
 }
 
