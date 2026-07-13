@@ -89,6 +89,11 @@ type Pool interface {
 	// then textDocument/references. Returns ErrNoPool from StubPool.
 	References(ctx context.Context, file string, line, char int) ([]Location, error)
 
+	// Definition returns go-to-definition locations for the symbol at the given
+	// position (line 1-based, char 0-based). Sends textDocument/didOpen then
+	// textDocument/definition. Returns ErrNoPool from StubPool.
+	Definition(ctx context.Context, file string, line, char int) ([]Location, error)
+
 	// MaxConcurrent returns the maximum number of simultaneous LSP server
 	// instances allowed for the given language. Resource-heavy servers
 	// (e.g. clangd) have a lower limit than lightweight ones (e.g. gopls).
@@ -115,6 +120,8 @@ func InitializeParams(rootURI string) map[string]any {
 		"capabilities": map[string]any{
 			"textDocument": map[string]any{
 				"documentSymbol":    map[string]any{"hierarchicalDocumentSymbolSupport": true},
+				"definition":        map[string]any{},
+				"references":        map[string]any{},
 				"typeHierarchy":     map[string]any{},
 				"callHierarchy":     map[string]any{},
 				"implementation":    map[string]any{},
@@ -256,8 +263,21 @@ type PoolStatus struct {
 // client, sends textDocument/didOpen then textDocument/references, and
 // unmarshals the []Location response.
 func poolReferences(ctx context.Context, pool Pool, file string, line, char int) ([]Location, error) {
+	return poolPositionRequest(ctx, pool, file, line, char, "textDocument/references", map[string]any{
+		"includeDeclaration": false,
+	})
+}
+
+// poolDefinition is the shared Definition implementation.
+func poolDefinition(ctx context.Context, pool Pool, file string, line, char int) ([]Location, error) {
+	return poolPositionRequest(ctx, pool, file, line, char, "textDocument/definition", nil)
+}
+
+// poolPositionRequest opens file and issues a position-based LSP request.
+// line is 1-based; char is 0-based (LSP character).
+func poolPositionRequest(ctx context.Context, pool Pool, file string, line, char int, method string, refContext map[string]any) ([]Location, error) {
 	language := fileLanguage(file)
-	root := filepath.Dir(file)
+	root := workspaceRootForFile(file)
 
 	client, err := pool.Get(language, root)
 	if err != nil {
@@ -277,16 +297,22 @@ func poolReferences(ctx context.Context, pool Pool, file string, line, char int)
 		},
 	})
 
-	// LSP positions are 0-based; callers pass 1-based.
-	raw, err := client.RequestContext(ctx, "textDocument/references", map[string]any{
+	params := map[string]any{
 		"textDocument": map[string]any{"uri": uri},
 		"position":     map[string]any{"line": line - 1, "character": char},
-		"context":      map[string]any{"includeDeclaration": false},
-	})
+	}
+	if method == "textDocument/references" {
+		params["context"] = refContext
+	}
+	raw, err := client.RequestContext(ctx, method, params)
 	if err != nil {
-		return []Location{}, nil // no references is not an error
+		return []Location{}, nil
 	}
 
+	return parseLSPLocations(raw), nil
+}
+
+func parseLSPLocations(raw json.RawMessage) []Location {
 	type lspPos struct {
 		Line int `json:"line"`
 	}
@@ -297,15 +323,54 @@ func poolReferences(ctx context.Context, pool Pool, file string, line, char int)
 		URI   string   `json:"uri"`
 		Range lspRange `json:"range"`
 	}
+	toLocs := func(locs []lspLoc) []Location {
+		out := make([]Location, len(locs))
+		for i, l := range locs {
+			out[i] = Location{URI: l.URI, Line: l.Range.Start.Line + 1}
+		}
+		return out
+	}
+	// definition may return Location | Location[] | LocationLink[]
 	var locs []lspLoc
-	if err := json.Unmarshal(raw, &locs); err != nil || len(locs) == 0 {
-		return []Location{}, nil
+	if err := json.Unmarshal(raw, &locs); err == nil && len(locs) > 0 {
+		return toLocs(locs)
 	}
-	out := make([]Location, len(locs))
-	for i, l := range locs {
-		out[i] = Location{URI: l.URI, Line: l.Range.Start.Line + 1}
+	var one lspLoc
+	if err := json.Unmarshal(raw, &one); err == nil && one.URI != "" {
+		return toLocs([]lspLoc{one})
 	}
-	return out, nil
+	type lspLink struct {
+		TargetURI   string   `json:"targetUri"`
+		TargetRange lspRange `json:"targetRange"`
+	}
+	var links []lspLink
+	if err := json.Unmarshal(raw, &links); err == nil && len(links) > 0 {
+		out := make([]Location, len(links))
+		for i, l := range links {
+			out[i] = Location{URI: l.TargetURI, Line: l.TargetRange.Start.Line + 1}
+		}
+		return out
+	}
+	return []Location{}
+}
+
+// workspaceRootForFile walks up from file looking for a project marker so
+// Definition/References reuse the same WarmLSP client as the workspace root.
+func workspaceRootForFile(file string) string {
+	dir := filepath.Dir(file)
+	markers := []string{"go.mod", "Cargo.toml", "package.json", "pyproject.toml", "tsconfig.json"}
+	for d := dir; ; d = filepath.Dir(d) {
+		for _, m := range markers {
+			if _, err := os.Stat(filepath.Join(d, m)); err == nil {
+				return d
+			}
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+	}
+	return dir
 }
 
 // fileLanguage infers the LSP language from a file extension.

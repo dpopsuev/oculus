@@ -87,6 +87,10 @@ func (p *MockPool) References(ctx context.Context, file string, line, char int) 
 	return poolReferences(ctx, p, file, line, char)
 }
 
+func (p *MockPool) Definition(ctx context.Context, file string, line, char int) ([]Location, error) {
+	return poolDefinition(ctx, p, file, line, char)
+}
+
 func (p *MockPool) Shutdown(_ context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
