@@ -12,7 +12,7 @@ import (
 // and merges their scan results into a single Project. This handles
 // polyglot repositories (e.g. Rust backend + TypeScript frontend).
 type CompositeScanner struct {
-	// TSFileGranularity propagates to TypeScriptScanner sub-project scans.
+	// TSFileGranularity propagates to TypeScript and Rust sub-project scans.
 	TSFileGranularity bool
 }
 
@@ -55,6 +55,9 @@ func (s *CompositeScanner) Scan(root string) (*model.Project, error) {
 		sc := ScannerFromRegistry(sub.lang, subRoot)
 		if sub.lang == model.LangTypeScript && s.TSFileGranularity {
 			sc = &TypeScriptScanner{Granularity: FileLevel}
+		}
+		if sub.lang == model.LangRust && s.TSFileGranularity {
+			sc = &RustScanner{Granularity: FileLevel}
 		}
 		subProj, err := sc.Scan(subRoot)
 		if err != nil {

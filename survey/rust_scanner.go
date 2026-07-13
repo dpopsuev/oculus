@@ -30,7 +30,11 @@ const (
 // RustScanner extracts structural metadata from Rust projects by parsing
 // Cargo.toml manifests and scanning source files for pub declarations.
 // It handles both single-crate and workspace layouts.
-type RustScanner struct{}
+type RustScanner struct {
+	// Granularity controls crate-level (default) vs per-.rs-file namespaces.
+	// FileLevel is required for useful architecture graphs on single-crate repos.
+	Granularity Granularity
+}
 
 type cargoWorkspace struct {
 	Members []string `toml:"members"`
@@ -82,6 +86,10 @@ func (s *RustScanner) Scan(root string) (*model.Project, error) {
 
 // ScanDirs resurveys Rust crates touched by dirs/changedPaths.
 func (s *RustScanner) ScanDirs(root string, dirs, changedPaths []string) (*model.Project, error) {
+	if s.Granularity == FileLevel {
+		// File-level graphs are denser; full rescan keeps mod/use edges consistent.
+		return s.Scan(root)
+	}
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -182,6 +190,15 @@ func (s *RustScanner) scanWorkspace(root string, manifest cargoManifest, proj *m
 		var cm cargoManifest
 		_, _ = toml.DecodeFile(filepath.Join(c.dir, "Cargo.toml"), &cm)
 
+		if s.Granularity == FileLevel {
+			prefix, _ := filepath.Rel(root, c.dir)
+			prefix = filepath.ToSlash(prefix)
+			if err := s.addFileLevelCrate(c.dir, prefix, &cm, crateNames, proj); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
 		ns := model.NewNamespace(c.name, c.name)
 		s.extractRustSymbols(c.dir, ns)
 		proj.AddNamespace(ns)
@@ -203,6 +220,16 @@ func (s *RustScanner) scanWorkspace(root string, manifest cargoManifest, proj *m
 }
 
 func (s *RustScanner) scanSingleCrate(root string, manifest cargoManifest, proj *model.Project) (*model.Project, error) {
+	if s.Granularity == FileLevel {
+		if err := s.addFileLevelCrate(root, "", &manifest, nil, proj); err != nil {
+			return nil, err
+		}
+		sort.Slice(proj.Namespaces, func(i, j int) bool {
+			return proj.Namespaces[i].Name < proj.Namespaces[j].Name
+		})
+		return proj, nil
+	}
+
 	name := proj.Path
 	ns := model.NewNamespace(name, name)
 	s.extractRustSymbols(root, ns)
@@ -218,6 +245,294 @@ func (s *RustScanner) scanSingleCrate(root string, manifest cargoManifest, proj 
 	}
 
 	return proj, nil
+}
+
+// addFileLevelCrate promotes each .rs file under crateDir to its own namespace.
+// nsPrefix is prepended to relative paths (workspace member path); empty for
+// single-crate roots. crateNames, when non-nil, marks path deps as internal.
+func (s *RustScanner) addFileLevelCrate(crateDir, nsPrefix string, manifest *cargoManifest, crateNames map[string]bool, proj *model.Project) error {
+	files, err := listRustFiles(crateDir)
+	if err != nil {
+		return err
+	}
+	fileSet := make(map[string]bool, len(files))
+	nsMap := make(map[string]*model.Namespace, len(files))
+	seenSym := make(map[string]map[string]bool, len(files))
+
+	for _, rel := range files {
+		nsKey := rel
+		if nsPrefix != "" && nsPrefix != "." {
+			nsKey = nsPrefix + "/" + rel
+		}
+		fileSet[rel] = true
+		ns := model.NewNamespace(nsKey, nsKey)
+		nsMap[rel] = ns
+		seenSym[rel] = make(map[string]bool)
+		proj.AddNamespace(ns)
+	}
+
+	for _, rel := range files {
+		ns := nsMap[rel]
+		abs := filepath.Join(crateDir, filepath.FromSlash(rel))
+		f, err := os.Open(abs)
+		if err != nil {
+			continue
+		}
+		lineCount := 0
+		sc := bufio.NewScanner(f)
+		for sc.Scan() {
+			lineCount++
+			line := sc.Text()
+			matchSymbolPatterns(line, rustSymbolPatterns, ns, seenSym[rel], true, rel, lineCount)
+			s.extractRustFileEdges(line, rel, fileSet, nsPrefix, manifest, crateNames, proj.DependencyGraph)
+		}
+		_ = f.Close()
+		fileObj := model.NewFile(rel, ns.Name)
+		fileObj.Lines = lineCount
+		ns.AddFile(fileObj)
+	}
+	return nil
+}
+
+var (
+	reRustModDecl = regexp.MustCompile(`^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*;`)
+	reRustUseCrate = regexp.MustCompile(`^\s*(?:pub\s+)?use\s+crate::([\w:]+)`)
+	reRustUseSuper = regexp.MustCompile(`^\s*(?:pub\s+)?use\s+super::([\w:]+)`)
+	reRustUseExt   = regexp.MustCompile(`^\s*(?:pub\s+)?use\s+([a-z][\w]*)::`)
+)
+
+func (s *RustScanner) extractRustFileEdges(line, fromRel string, fileSet map[string]bool, nsPrefix string, manifest *cargoManifest, crateNames map[string]bool, graph *model.DependencyGraph) {
+	fromKey := nsKey(nsPrefix, fromRel)
+
+	if m := reRustModDecl.FindStringSubmatch(line); m != nil {
+		if target := resolveRustMod(fromRel, m[1], fileSet); target != "" && target != fromRel {
+			graph.AddEdge(fromKey, nsKey(nsPrefix, target), false)
+		}
+		return
+	}
+	if m := reRustUseCrate.FindStringSubmatch(line); m != nil {
+		if target := resolveRustCratePath(m[1], fileSet); target != "" && target != fromRel {
+			graph.AddEdge(fromKey, nsKey(nsPrefix, target), false)
+		}
+		return
+	}
+	if m := reRustUseSuper.FindStringSubmatch(line); m != nil {
+		if target := resolveRustSuperPath(fromRel, m[1], fileSet); target != "" && target != fromRel {
+			graph.AddEdge(fromKey, nsKey(nsPrefix, target), false)
+		}
+		return
+	}
+	if m := reRustUseExt.FindStringSubmatch(line); m != nil {
+		dep := m[1]
+		if dep == "crate" || dep == "super" || dep == "self" {
+			return
+		}
+		if target := resolveRustCratePath(dep, fileSet); target != "" {
+			if target != fromRel {
+				graph.AddEdge(fromKey, nsKey(nsPrefix, target), false)
+			}
+			return
+		}
+		external := true
+		if crateNames != nil && crateNames[dep] {
+			external = false
+		} else if manifest != nil {
+			if depVal, ok := manifest.Deps[dep]; ok {
+				if parseCargoDep(depVal).Path != "" {
+					external = false
+				}
+			}
+		}
+		graph.AddEdge(fromKey, dep, external)
+	}
+}
+
+func nsKey(prefix, rel string) string {
+	if prefix == "" || prefix == "." {
+		return rel
+	}
+	return prefix + "/" + rel
+}
+
+// resolveRustMod maps `mod name;` in fromRel to a sibling .rs path.
+func resolveRustMod(fromRel, name string, fileSet map[string]bool) string {
+	childDir := rustChildDir(fromRel)
+	for _, cand := range []string{
+		filepath.ToSlash(filepath.Join(childDir, name+".rs")),
+		filepath.ToSlash(filepath.Join(childDir, name, "mod.rs")),
+	} {
+		if fileSet[cand] {
+			return cand
+		}
+	}
+	return ""
+}
+
+// rustChildDir is the directory where child modules of fromRel live.
+func rustChildDir(fromRel string) string {
+	base := filepath.Base(fromRel)
+	dir := filepath.ToSlash(filepath.Dir(fromRel))
+	if dir == "." {
+		dir = ""
+	}
+	if base == "mod.rs" || base == "lib.rs" || base == "main.rs" {
+		return dir
+	}
+	stem := strings.TrimSuffix(base, ".rs")
+	if dir == "" {
+		return stem
+	}
+	return dir + "/" + stem
+}
+
+// resolveRustCratePath maps crate::a::b::c to the deepest existing file module.
+func resolveRustCratePath(path string, fileSet map[string]bool) string {
+	segs := strings.Split(path, "::")
+	prefix := "src"
+	if !hasSrcRoot(fileSet) {
+		prefix = ""
+	}
+	var best string
+	cur := prefix
+	for _, seg := range segs {
+		if seg == "" {
+			continue
+		}
+		var candidates []string
+		if cur == "" {
+			candidates = []string{seg + ".rs", seg + "/mod.rs"}
+		} else {
+			candidates = []string{cur + "/" + seg + ".rs", cur + "/" + seg + "/mod.rs"}
+		}
+		found := false
+		for _, c := range candidates {
+			if !fileSet[c] {
+				continue
+			}
+			best = c
+			if strings.HasSuffix(c, "/mod.rs") {
+				cur = strings.TrimSuffix(c, "/mod.rs")
+			} else {
+				cur = strings.TrimSuffix(c, ".rs")
+			}
+			found = true
+			break
+		}
+		if !found {
+			break
+		}
+	}
+	return best
+}
+
+func hasSrcRoot(fileSet map[string]bool) bool {
+	for p := range fileSet {
+		if p == "src/lib.rs" || p == "src/main.rs" || strings.HasPrefix(p, "src/") {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveRustSuperPath(fromRel, path string, fileSet map[string]bool) string {
+	var parent string
+	for _, c := range rustParentCandidates(fromRel) {
+		if fileSet[c] {
+			parent = c
+			break
+		}
+	}
+	if parent == "" {
+		return ""
+	}
+	if path == "" {
+		return parent
+	}
+	// Resolve remaining path as modules under the parent's child directory,
+	// expressed as a crate path relative to src/.
+	childDir := rustChildDir(parent)
+	rel := strings.TrimPrefix(childDir, "src")
+	rel = strings.TrimPrefix(rel, "/")
+	full := rel
+	for _, seg := range strings.Split(path, "::") {
+		if seg == "" {
+			continue
+		}
+		if full == "" {
+			full = seg
+		} else {
+			full += "::" + seg
+		}
+	}
+	if full == "" {
+		return parent
+	}
+	if hit := resolveRustCratePath(full, fileSet); hit != "" {
+		return hit
+	}
+	return parent
+}
+
+func rustParentCandidates(fromRel string) []string {
+	base := filepath.Base(fromRel)
+	dir := filepath.ToSlash(filepath.Dir(fromRel))
+	if dir == "." {
+		dir = ""
+	}
+	switch {
+	case base == "lib.rs" || base == "main.rs":
+		return nil
+	case base == "mod.rs":
+		// src/foo/mod.rs → src/foo.rs, or src/lib.rs / src/main.rs
+		parentDir := filepath.ToSlash(filepath.Dir(dir))
+		if parentDir == "." {
+			parentDir = ""
+		}
+		var out []string
+		if dir != "" {
+			out = append(out, dir+".rs")
+		}
+		for _, root := range []string{"lib.rs", "main.rs", "mod.rs"} {
+			if parentDir == "" {
+				out = append(out, "src/"+root, root)
+			} else {
+				out = append(out, parentDir+"/"+root)
+			}
+		}
+		return out
+	default:
+		// src/foo/bar.rs → src/foo/mod.rs, src/foo.rs
+		if dir == "" {
+			return []string{"src/lib.rs", "src/main.rs", "lib.rs", "main.rs"}
+		}
+		return []string{dir + "/mod.rs", dir + ".rs", "src/lib.rs", "src/main.rs"}
+	}
+}
+
+func listRustFiles(crateDir string) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(crateDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if ShouldSkipDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(d.Name(), ".rs") {
+			return nil
+		}
+		rel, relErr := filepath.Rel(crateDir, path)
+		if relErr != nil {
+			return nil
+		}
+		files = append(files, filepath.ToSlash(rel))
+		return nil
+	})
+	sort.Strings(files)
+	return files, err
 }
 
 var rustSymbolPatterns = []symbolPattern{

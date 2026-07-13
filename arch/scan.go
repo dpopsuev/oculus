@@ -87,9 +87,9 @@ type ScanOpts struct {
 	Format          string // "json", "md", "mermaid"
 	Intent          ScanIntent
 	Since           string // git ref to diff against (e.g. HEAD~1) for incremental scan
-	// TSFileGranularity makes the TypeScript scanner treat each .ts file as its
-	// own component instead of grouping by directory. Useful for strangler fig
-	// migration analysis where per-file coupling matters.
+	// TSFileGranularity makes TypeScript and Rust scanners emit per-file
+	// components (MCP file_granularity) instead of package/crate aggregates.
+	// Useful for strangler-fig analysis and single-crate Rust repos.
 	TSFileGranularity bool
 }
 

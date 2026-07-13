@@ -198,3 +198,114 @@ pub struct Server {
 		t.Error("missing external edge server -> tokio")
 	}
 }
+
+// TestRustScan_FileLevel_MultiModule verifies that FileLevel granularity splits a
+// single-crate repo into per-.rs namespaces with mod/use edges (Seeshell-shaped).
+func TestRustScan_FileLevel_MultiModule(t *testing.T) {
+	dir := setupCrate(t, map[string]string{
+		"Cargo.toml": `[package]
+name = "seeshell-lite"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = "1"
+`,
+		"src/lib.rs": `pub mod action;
+pub mod journal;
+pub mod vm_harness;
+
+pub use action::ActionService;
+`,
+		"src/action.rs": `use crate::journal::Journal;
+
+pub struct ActionService;
+
+impl ActionService {
+    pub fn run(&self, j: &Journal) {}
+}
+`,
+		"src/journal.rs": `pub struct Journal;
+
+pub fn record() {}
+`,
+		"src/vm_harness/mod.rs": `pub mod qmp;
+
+pub struct Harness;
+`,
+		"src/vm_harness/qmp.rs": `use crate::journal::Journal;
+
+pub struct QmpClient;
+
+impl QmpClient {
+    pub fn connect(&self, _j: &Journal) {}
+}
+`,
+		"src/bin/tool.rs": `fn main() {}
+`,
+		"tests/integration.rs": `#[test]
+fn smoke() {}
+`,
+	})
+
+	sc := &survey.RustScanner{Granularity: survey.FileLevel}
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+
+	if len(proj.Namespaces) < 4 {
+		names := make([]string, len(proj.Namespaces))
+		for i, ns := range proj.Namespaces {
+			names[i] = ns.Name
+		}
+		t.Fatalf("want ≥4 file namespaces, got %d: %v", len(proj.Namespaces), names)
+	}
+
+	nsMap := map[string]bool{}
+	for _, ns := range proj.Namespaces {
+		nsMap[ns.Name] = true
+	}
+	for _, want := range []string{"src/lib.rs", "src/action.rs", "src/journal.rs", "src/vm_harness/mod.rs", "src/vm_harness/qmp.rs"} {
+		if !nsMap[want] {
+			t.Errorf("missing namespace %q", want)
+		}
+	}
+
+	hasEdge := func(from, to string) bool {
+		for _, e := range proj.DependencyGraph.EdgesFrom(from) {
+			if e.To == to && !e.External {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasEdge("src/lib.rs", "src/action.rs") {
+		t.Error("missing mod edge lib → action")
+	}
+	if !hasEdge("src/lib.rs", "src/journal.rs") {
+		t.Error("missing mod edge lib → journal")
+	}
+	if !hasEdge("src/lib.rs", "src/vm_harness/mod.rs") {
+		t.Error("missing mod edge lib → vm_harness")
+	}
+	if !hasEdge("src/action.rs", "src/journal.rs") {
+		t.Error("missing use crate::journal edge action → journal")
+	}
+	if !hasEdge("src/vm_harness/mod.rs", "src/vm_harness/qmp.rs") {
+		t.Error("missing mod edge vm_harness → qmp")
+	}
+	if !hasEdge("src/vm_harness/qmp.rs", "src/journal.rs") {
+		t.Error("missing use crate::journal edge qmp → journal")
+	}
+
+	// Default crate-level scan must remain one namespace.
+	crateScan := &survey.RustScanner{}
+	crateProj, err := crateScan.Scan(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(crateProj.Namespaces) != 1 {
+		t.Errorf("default scan namespaces=%d, want 1 (backward compat)", len(crateProj.Namespaces))
+	}
+}

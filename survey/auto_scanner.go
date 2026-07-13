@@ -17,8 +17,8 @@ type AutoScanner struct {
 	Override string
 	// LSPCmd overrides the LSP server command (e.g. "rust-analyzer").
 	LSPCmd string
-	// TSFileGranularity makes the TypeScript scanner treat each .ts file as its
-	// own namespace component instead of grouping by directory.
+	// TSFileGranularity makes TypeScript and Rust scanners emit per-file
+	// components instead of package/crate aggregates (MCP file_granularity).
 	TSFileGranularity bool
 }
 
@@ -52,13 +52,13 @@ func (s *AutoScanner) resolve(root string) Scanner {
 	case "ctags":
 		return &CtagsScanner{}
 	case "rust":
-		return &RustScanner{}
+		return &RustScanner{Granularity: s.granularity()}
 	case "typescript":
 		return &TypeScriptScanner{Granularity: s.granularity()}
 	case "python":
 		return &PythonScanner{}
 	case "composite":
-		return &CompositeScanner{}
+		return &CompositeScanner{TSFileGranularity: s.TSFileGranularity}
 	}
 
 	lang := DetectLanguage(root)
@@ -67,6 +67,9 @@ func (s *AutoScanner) resolve(root string) Scanner {
 	if lang != model.LangUnknown {
 		if lang == model.LangTypeScript && s.TSFileGranularity {
 			return &TypeScriptScanner{Granularity: FileLevel}
+		}
+		if lang == model.LangRust && s.TSFileGranularity {
+			return &RustScanner{Granularity: FileLevel}
 		}
 		return ScannerFromRegistry(lang, root)
 	}
