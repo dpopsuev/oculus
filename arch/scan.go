@@ -23,23 +23,59 @@ import (
 	"github.com/dpopsuev/oculus/v3/survey"
 )
 
-// ScanIntent controls what level of analysis to perform.
+// ScanIntent controls how deep ScanAndBuild goes.
 type ScanIntent string
 
 const (
-	// IntentArchitecture performs structure-only analysis (L0): survey, arch model, LOC.
+	// IntentArchitecture: survey, arch model, LOC only.
 	IntentArchitecture ScanIntent = "architecture"
-	// IntentCoupling adds coupling analysis (L1): cycles, import depth, hot spots, API surfaces.
+	// IntentCoupling: architecture + cycles, import depth, hot spots, API surfaces.
 	IntentCoupling ScanIntent = "coupling"
-	// IntentHealth adds churn and nesting (L2): git history, tree-sitter depth, file hotspots.
+	// IntentHealth: coupling + churn, nesting, git history (default).
 	IntentHealth ScanIntent = "health"
-	// IntentFull adds coverage, authors, and anchors (L3).
+	// IntentFull: health + coverage, authors, anchors.
 	IntentFull ScanIntent = "full"
 )
 
-// ScanLevel returns the numeric level for an intent (0-3).
-func (i ScanIntent) ScanLevel() int {
+// normalize maps empty/unknown intents to health (historical default).
+func (i ScanIntent) normalize() ScanIntent {
 	switch i {
+	case IntentArchitecture, IntentCoupling, IntentHealth, IntentFull:
+		return i
+	default:
+		return IntentHealth
+	}
+}
+
+// IncludesCoupling is true for coupling, health, and full.
+func (i ScanIntent) IncludesCoupling() bool {
+	switch i.normalize() {
+	case IntentCoupling, IntentHealth, IntentFull:
+		return true
+	default:
+		return false
+	}
+}
+
+// IncludesHealth is true for health and full.
+func (i ScanIntent) IncludesHealth() bool {
+	switch i.normalize() {
+	case IntentHealth, IntentFull:
+		return true
+	default:
+		return false
+	}
+}
+
+// IncludesFull is true only for full (coverage, authors, anchors).
+func (i ScanIntent) IncludesFull() bool {
+	return i.normalize() == IntentFull
+}
+
+// ScanLevel is deprecated: prefer IncludesCoupling / IncludesHealth / IncludesFull.
+// Kept for older call sites; architecture=0 … full=3.
+func (i ScanIntent) ScanLevel() int {
+	switch i.normalize() {
 	case IntentArchitecture:
 		return 0
 	case IntentCoupling:
@@ -49,7 +85,7 @@ func (i ScanIntent) ScanLevel() int {
 	case IntentFull:
 		return 3
 	default:
-		return 2 // default to health for backward compat
+		return 2
 	}
 }
 
@@ -112,16 +148,16 @@ const (
 
 // ScanAndBuild scans any repository and produces a ContextReport.
 // It requires no config directory -- all inputs come from the source tree and git.
-// The opts.Intent field controls how deep the analysis goes:
+// opts.Intent selects depth:
 //
-//	L0 (architecture): structure + LOC
-//	L1 (coupling):     L0 + cycles, import depth, hot spots, API surfaces
-//	L2 (health):       L1 + churn, nesting, git history (default)
-//	L3 (full):         L2 + coverage, authors, anchors
+//	architecture — structure + LOC
+//	coupling     — architecture + cycles, import depth, hot spots, API surfaces
+//	health       — coupling + churn, nesting, git history (default)
+//	full         — health + coverage, authors, anchors
 func ScanAndBuild(ctx context.Context, root string, opts ScanOpts) (*ContextReport, error) {
-	level := opts.Intent.ScanLevel()
+	intent := opts.Intent.normalize()
 
-	// --- L0: structure ---
+	// --- architecture: structure ---
 	sc := &survey.AutoScanner{Override: opts.ScannerOverride, TSFileGranularity: opts.TSFileGranularity}
 
 	// Incremental scan: if Since is set, identify changed packages and merge.
@@ -165,8 +201,8 @@ func ScanAndBuild(ctx context.Context, root string, opts ScanOpts) (*ContextRepo
 		syncOpts.Groups = InferDefaultGroups(proj, modPath, d)
 	}
 
-	// Churn is only computed at L2+.
-	if level >= 2 && opts.ChurnDays > 0 {
+	// Churn is only computed at health/full.
+	if intent.IncludesHealth() && opts.ChurnDays > 0 {
 		syncOpts.ChurnData = archgit.ComputeChurn(root, opts.ChurnDays, modPath)
 	}
 
@@ -184,12 +220,12 @@ func ScanAndBuild(ctx context.Context, root string, opts ScanOpts) (*ContextRepo
 
 	report.SuggestedDepth = computeSuggestedDepth(proj, modPath, len(archModel.Services))
 
-	if level < 1 {
+	if !intent.IncludesCoupling() {
 		return report, nil
 	}
 
-	// --- L1: coupling ---
-	// HotSpots computed after L2 when nesting is available; at L1-only we
+	// --- coupling ---
+	// HotSpots recomputed after health when nesting is available; at coupling-only we
 	// compute with whatever nesting is present (usually 0).
 	spots := computeHotSpots(archModel)
 	if spots == nil {
@@ -233,31 +269,31 @@ func ScanAndBuild(ctx context.Context, root string, opts ScanOpts) (*ContextRepo
 	report.FanIn = graph.FanIn(archModel.Edges)
 	report.FanOut = graph.FanOut(archModel.Edges)
 
-	if level < 2 {
+	if !intent.IncludesHealth() {
 		return report, nil
 	}
 
-	// --- L2: health (churn, nesting, git history) ---
-	runL2Health(ctx, root, modPath, opts, &archModel, report)
-	// Nesting is applied inside runL2Health — recompute so structural hubs qualify.
+	// --- health (churn, nesting, git history) ---
+	applyHealthAnalysis(ctx, root, modPath, opts, &archModel, report)
+	// Nesting is applied inside applyHealthAnalysis — recompute so structural hubs qualify.
 	spots = computeHotSpots(archModel)
 	if spots == nil {
 		spots = []HotSpot{}
 	}
 	report.HotSpots = spots
 
-	if level < 3 {
+	if !intent.IncludesFull() {
 		return report, nil
 	}
 
-	// --- L3: full (coverage, authors, anchors) ---
-	runL3Full(ctx, root, modPath, opts, proj, report)
+	// --- full (coverage, authors, anchors) ---
+	applyFullAnalysis(ctx, root, modPath, opts, proj, report)
 
 	return report, nil
 }
 
-// runL2Health runs nesting depth, recent commits, and file hotspots in parallel.
-func runL2Health(ctx context.Context, root, modPath string, opts ScanOpts, archModel *ArchModel, report *ContextReport) {
+// applyHealthAnalysis runs nesting depth, recent commits, and file hotspots in parallel.
+func applyHealthAnalysis(ctx context.Context, root, modPath string, opts ScanOpts, archModel *ArchModel, report *ContextReport) {
 	var (
 		commits  []archgit.PackageCommit
 		hotFiles []archgit.HotFile
@@ -281,8 +317,8 @@ func runL2Health(ctx context.Context, root, modPath string, opts ScanOpts, archM
 	report.FileHotSpots = hotFiles
 }
 
-// runL3Full runs coverage, author ownership, and anchor extraction in parallel.
-func runL3Full(ctx context.Context, root, modPath string, opts ScanOpts, proj *model.Project, report *ContextReport) {
+// applyFullAnalysis runs coverage, author ownership, and anchor extraction in parallel.
+func applyFullAnalysis(ctx context.Context, root, modPath string, opts ScanOpts, proj *model.Project, report *ContextReport) {
 	var (
 		coverage []archgit.CoverageResult
 		authors  map[string][]archgit.Author

@@ -111,7 +111,7 @@ func MergeScan(ctx context.Context, root string, baseline *ContextReport, change
 	}
 
 	mergedProj := mergeProjects(baseline.Project, partial, baseline.ModulePath, changedPkgs)
-	level := opts.Intent.ScanLevel()
+	intent := opts.Intent.normalize()
 	modPath := baseline.ModulePath
 	if modPath == "" {
 		modPath = DetectProjectPath(root)
@@ -137,7 +137,7 @@ func MergeScan(ctx context.Context, root string, baseline *ContextReport, change
 		}
 		syncOpts.Groups = InferDefaultGroups(mergedProj, modPath, d)
 	}
-	if level >= 2 && opts.ChurnDays > 0 {
+	if intent.IncludesHealth() && opts.ChurnDays > 0 {
 		syncOpts.ChurnData = nil // keep baseline churn; avoid full git walk on merge
 	}
 
@@ -159,7 +159,7 @@ func MergeScan(ctx context.Context, root string, baseline *ContextReport, change
 	report.SuggestedDepth = baseline.SuggestedDepth
 	markServicesChanged(report, changedPkgs)
 
-	if level < 1 {
+	if !intent.IncludesCoupling() {
 		return report, nil
 	}
 
@@ -182,8 +182,8 @@ func MergeScan(ctx context.Context, root string, baseline *ContextReport, change
 	report.FanIn = graph.FanIn(archModel.Edges)
 	report.FanOut = graph.FanOut(archModel.Edges)
 
-	// Preserve L2/L3 from baseline when merge skips expensive passes.
-	if level >= 2 {
+	// Preserve health/full extras from baseline when merge skips those passes.
+	if intent.IncludesHealth() {
 		report.RecentCommits = baseline.RecentCommits
 		report.FileHotSpots = baseline.FileHotSpots
 		report.Authors = baseline.Authors

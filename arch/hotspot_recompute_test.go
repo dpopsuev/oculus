@@ -5,7 +5,7 @@ import (
 )
 
 // TestComputeHotSpots_AfterNestingApplied verifies the structural path that
-// was dead when HotSpots were frozen before runL2Health populated MaxNesting.
+// was dead when HotSpots were frozen before applyHealthAnalysis populated MaxNesting.
 func TestComputeHotSpots_AfterNestingApplied(t *testing.T) {
 	m := ArchModel{
 		Services: []ArchService{

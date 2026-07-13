@@ -79,22 +79,27 @@ func hasAnyNesting(r *ContextReport) bool {
 	return false
 }
 
-func TestScanIntentLevel(t *testing.T) {
+func TestScanIntentIncludes(t *testing.T) {
 	tests := []struct {
-		intent ScanIntent
-		level  int
+		intent              ScanIntent
+		coupling, health, full bool
 	}{
-		{IntentArchitecture, 0},
-		{IntentCoupling, 1},
-		{IntentHealth, 2},
-		{IntentFull, 3},
-		{"", 2},        // default
-		{"unknown", 2}, // unknown defaults to health
+		{IntentArchitecture, false, false, false},
+		{IntentCoupling, true, false, false},
+		{IntentHealth, true, true, false},
+		{IntentFull, true, true, true},
+		{"", true, true, false},        // default → health
+		{"unknown", true, true, false}, // unknown → health
 	}
 	for _, tt := range tests {
-		got := tt.intent.ScanLevel()
-		if got != tt.level {
-			t.Errorf("ScanIntent(%q).ScanLevel() = %d, want %d", tt.intent, got, tt.level)
+		if got := tt.intent.IncludesCoupling(); got != tt.coupling {
+			t.Errorf("%q IncludesCoupling=%v want %v", tt.intent, got, tt.coupling)
+		}
+		if got := tt.intent.IncludesHealth(); got != tt.health {
+			t.Errorf("%q IncludesHealth=%v want %v", tt.intent, got, tt.health)
+		}
+		if got := tt.intent.IncludesFull(); got != tt.full {
+			t.Errorf("%q IncludesFull=%v want %v", tt.intent, got, tt.full)
 		}
 	}
 }
