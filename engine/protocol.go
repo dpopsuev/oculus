@@ -1855,38 +1855,58 @@ func (p *Engine) hybridRetrieve(ctx context.Context, path, query string, cacheKe
 		}, nil
 	}
 	pattern := strings.Join(terms, "|")
-	sr, err := p.SearchSymbols(ctx, path, pattern, cacheKey...)
-	if err != nil {
-		return nil, err
-	}
+	var cands []cand
 	type cand struct {
 		symbol, kind, file string
+		score                int
 	}
-	var cands []cand
-	for _, m := range sr.Matches {
-		cands = append(cands, cand{m.Symbol, m.Kind, m.File})
+	sr, err := p.SearchSymbols(ctx, path, pattern, cacheKey...)
+	if err == nil {
+		for _, m := range sr.Matches {
+			cands = append(cands, cand{m.Symbol, m.Kind, m.File, 10})
+		}
+	} else {
+		slog.LogAttrs(ctx, slog.LevelDebug, "hybrid: package symbol search skipped",
+			slog.Any("error", err))
 	}
 	// Fall back to Quick symbol-graph substring search when package index is thin.
 	if len(cands) == 0 {
 		if sg, sgErr := p.GetSymbolGraph(ctx, path, symbolGraphQuick); sgErr == nil && sg != nil {
 			seen := map[string]bool{}
+			// Prefer longer terms (GetSymbolGraph over graph).
+			sortedTerms := append([]string(nil), terms...)
+			sort.Slice(sortedTerms, func(i, j int) bool { return len(sortedTerms[i]) > len(sortedTerms[j]) })
 			for _, n := range sg.Nodes {
 				fqn := n.FQN()
 				name := strings.ToLower(n.Name + " " + fqn)
-				for _, term := range terms {
-					if strings.Contains(name, strings.ToLower(term)) {
-						if seen[fqn] {
-							break
+				best := 0
+				for _, term := range sortedTerms {
+					tl := strings.ToLower(term)
+					if len(tl) < 4 {
+						continue
+					}
+					if strings.Contains(name, tl) {
+						score := len(tl)
+						if score > best {
+							best = score
 						}
-						seen[fqn] = true
-						cands = append(cands, cand{fqn, n.Kind, n.File})
-						break
 					}
 				}
-				if len(cands) >= 20 {
-					break
+				if best == 0 {
+					continue
 				}
+				if seen[fqn] {
+					continue
+				}
+				seen[fqn] = true
+				cands = append(cands, cand{fqn, n.Kind, n.File, best})
 			}
+			sort.Slice(cands, func(i, j int) bool {
+				if cands[i].score != cands[j].score {
+					return cands[i].score > cands[j].score
+				}
+				return cands[i].symbol < cands[j].symbol
+			})
 		}
 	}
 	const maxHits = 5
@@ -2929,6 +2949,9 @@ func resolveRolesAndAccepted(hexaClass *clinic.HexaClassificationReport, desired
 }
 
 func (p *Engine) getOrScan(ctx context.Context, path string, cacheKeys ...string) (*arch.ContextReport, error) {
+	if p.db == nil {
+		return nil, fmt.Errorf("no store configured")
+	}
 	// If a cache key is provided, resolve from cache directly.
 	for _, ck := range cacheKeys {
 		if ck == "" {
