@@ -72,23 +72,6 @@ func (i ScanIntent) IncludesFull() bool {
 	return i.normalize() == IntentFull
 }
 
-// ScanLevel is deprecated: prefer IncludesCoupling / IncludesHealth / IncludesFull.
-// Kept for older call sites; architecture=0 … full=3.
-func (i ScanIntent) ScanLevel() int {
-	switch i.normalize() {
-	case IntentArchitecture:
-		return 0
-	case IntentCoupling:
-		return 1
-	case IntentHealth:
-		return 2
-	case IntentFull:
-		return 3
-	default:
-		return 2
-	}
-}
-
 // ScanOpts controls the behavior of ScanAndBuild.
 type ScanOpts struct {
 	ScannerOverride string
