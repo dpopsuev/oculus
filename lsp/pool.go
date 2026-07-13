@@ -109,6 +109,12 @@ type Pool interface {
 	// textDocument/documentSymbol (after didOpen). Returns ErrNoPool from StubPool.
 	DocumentSymbols(ctx context.Context, file string) ([]DocSymbol, error)
 
+	// PrepareRename validates that the symbol at position can be renamed.
+	PrepareRename(ctx context.Context, file string, line, char int) (*PrepareResult, error)
+
+	// Rename returns a WorkspaceEdit for renaming the symbol at position.
+	Rename(ctx context.Context, file string, line, char int, newName string) (*WorkspaceEdit, error)
+
 	// MaxConcurrent returns the maximum number of simultaneous LSP server
 	// instances allowed for the given language. Resource-heavy servers
 	// (e.g. clangd) have a lower limit than lightweight ones (e.g. gopls).
@@ -137,6 +143,7 @@ func InitializeParams(rootURI string) map[string]any {
 				"documentSymbol":    map[string]any{"hierarchicalDocumentSymbolSupport": true},
 				"definition":        map[string]any{},
 				"references":        map[string]any{},
+				"rename":            map[string]any{"prepareSupport": true},
 				"typeHierarchy":     map[string]any{},
 				"callHierarchy":     map[string]any{},
 				"implementation":    map[string]any{},
@@ -149,6 +156,7 @@ func InitializeParams(rootURI string) map[string]any {
 			"workspace": map[string]any{
 				"symbol":        map[string]any{"dynamicRegistration": false},
 				"configuration": true,
+				"applyEdit":     true,
 			},
 			// Advertise UTF-8 preference; server may respond with utf-8
 			// to avoid UTF-16 surrogate-pair math on our side.

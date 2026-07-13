@@ -95,6 +95,14 @@ func (p *MockPool) DocumentSymbols(ctx context.Context, file string) ([]DocSymbo
 	return poolDocumentSymbols(ctx, p, file)
 }
 
+func (p *MockPool) PrepareRename(ctx context.Context, file string, line, char int) (*PrepareResult, error) {
+	return poolPrepareRename(ctx, p, file, line, char)
+}
+
+func (p *MockPool) Rename(ctx context.Context, file string, line, char int, newName string) (*WorkspaceEdit, error) {
+	return poolRename(ctx, p, file, line, char, newName)
+}
+
 func (p *MockPool) Shutdown(_ context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()

@@ -192,6 +192,107 @@ func TestGetShow_MockPoolBodySlice(t *testing.T) {
 	t.Logf("show: %s\n%s", r.Summary, r.Body)
 }
 
+func TestGetRename_DryRunMockPool(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteGoMod(t, dir)
+	src := filepath.Join(dir, "pkg", "a.go")
+	_ = os.MkdirAll(filepath.Dir(src), 0o755)
+	orig := "package pkg\n\nfunc Hello() {}\n"
+	if err := os.WriteFile(src, []byte(orig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	uri := "file://" + filepath.ToSlash(src)
+	rep := &arch.ContextReport{
+		ScanCore: arch.ScanCore{
+			Architecture: arch.ArchModel{
+				Services: []arch.ArchService{{
+					Name: "pkg", Package: "example.com/m/pkg", Language: model.LangGo,
+					Symbols: []model.Symbol{{Name: "Hello", Exported: true, File: "pkg/a.go", Line: 3}},
+				}},
+			},
+		},
+	}
+	pool := lsp.NewMockPool(mockserver.Config{
+		RenameEnabled: true,
+		Symbols: []mockserver.Symbol{{
+			Name: "Hello", Kind: 12, URI: uri, Line: 2, Col: 5,
+		}},
+	})
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+	eng := New(newMockStore(rep), []string{dir}, pool)
+
+	r, err := eng.GetRename(context.Background(), dir, "pkg/a.go:3:Hello", "Howdy", RenameOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Prepared || !r.CoverageOK || !r.DryRun || r.Applied {
+		t.Fatalf("unexpected report: %+v", r)
+	}
+	if r.EditCount < 1 {
+		t.Fatalf("expected edits, got %d: %s", r.EditCount, r.Summary)
+	}
+	got, _ := os.ReadFile(src)
+	if string(got) != orig {
+		t.Fatalf("dry-run mutated disk: %q", got)
+	}
+	t.Logf("dry-run: %s", r.Summary)
+}
+
+func TestGetRename_ApplyRebinds(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteGoMod(t, dir)
+	src := filepath.Join(dir, "pkg", "a.go")
+	_ = os.MkdirAll(filepath.Dir(src), 0o755)
+	if err := os.WriteFile(src, []byte("package pkg\n\nfunc Hello() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	uri := "file://" + filepath.ToSlash(src)
+	rep := &arch.ContextReport{
+		ScanCore: arch.ScanCore{
+			Architecture: arch.ArchModel{
+				Services: []arch.ArchService{{
+					Name: "pkg", Package: "example.com/m/pkg", Language: model.LangGo,
+					Symbols: []model.Symbol{{Name: "Hello", Exported: true, File: "pkg/a.go", Line: 3}},
+				}},
+			},
+		},
+	}
+	pool := lsp.NewMockPool(mockserver.Config{
+		RenameEnabled: true,
+		Symbols: []mockserver.Symbol{{
+			Name: "Hello", Kind: 12, URI: uri, Line: 2, Col: 5,
+		}},
+	})
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+	eng := New(newMockStore(rep), []string{dir}, pool)
+
+	r, err := eng.GetRename(context.Background(), dir, "pkg/a.go:3:Hello", "Howdy", RenameOpts{Apply: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Applied || !r.Rebound || !r.CoverageOK {
+		t.Fatalf("unexpected: %+v", r)
+	}
+	got, _ := os.ReadFile(src)
+	if !strings.Contains(string(got), "func Howdy") {
+		t.Fatalf("apply missed rename: %q", got)
+	}
+	if !eng.IsDirty(dir) {
+		t.Fatal("expected MarkDirty after apply")
+	}
+}
+
+func TestRenameCoverageGate_MultiFile(t *testing.T) {
+	ok, _ := renameCoverageOK(3, 2, 3, 1)
+	if ok {
+		t.Fatal("multi-file refs with single-file edit should fail")
+	}
+	ok, _ = renameCoverageOK(3, 2, 3, 2)
+	if !ok {
+		t.Fatal("want pass")
+	}
+}
+
 func mustWriteGoMod(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m\n\ngo 1.22\n"), 0o644); err != nil {

@@ -312,6 +312,16 @@ func (p *RealPool) DocumentSymbols(ctx context.Context, file string) ([]DocSymbo
 	return poolDocumentSymbols(ctx, p, file)
 }
 
+// PrepareRename implements Pool.PrepareRename for RealPool.
+func (p *RealPool) PrepareRename(ctx context.Context, file string, line, char int) (*PrepareResult, error) {
+	return poolPrepareRename(ctx, p, file, line, char)
+}
+
+// Rename implements Pool.Rename for RealPool.
+func (p *RealPool) Rename(ctx context.Context, file string, line, char int, newName string) (*WorkspaceEdit, error) {
+	return poolRename(ctx, p, file, line, char, newName)
+}
+
 // spawnServer starts a new LSP server process and performs the initialize handshake.
 // It looks up the registry entry for language, checks root markers (unless the
 // server has SingleFileSupport), then spawns and initializes the process.

@@ -49,6 +49,8 @@ type Config struct {
 	Latency                    time.Duration     // artificial delay per response
 	IndexingDelay              time.Duration     // workspace/symbol returns empty until this elapses (simulates server indexing)
 	RequireWorkspaceSymbolCap  bool              // if true, return null for workspace/symbol unless client advertised the capability
+	// RenameNewName, when set, enables prepareRename/rename responses using Symbols.
+	RenameEnabled bool
 }
 
 // Serve runs the mock LSP server on the given reader/writer pair.
@@ -111,6 +113,14 @@ func Serve(r io.Reader, w io.Writer, cfg Config) error {
 			result = buildHover(cfg.Symbols, cfg.Signatures, params)
 		case "textDocument/documentSymbol":
 			result = buildDocumentSymbols(cfg.Symbols, params)
+		case "textDocument/prepareRename":
+			result = buildPrepareRename(cfg, params)
+		case "textDocument/rename":
+			result = buildRename(cfg, params)
+		case "textDocument/references":
+			result = buildReferences(cfg.Symbols, params)
+		case "textDocument/definition":
+			result = buildDefinition(cfg.Symbols, params)
 		case "textDocument/didOpen":
 			continue // notification
 		default:
@@ -352,4 +362,121 @@ func buildDocumentSymbols(symbols []Symbol, params json.RawMessage) []map[string
 		}
 	}
 	return result
+}
+
+func buildPrepareRename(cfg Config, params json.RawMessage) any {
+	if !cfg.RenameEnabled {
+		return nil
+	}
+	s := findSymbolAt(cfg.Symbols, params)
+	if s == nil {
+		return nil
+	}
+	return map[string]any{
+		"range": map[string]any{
+			"start": map[string]int{"line": s.Line, "character": s.Col},
+			"end":   map[string]int{"line": s.Line, "character": s.Col + len(s.Name)},
+		},
+		"placeholder": s.Name,
+	}
+}
+
+func buildRename(cfg Config, params json.RawMessage) any {
+	if !cfg.RenameEnabled {
+		return nil
+	}
+	var p struct {
+		TextDocument struct {
+			URI string `json:"uri"`
+		} `json:"textDocument"`
+		NewName string `json:"newName"`
+	}
+	_ = json.Unmarshal(params, &p)
+	s := findSymbolAt(cfg.Symbols, params)
+	if s == nil || p.NewName == "" {
+		return nil
+	}
+	changes := map[string]any{}
+	for _, sym := range cfg.Symbols {
+		if sym.Name != s.Name {
+			continue
+		}
+		uri := sym.URI
+		if uri == "" {
+			uri = p.TextDocument.URI
+		}
+		edits, _ := changes[uri].([]map[string]any)
+		edits = append(edits, map[string]any{
+			"range": map[string]any{
+				"start": map[string]int{"line": sym.Line, "character": sym.Col},
+				"end":   map[string]int{"line": sym.Line, "character": sym.Col + len(sym.Name)},
+			},
+			"newText": p.NewName,
+		})
+		changes[uri] = edits
+	}
+	return map[string]any{"changes": changes}
+}
+
+func buildReferences(symbols []Symbol, params json.RawMessage) any {
+	s := findSymbolAt(symbols, params)
+	if s == nil {
+		return []any{}
+	}
+	var out []map[string]any
+	for _, sym := range symbols {
+		if sym.Name != s.Name {
+			continue
+		}
+		out = append(out, map[string]any{
+			"uri": sym.URI,
+			"range": map[string]any{
+				"start": map[string]int{"line": sym.Line, "character": sym.Col},
+				"end":   map[string]int{"line": sym.Line, "character": sym.Col + len(sym.Name)},
+			},
+		})
+	}
+	return out
+}
+
+func buildDefinition(symbols []Symbol, params json.RawMessage) any {
+	s := findSymbolAt(symbols, params)
+	if s == nil {
+		return []any{}
+	}
+	return []map[string]any{{
+		"uri": s.URI,
+		"range": map[string]any{
+			"start": map[string]int{"line": s.Line, "character": s.Col},
+			"end":   map[string]int{"line": s.Line, "character": s.Col + len(s.Name)},
+		},
+	}}
+}
+
+func findSymbolAt(symbols []Symbol, params json.RawMessage) *Symbol {
+	var p struct {
+		TextDocument struct {
+			URI string `json:"uri"`
+		} `json:"textDocument"`
+		Position struct {
+			Line      int `json:"line"`
+			Character int `json:"character"`
+		} `json:"position"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return nil
+	}
+	for i := range symbols {
+		s := &symbols[i]
+		if s.URI != "" && s.URI != p.TextDocument.URI {
+			continue
+		}
+		if s.Line == p.Position.Line {
+			return s
+		}
+	}
+	if len(symbols) > 0 {
+		return &symbols[0]
+	}
+	return nil
 }
