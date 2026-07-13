@@ -80,6 +80,71 @@ func (s *RustScanner) Scan(root string) (*model.Project, error) {
 	return s.scanSingleCrate(absRoot, manifest, proj)
 }
 
+// ScanDirs resurveys Rust crates touched by dirs/changedPaths.
+func (s *RustScanner) ScanDirs(root string, dirs, changedPaths []string) (*model.Project, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	crateDirs := map[string]bool{}
+	for _, p := range changedPaths {
+		if c := findCrateRoot(absRoot, filepath.Join(absRoot, p)); c != "" {
+			crateDirs[c] = true
+		}
+	}
+	for _, d := range dirs {
+		cand := d
+		if d == nsRoot || d == "." || d == "" {
+			cand = absRoot
+		} else {
+			cand = filepath.Join(absRoot, filepath.FromSlash(d))
+		}
+		if c := findCrateRoot(absRoot, cand); c != "" {
+			crateDirs[c] = true
+		}
+	}
+	if len(crateDirs) == 0 {
+		return s.Scan(root)
+	}
+
+	proj := &model.Project{
+		Path:            filepath.Base(absRoot),
+		Language:        model.LangRust,
+		DependencyGraph: model.NewDependencyGraph(),
+	}
+	for crateDir := range crateDirs {
+		var cm cargoManifest
+		if _, err := toml.DecodeFile(filepath.Join(crateDir, "Cargo.toml"), &cm); err != nil || cm.Package == nil {
+			continue
+		}
+		name := cm.Package.Name
+		ns := model.NewNamespace(name, name)
+		s.extractRustSymbols(crateDir, ns)
+		proj.AddNamespace(ns)
+		for depName, depVal := range cm.Deps {
+			dep := parseCargoDep(depVal)
+			proj.DependencyGraph.AddEdge(name, depName, dep.Path == "")
+		}
+	}
+	return proj, nil
+}
+
+func findCrateRoot(absRoot, start string) string {
+	dir := start
+	if fi, err := os.Stat(dir); err == nil && !fi.IsDir() {
+		dir = filepath.Dir(dir)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "Cargo.toml")); err == nil {
+			return dir
+		}
+		if dir == absRoot || dir == "/" || dir == "." || dir == filepath.Dir(dir) {
+			return ""
+		}
+		dir = filepath.Dir(dir)
+	}
+}
+
 func (s *RustScanner) scanWorkspace(root string, manifest cargoManifest, proj *model.Project) (*model.Project, error) {
 	crateNames := make(map[string]bool)
 	type crateInfo struct {

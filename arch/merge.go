@@ -23,7 +23,7 @@ const (
 	ReasonNoBaseline     = "no_baseline"
 	ReasonManifestChange = "manifest_change"
 	ReasonTooManyPkgs    = "too_many_packages"
-	ReasonNonGo          = "non_go"
+	ReasonUnsupportedLang = "unsupported_lang"
 	ReasonEmptyChanged   = "empty_changed"
 )
 
@@ -35,13 +35,14 @@ func RequireFullScan(baseline *ContextReport, changedPaths, changedPkgs []string
 	if len(changedPkgs) == 0 && len(changedPaths) == 0 {
 		return true, ReasonEmptyChanged
 	}
-	if baseline.Project.Language != model.LangGo && baseline.Project.Language != model.LangUnknown {
-		return true, ReasonNonGo
+	if !mergeableLanguage(baseline.Project.Language, changedPaths) {
+		return true, ReasonUnsupportedLang
 	}
 	for _, p := range changedPaths {
 		base := filepath.Base(p)
 		switch base {
-		case "go.mod", "go.sum", "package.json", "Cargo.toml", "pyproject.toml":
+		case "go.mod", "go.sum", "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+			"Cargo.toml", "Cargo.lock", "pyproject.toml", "poetry.lock", "requirements.txt":
 			return true, ReasonManifestChange
 		}
 	}
@@ -57,6 +58,20 @@ func RequireFullScan(baseline *ContextReport, changedPaths, changedPkgs []string
 		return true, ReasonTooManyPkgs
 	}
 	return false, ""
+}
+
+func mergeableLanguage(lang model.Language, changedPaths []string) bool {
+	switch lang {
+	case model.LangGo, model.LangTypeScript, model.LangPython, model.LangRust, model.LangUnknown:
+		return true
+	}
+	// Baseline language exotic — still mergeable if changed files are known langs.
+	for _, p := range changedPaths {
+		if survey.LangFromFilename(p) != model.LangUnknown {
+			return true
+		}
+	}
+	return false
 }
 
 // PackageDirsToPatterns maps slash package dirs from cache.Packages to go/packages patterns.
@@ -94,9 +109,8 @@ func MergeScan(ctx context.Context, root string, baseline *ContextReport, change
 		return report, nil
 	}
 
-	patterns := PackageDirsToPatterns(changedPkgs)
-	ps := &survey.PackagesScanner{}
-	partial, err := ps.ScanPatterns(root, patterns)
+	lang := baseline.Project.Language
+	partial, err := survey.PartialScan(root, lang, changedPkgs, changedPaths)
 	if err != nil {
 		slog.LogAttrs(ctx, slog.LevelWarn, "merge: scoped survey failed, full scan",
 			slog.Any("error", err))
@@ -154,7 +168,7 @@ func MergeScan(ctx context.Context, root string, baseline *ContextReport, change
 		},
 	}
 	if report.Scanner == "" {
-		report.Scanner = "packages"
+		report.Scanner = scannerNameForLang(lang)
 	}
 	report.SuggestedDepth = baseline.SuggestedDepth
 	markServicesChanged(report, changedPkgs)
@@ -167,7 +181,7 @@ func MergeScan(ctx context.Context, root string, baseline *ContextReport, change
 	if spots == nil {
 		spots = []oculus.HotSpot{}
 	}
-	report.HotSpots = spots
+	report.HotSpots = EnrichHotSpotsComplexity(root, spots, MaxHotSpotsMarkdown)
 	cycles := graph.DetectCycles(archModel.Edges)
 	if cycles == nil {
 		cycles = []graph.Cycle{}
@@ -191,6 +205,21 @@ func MergeScan(ctx context.Context, root string, baseline *ContextReport, change
 		report.Anchors = baseline.Anchors
 	}
 	return report, nil
+}
+
+func scannerNameForLang(lang model.Language) string {
+	switch lang {
+	case model.LangGo:
+		return "packages"
+	case model.LangTypeScript:
+		return "typescript"
+	case model.LangPython:
+		return "python"
+	case model.LangRust:
+		return "rust"
+	default:
+		return "auto"
+	}
 }
 
 func uniquePackageDirs(changedPaths []string) []string {
@@ -251,7 +280,10 @@ func mergeProjects(baseline, partial *model.Project, modPath string, changedPkgs
 	}
 
 	out := model.NewProject(baseline.Path)
-	out.Language = model.LangGo
+	out.Language = baseline.Language
+	if out.Language == model.LangUnknown && partial != nil && partial.Language != model.LangUnknown {
+		out.Language = partial.Language
+	}
 	out.DependencyGraph = model.NewDependencyGraph()
 
 	for _, ns := range baseline.Namespaces {

@@ -45,6 +45,7 @@ Fail-fast: if LSP unavailable, returns error naming the required server — neve
 - **Edge confidence**: Layer field on SymbolEdge (goast/treesitter/lsp/regex)
 - **Complexity hints**: AST nested-loop / recursion patterns on hotspots (disclaimer included)
 - **Taint federation-lite**: call-graph BFS + optional `LOCUS_TAINT_CMD` (see [docs/taint.md](docs/taint.md))
+- **Polyglot merge**: package-delta merge for Go, TypeScript, Python, Rust (and extension-routed composite); manifests force full rescan
 
 ## Usage
 

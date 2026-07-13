@@ -175,13 +175,17 @@ func resolveAlias(spec string, aliases []pathAlias) (string, bool) {
 }
 
 func (s *TypeScriptScanner) Scan(root string) (*model.Project, error) {
+	return s.ScanDirs(root, nil)
+}
+
+// ScanDirs resurveys only namespaces under dirs (nil/empty = whole tree).
+func (s *TypeScriptScanner) ScanDirs(root string, dirs []string) (*model.Project, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
 
 	aliases := readPathAliases(absRoot)
-
 	pkg := readPackageJSON(absRoot)
 
 	projName := pkg.Name
@@ -195,13 +199,8 @@ func (s *TypeScriptScanner) Scan(root string) (*model.Project, error) {
 		DependencyGraph: model.NewDependencyGraph(),
 	}
 
-	externalPkgs := make(map[string]bool)
-	for dep := range pkg.Dependencies {
-		externalPkgs[dep] = true
-	}
-	for dep := range pkg.DevDeps {
-		externalPkgs[dep] = true
-	}
+	allow := allowSet(dirs)
+	filter := len(dirs) > 0
 
 	nsMap := make(map[string]*model.Namespace)
 	seen := make(map[string]map[string]bool)
@@ -213,6 +212,25 @@ func (s *TypeScriptScanner) Scan(root string) (*model.Project, error) {
 		if d.IsDir() {
 			if ShouldSkipTSDir(d.Name()) {
 				return filepath.SkipDir
+			}
+			if filter {
+				relDir, relErr := filepath.Rel(absRoot, path)
+				if relErr == nil {
+					relDir = filepath.ToSlash(relDir)
+					if relDir != "." && !DirAllowed(relDir, allow) {
+						// Still descend if some allow dir is under this path.
+						under := false
+						for a := range allow {
+							if a != nsRoot && strings.HasPrefix(a, relDir+"/") {
+								under = true
+								break
+							}
+						}
+						if !under {
+							return filepath.SkipDir
+						}
+					}
+				}
 			}
 			return nil
 		}
@@ -228,12 +246,15 @@ func (s *TypeScriptScanner) Scan(root string) (*model.Project, error) {
 
 		var nsKey string
 		if s.Granularity == FileLevel {
-			nsKey = rel // each file is its own namespace
+			nsKey = rel
 		} else {
 			nsKey = filepath.ToSlash(filepath.Dir(rel))
 			if nsKey == "." {
 				nsKey = nsRoot
 			}
+		}
+		if filter && !DirAllowed(nsKey, allow) && !(s.Granularity == FileLevel && DirAllowed(filepath.ToSlash(filepath.Dir(rel)), allow)) {
+			return nil
 		}
 
 		ns := nsMap[nsKey]

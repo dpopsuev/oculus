@@ -20,6 +20,11 @@ import (
 type PythonScanner struct{}
 
 func (s *PythonScanner) Scan(root string) (*model.Project, error) {
+	return s.ScanDirs(root, nil)
+}
+
+// ScanDirs resurveys only Python packages under dirs (nil/empty = all packages).
+func (s *PythonScanner) ScanDirs(root string, dirs []string) (*model.Project, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -33,21 +38,21 @@ func (s *PythonScanner) Scan(root string) (*model.Project, error) {
 	}
 
 	externalDeps := detectPythonDependencies(absRoot)
-
 	packages := discoverPythonPackages(absRoot)
+	allow := allowSet(dirs)
+	filter := len(dirs) > 0
 
 	pkgSet := make(map[string]bool, len(packages))
 	for _, pkg := range packages {
 		pkgSet[pkg] = true
 	}
-
-	// Build a Python-import-path → namespace-import-path index.
-	// This handles nested layouts like libs/<pkg>/<pkg>/ where the filesystem
-	// prefix does not match the Python import path (LCS-BUG-74).
 	pyIndex := buildPyImportIndex(packages)
 
 	sort.Strings(packages)
 	for _, pkgPath := range packages {
+		if filter && !DirAllowed(pkgPath, allow) {
+			continue
+		}
 		relPath := pkgPath
 		importPath := strings.ReplaceAll(relPath, "/", ".")
 		ns := model.NewNamespace(filepath.Base(pkgPath), importPath)
