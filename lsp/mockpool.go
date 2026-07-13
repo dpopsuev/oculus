@@ -91,6 +91,10 @@ func (p *MockPool) Definition(ctx context.Context, file string, line, char int) 
 	return poolDefinition(ctx, p, file, line, char)
 }
 
+func (p *MockPool) DocumentSymbols(ctx context.Context, file string) ([]DocSymbol, error) {
+	return poolDocumentSymbols(ctx, p, file)
+}
+
 func (p *MockPool) Shutdown(_ context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()

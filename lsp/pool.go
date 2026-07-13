@@ -71,6 +71,17 @@ type Location struct {
 	Line int    `json:"line"`
 }
 
+// DocSymbol is a hierarchical documentSymbol entry. Lines are 1-based.
+type DocSymbol struct {
+	Name           string     `json:"name"`
+	Kind           int        `json:"kind"`
+	StartLine      int        `json:"start_line"`
+	EndLine        int        `json:"end_line"`
+	SelectionLine  int        `json:"selection_line"`
+	SelectionChar  int        `json:"selection_char,omitempty"`
+	Children       []DocSymbol `json:"children,omitempty"`
+}
+
 // Pool manages reusable LSP server connections. In long-running mode
 // (locus serve), connections are kept alive across requests. In CLI mode,
 // pool is nil and analyzers fall back to cold-start per request.
@@ -93,6 +104,10 @@ type Pool interface {
 	// position (line 1-based, char 0-based). Sends textDocument/didOpen then
 	// textDocument/definition. Returns ErrNoPool from StubPool.
 	Definition(ctx context.Context, file string, line, char int) ([]Location, error)
+
+	// DocumentSymbols returns hierarchical symbols for file via
+	// textDocument/documentSymbol (after didOpen). Returns ErrNoPool from StubPool.
+	DocumentSymbols(ctx context.Context, file string) ([]DocSymbol, error)
 
 	// MaxConcurrent returns the maximum number of simultaneous LSP server
 	// instances allowed for the given language. Resource-heavy servers
@@ -271,6 +286,104 @@ func poolReferences(ctx context.Context, pool Pool, file string, line, char int)
 // poolDefinition is the shared Definition implementation.
 func poolDefinition(ctx context.Context, pool Pool, file string, line, char int) ([]Location, error) {
 	return poolPositionRequest(ctx, pool, file, line, char, "textDocument/definition", nil)
+}
+
+// poolDocumentSymbols opens file and issues textDocument/documentSymbol.
+func poolDocumentSymbols(ctx context.Context, pool Pool, file string) ([]DocSymbol, error) {
+	language := fileLanguage(file)
+	root := workspaceRootForFile(file)
+
+	client, err := pool.Get(language, root)
+	if err != nil {
+		return nil, err
+	}
+	defer pool.Release(language, root)
+
+	content, _ := os.ReadFile(file)
+	uri := "file://" + filepath.ToSlash(file)
+	langID := extToLangID(filepath.Ext(file))
+	_ = client.Notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        uri,
+			"languageId": langID,
+			"version":    1,
+			"text":       string(content),
+		},
+	})
+
+	raw, err := client.RequestContext(ctx, "textDocument/documentSymbol", map[string]any{
+		"textDocument": map[string]any{"uri": uri},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return parseDocSymbols(raw), nil
+}
+
+func parseDocSymbols(raw json.RawMessage) []DocSymbol {
+	type lspPos struct {
+		Line      int `json:"line"`
+		Character int `json:"character"`
+	}
+	type lspRange struct {
+		Start lspPos `json:"start"`
+		End   lspPos `json:"end"`
+	}
+	type lspDoc struct {
+		Name           string   `json:"name"`
+		Kind           int      `json:"kind"`
+		Range          lspRange `json:"range"`
+		SelectionRange lspRange `json:"selectionRange"`
+		Children       []lspDoc `json:"children,omitempty"`
+	}
+	var convert func(s lspDoc) DocSymbol
+	convert = func(s lspDoc) DocSymbol {
+		ds := DocSymbol{
+			Name:          s.Name,
+			Kind:          s.Kind,
+			StartLine:     s.Range.Start.Line + 1,
+			EndLine:       s.Range.End.Line + 1,
+			SelectionLine: s.SelectionRange.Start.Line + 1,
+			SelectionChar: s.SelectionRange.Start.Character,
+		}
+		for _, ch := range s.Children {
+			ds.Children = append(ds.Children, convert(ch))
+		}
+		return ds
+	}
+	var docs []lspDoc
+	if err := json.Unmarshal(raw, &docs); err == nil && len(docs) > 0 {
+		out := make([]DocSymbol, len(docs))
+		for i, d := range docs {
+			out[i] = convert(d)
+		}
+		return out
+	}
+	// SymbolInformation[] fallback (flat, no children / full range)
+	type lspInfo struct {
+		Name     string   `json:"name"`
+		Kind     int      `json:"kind"`
+		Location struct {
+			URI   string   `json:"uri"`
+			Range lspRange `json:"range"`
+		} `json:"location"`
+	}
+	var infos []lspInfo
+	if err := json.Unmarshal(raw, &infos); err == nil && len(infos) > 0 {
+		out := make([]DocSymbol, len(infos))
+		for i, info := range infos {
+			out[i] = DocSymbol{
+				Name:          info.Name,
+				Kind:          info.Kind,
+				StartLine:     info.Location.Range.Start.Line + 1,
+				EndLine:       info.Location.Range.End.Line + 1,
+				SelectionLine: info.Location.Range.Start.Line + 1,
+				SelectionChar: info.Location.Range.Start.Character,
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 // poolPositionRequest opens file and issues a position-based LSP request.

@@ -307,6 +307,11 @@ func (p *RealPool) Definition(ctx context.Context, file string, line, char int) 
 	return poolDefinition(ctx, p, file, line, char)
 }
 
+// DocumentSymbols implements Pool.DocumentSymbols for RealPool.
+func (p *RealPool) DocumentSymbols(ctx context.Context, file string) ([]DocSymbol, error) {
+	return poolDocumentSymbols(ctx, p, file)
+}
+
 // spawnServer starts a new LSP server process and performs the initialize handshake.
 // It looks up the registry entry for language, checks root markers (unless the
 // server has SingleFileSupport), then spawns and initializes the process.
