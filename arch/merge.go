@@ -196,10 +196,17 @@ func MergeScan(ctx context.Context, root string, baseline *ContextReport, change
 	report.FanIn = graph.FanIn(archModel.Edges)
 	report.FanOut = graph.FanOut(archModel.Edges)
 
-	// Preserve health/full extras from baseline when merge skips those passes.
+	// Preserve health extras from baseline; refresh full extras incrementally.
 	if intent.IncludesHealth() {
 		report.RecentCommits = baseline.RecentCommits
 		report.FileHotSpots = baseline.FileHotSpots
+	}
+	if intent.IncludesFull() {
+		fullOpts := opts
+		fullOpts.Authors = true
+		fullOpts.IncludeCoverage = true
+		applyIncrementalFull(ctx, root, modPath, fullOpts, mergedProj, changedPkgs, baseline, report)
+	} else if intent.IncludesHealth() {
 		report.Authors = baseline.Authors
 		report.Coverage = baseline.Coverage
 		report.Anchors = baseline.Anchors

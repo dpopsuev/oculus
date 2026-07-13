@@ -46,6 +46,7 @@ Fail-fast: if LSP unavailable, returns error naming the required server — neve
 - **Complexity hints**: AST nested-loop / recursion patterns on hotspots (disclaimer included)
 - **Taint federation-lite**: call-graph BFS + optional `LOCUS_TAINT_CMD` (see [docs/taint.md](docs/taint.md))
 - **Polyglot merge**: package-delta merge for Go, TypeScript, Python, Rust (and extension-routed composite); manifests force full rescan
+- **Incremental full**: merge refreshes coverage/authors/anchors for changed packages only (keeps baseline for the rest)
 
 ## Usage
 

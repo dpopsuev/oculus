@@ -223,3 +223,65 @@ func mergeServiceNames(r *ContextReport) []string {
 	}
 	return out
 }
+
+func TestMergeScan_IntentFull_RefreshesAnchors(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"go.mod": "module incrfull\ngo 1.21\n",
+		"alpha/a.go": `package alpha
+
+import "net/http"
+
+func Handle(w http.ResponseWriter, r *http.Request) {}
+`,
+		"beta/b.go": "package beta\n\nfunc B() {}\n",
+	}
+	for name, body := range files {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	baseline, err := ScanAndBuild(ctx, dir, ScanOpts{Intent: IntentFull, Depth: 0})
+	if err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+	if len(baseline.Anchors) == 0 {
+		t.Fatal("expected anchors on baseline")
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "alpha/a.go"), []byte(`package alpha
+
+import "net/http"
+
+func HandleV2(w http.ResponseWriter, r *http.Request) {}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	merged, err := MergeScan(ctx, dir, baseline, []string{"alpha/a.go"}, ScanOpts{Intent: IntentFull, Depth: 0})
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if merged.ScanMode != ScanModeMerge {
+		t.Fatalf("ScanMode=%q want merge", merged.ScanMode)
+	}
+	var sawV2 bool
+	for _, a := range merged.Anchors {
+		if a.Name == "HandleV2" {
+			sawV2 = true
+		}
+		if a.Name == "Handle" {
+			t.Fatalf("stale Handle still present: %+v", merged.Anchors)
+		}
+	}
+	if !sawV2 {
+		t.Fatalf("HandleV2 missing from anchors: %+v", merged.Anchors)
+	}
+}

@@ -270,7 +270,10 @@ func ScanAndBuild(ctx context.Context, root string, opts ScanOpts) (*ContextRepo
 	}
 
 	// --- full (coverage, authors, anchors) ---
-	applyFullAnalysis(ctx, root, modPath, opts, proj, report)
+	fullOpts := opts
+	fullOpts.Authors = true
+	fullOpts.IncludeCoverage = true
+	applyFullAnalysis(ctx, root, modPath, fullOpts, proj, report)
 
 	return report, nil
 }

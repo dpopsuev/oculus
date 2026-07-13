@@ -106,6 +106,12 @@ func RecentCommits(root string, days int, modPath string) []PackageCommit {
 
 // AuthorOwnership returns per-package top contributors from git history.
 func AuthorOwnership(root, modPath string) map[string][]Author {
+	return AuthorOwnershipForPackages(root, nil)
+}
+
+// AuthorOwnershipForPackages returns author stats for the given package dirs only.
+// When pkgs is empty, all packages are included (full walk).
+func AuthorOwnershipForPackages(root string, pkgs []string) map[string][]Author {
 	repo, err := gogit.PlainOpen(root)
 	if err != nil {
 		return nil
@@ -117,6 +123,16 @@ func AuthorOwnership(root, modPath string) map[string][]Author {
 	}
 
 	absRoot, _ := filepath.Abs(root)
+	allow := map[string]bool{}
+	for _, p := range pkgs {
+		p = filepath.ToSlash(strings.Trim(p, "/"))
+		if p == "" || p == "." || p == "(root)" {
+			continue
+		}
+		allow[p] = true
+	}
+	filter := len(allow) > 0
+
 	pkgAuthors := make(map[string]map[string]int)
 
 	_ = iter.ForEach(func(c *object.Commit) error {
@@ -133,6 +149,9 @@ func AuthorOwnership(root, modPath string) map[string][]Author {
 				continue
 			}
 			pkg := filepath.ToSlash(rel)
+			if filter && !pkgAllowed(pkg, allow) {
+				continue
+			}
 
 			if pkgAuthors[pkg] == nil {
 				pkgAuthors[pkg] = make(map[string]int)
@@ -155,6 +174,21 @@ func AuthorOwnership(root, modPath string) map[string][]Author {
 		result[pkg] = list
 	}
 	return result
+}
+
+func pkgAllowed(pkg string, allow map[string]bool) bool {
+	if allow[pkg] {
+		return true
+	}
+	for a := range allow {
+		if pkg == a || strings.HasPrefix(pkg, a+"/") || strings.HasPrefix(a, pkg+"/") {
+			return true
+		}
+		if filepath.Base(pkg) == a || filepath.Base(a) == pkg {
+			return true
+		}
+	}
+	return false
 }
 
 // FileHotSpots returns the most-changed individual files from git history.

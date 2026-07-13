@@ -19,8 +19,17 @@ type CoverageResult struct {
 // RunGoCoverage executes `go test -coverprofile` in root and parses the output.
 // Returns nil without error for non-Go repos or if go test fails (best-effort).
 func RunGoCoverage(root, modPath string) ([]CoverageResult, error) {
+	return RunGoCoveragePatterns(root, modPath, []string{"./..."})
+}
+
+// RunGoCoveragePatterns runs coverage only for the given go test patterns
+// (e.g. "./alpha", "./beta"). Empty patterns fall back to "./...".
+func RunGoCoveragePatterns(root, modPath string, patterns []string) ([]CoverageResult, error) {
 	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
 		return nil, nil
+	}
+	if len(patterns) == 0 {
+		patterns = []string{"./..."}
 	}
 
 	tmp, err := os.CreateTemp("", "locus-cover-*.out")
@@ -31,7 +40,8 @@ func RunGoCoverage(root, modPath string) ([]CoverageResult, error) {
 	tmp.Close()
 	defer os.Remove(coverFile)
 
-	cmd := exec.Command("go", "test", "-coverprofile="+coverFile, "-count=1", "./...") //nolint:gosec // coverFile is a controlled temp path
+	args := append([]string{"test", "-coverprofile=" + coverFile, "-count=1"}, patterns...)
+	cmd := exec.Command("go", args...) //nolint:gosec // patterns are package dirs from our scanner
 	cmd.Dir = root
 	cmd.Stdout = nil
 	cmd.Stderr = nil
