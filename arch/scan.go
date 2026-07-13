@@ -263,7 +263,7 @@ func ScanAndBuild(ctx context.Context, root string, opts ScanOpts) (*ContextRepo
 	if spots == nil {
 		spots = []HotSpot{}
 	}
-	report.HotSpots = spots
+	report.HotSpots = EnrichHotSpotsComplexity(root, spots, MaxHotSpotsMarkdown)
 
 	if !intent.IncludesFull() {
 		return report, nil

@@ -66,10 +66,12 @@ type ArchModel struct {
 
 // HotSpot identifies a component with high fan-in, high churn, and/or deep nesting.
 type HotSpot struct {
-	Component string `json:"component"`
-	FanIn     int    `json:"fan_in"`
-	Churn     int    `json:"churn"`
-	Nesting   int    `json:"nesting,omitempty"`
+	Component      string   `json:"component"`
+	FanIn          int      `json:"fan_in"`
+	Churn          int      `json:"churn"`
+	Nesting        int      `json:"nesting,omitempty"`
+	ComplexityHint string   `json:"complexity_hint,omitempty"`
+	Patterns       []string `json:"patterns,omitempty"`
 }
 
 // APISurface measures the public API size of a component.

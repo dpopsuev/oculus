@@ -4,7 +4,7 @@ Analysis engine for AI agents. Language-agnostic symbol resolution, call graph a
 
 ## Axiom
 
-**Oculus emits facts, never taste.** Raw structural signals (fan-in, fan-out, LOC, churn, cycles, edges). No scores, no severity, no heuristic pattern labels. The consuming agent applies judgment.
+**Oculus emits facts, never taste.** Raw structural signals (fan-in, fan-out, LOC, churn, cycles, edges). Scores and severity stay out of the core model. Optional enrichment (complexity hints, taint BFS) is labeled heuristic and always carries a disclaimer — never claimed as proof.
 
 ## 5 Symbol Primitives
 
@@ -43,6 +43,8 @@ Fail-fast: if LSP unavailable, returns error naming the required server — neve
 - **Project Context**: XDG-based writable knowledge layer, git-aware staleness
 - **Symbol-level diff**: compare two SymbolGraphs by FQN
 - **Edge confidence**: Layer field on SymbolEdge (goast/treesitter/lsp/regex)
+- **Complexity hints**: AST nested-loop / recursion patterns on hotspots (disclaimer included)
+- **Taint federation-lite**: call-graph BFS + optional `LOCUS_TAINT_CMD` (see [docs/taint.md](docs/taint.md))
 
 ## Usage
 

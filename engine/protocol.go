@@ -522,10 +522,7 @@ func (p *Engine) GetHotSpots(ctx context.Context, path string, churnDays, topN i
 	if topN <= 0 {
 		topN = 10
 	}
-	if len(spots) > topN {
-		spots = spots[:topN]
-	}
-	return spots, nil
+	return arch.EnrichHotSpotsComplexity(path, spots, topN), nil
 }
 
 func (p *Engine) GetDependencies(ctx context.Context, path, component string, cacheKey ...string) (*DepResult, error) {
