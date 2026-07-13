@@ -1860,55 +1860,54 @@ func (p *Engine) hybridRetrieve(ctx context.Context, path, query string, cacheKe
 		score              int
 	}
 	var cands []cand
+	seen := map[string]bool{}
+	addCand := func(symbol, kind, file string, score int) {
+		if symbol == "" || seen[symbol] {
+			return
+		}
+		seen[symbol] = true
+		cands = append(cands, cand{symbol, kind, file, score})
+	}
 	sr, err := p.SearchSymbols(ctx, path, pattern, cacheKey...)
 	if err == nil {
 		for _, m := range sr.Matches {
-			cands = append(cands, cand{m.Symbol, m.Kind, m.File, 10})
+			addCand(m.Symbol, m.Kind, m.File, 10)
 		}
 	} else {
 		slog.LogAttrs(ctx, slog.LevelDebug, "hybrid: package symbol search skipped",
 			slog.Any("error", err))
 	}
-	// Fall back to Quick symbol-graph substring search when package index is thin.
-	if len(cands) == 0 {
-		if sg, sgErr := p.GetSymbolGraph(ctx, path, symbolGraphQuick); sgErr == nil && sg != nil {
-			seen := map[string]bool{}
-			// Prefer longer terms (GetSymbolGraph over graph).
-			sortedTerms := append([]string(nil), terms...)
-			sort.Slice(sortedTerms, func(i, j int) bool { return len(sortedTerms[i]) > len(sortedTerms[j]) })
-			for _, n := range sg.Nodes {
-				fqn := n.FQN()
-				name := strings.ToLower(n.Name + " " + fqn)
-				best := 0
-				for _, term := range sortedTerms {
-					tl := strings.ToLower(term)
-					if len(tl) < 4 {
-						continue
-					}
-					if strings.Contains(name, tl) {
-						score := len(tl)
-						if score > best {
-							best = score
-						}
-					}
-				}
-				if best == 0 {
+	// Always consult Quick SG — package index is often thin for method names.
+	if sg, sgErr := p.GetSymbolGraph(ctx, path, symbolGraphQuick); sgErr == nil && sg != nil {
+		sortedTerms := append([]string(nil), terms...)
+		sort.Slice(sortedTerms, func(i, j int) bool { return len(sortedTerms[i]) > len(sortedTerms[j]) })
+		for _, n := range sg.Nodes {
+			fqn := n.FQN()
+			name := strings.ToLower(n.Name + " " + fqn)
+			best := 0
+			for _, term := range sortedTerms {
+				tl := strings.ToLower(term)
+				if len(tl) < 4 {
 					continue
 				}
-				if seen[fqn] {
-					continue
+				if strings.Contains(name, tl) {
+					if len(tl) > best {
+						best = len(tl)
+					}
 				}
-				seen[fqn] = true
-				cands = append(cands, cand{fqn, n.Kind, n.File, best})
 			}
-			sort.Slice(cands, func(i, j int) bool {
-				if cands[i].score != cands[j].score {
-					return cands[i].score > cands[j].score
-				}
-				return cands[i].symbol < cands[j].symbol
-			})
+			if best > 0 {
+				addCand(fqn, n.Kind, n.File, best+20) // prefer SG method hits
+			}
 		}
 	}
+	sort.Slice(cands, func(i, j int) bool {
+		if cands[i].score != cands[j].score {
+			return cands[i].score > cands[j].score
+		}
+		return cands[i].symbol < cands[j].symbol
+	})
+
 	const maxHits = 5
 	hits := make([]HybridHit, 0, maxHits)
 	for i, m := range cands {
