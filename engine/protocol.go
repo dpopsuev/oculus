@@ -1824,13 +1824,99 @@ func (p *Engine) AnswerQuery(ctx context.Context, path, query string, cacheKey .
 	path = p.resolvePath(path)
 	action := matchQueryAction(query)
 	if action == "" {
+		return p.hybridRetrieve(ctx, path, query, cacheKey...)
+	}
+	return p.dispatchQueryAction(ctx, path, query, action, cacheKey...)
+}
+
+// HybridHit is one ranked symbol from hybrid lite retrieval.
+type HybridHit struct {
+	Symbol string              `json:"symbol"`
+	Kind   string              `json:"kind,omitempty"`
+	File   string              `json:"file,omitempty"`
+	Score  int                 `json:"score"`
+	Probe  *oculus.ProbeResult `json:"probe,omitempty"`
+}
+
+// HybridAnswer is the retrieve-then-walk payload for unmatched NL queries.
+type HybridAnswer struct {
+	Hits    []HybridHit `json:"hits"`
+	Expand  []string    `json:"expand,omitempty"`
+	Summary string      `json:"summary"`
+}
+
+func (p *Engine) hybridRetrieve(ctx context.Context, path, query string, cacheKey ...string) (*QueryResult, error) {
+	terms := hybridQueryTerms(query)
+	if len(terms) == 0 {
 		return &QueryResult{
 			Query:  query,
 			Action: "none",
-			Answer: "No matching pattern. Try: riskiest, cycles, violations, health, overview, what changed",
+			Answer: "No matching pattern. Try: riskiest, cycles, violations, health, overview, what changed — or name a symbol",
 		}, nil
 	}
-	return p.dispatchQueryAction(ctx, path, query, action, cacheKey...)
+	pattern := strings.Join(terms, "|")
+	sr, err := p.SearchSymbols(ctx, path, pattern, cacheKey...)
+	if err != nil {
+		return nil, err
+	}
+	const maxHits = 5
+	hits := make([]HybridHit, 0, maxHits)
+	for i, m := range sr.Matches {
+		if i >= maxHits {
+			break
+		}
+		hit := HybridHit{Symbol: m.Symbol, Kind: m.Kind, File: m.File, Score: maxHits - i}
+		if pr, perr := p.ProbeSymbol(ctx, path, m.Symbol); perr == nil && pr != nil {
+			hit.Probe = pr
+			if pr.FQN != "" {
+				hit.Symbol = pr.FQN
+			}
+		}
+		hits = append(hits, hit)
+	}
+	var expand []string
+	for _, h := range hits {
+		expand = append(expand, "probe "+h.Symbol, "scenario "+h.Symbol)
+		if h.Probe != nil {
+			for _, piv := range h.Probe.SuggestedPivots {
+				expand = append(expand, "scenario "+piv)
+			}
+		}
+	}
+	if len(expand) > 8 {
+		expand = expand[:8]
+	}
+	ans := HybridAnswer{
+		Hits:    hits,
+		Expand:  expand,
+		Summary: fmt.Sprintf("hybrid: %d hit(s) for %q", len(hits), query),
+	}
+	return &QueryResult{Query: query, Action: "hybrid", Answer: ans}, nil
+}
+
+var hybridStop = map[string]bool{
+	"the": true, "and": true, "for": true, "with": true, "from": true,
+	"that": true, "this": true, "what": true, "where": true, "when": true,
+	"how": true, "who": true, "which": true, "into": true, "about": true,
+	"code": true, "file": true, "func": true, "function": true, "method": true,
+	"type": true, "class": true, "package": true, "is": true, "are": true,
+	"a": true, "an": true, "of": true, "in": true, "to": true, "on": true,
+}
+
+func hybridQueryTerms(query string) []string {
+	fields := strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '.')
+	})
+	var terms []string
+	seen := map[string]bool{}
+	for _, f := range fields {
+		if len(f) < 3 || hybridStop[f] || seen[f] {
+			continue
+		}
+		seen[f] = true
+		terms = append(terms, f)
+	}
+	return terms
 }
 
 var queryPatterns = []struct {
@@ -2659,12 +2745,20 @@ func (p *Engine) QueryBook(keywords []string, hops int) (*book.BookResult, error
 // Full LSP CallGraph can balloon RSS on large Go repos (dogfood: 27GB on
 // oculus) and miss the MCP analysis deadline. Quick (tree-sitter/GoAST) is
 // fast and good enough for agent navigation; warm+full remains available
-// via GetSymbolGraph without Quick.
+// via GetSymbolGraph without Quick or ProbeSymbol(..., SymbolGraphOpts{Quick:false}).
 var symbolGraphQuick = SymbolGraphOpts{Quick: true}
 
+func sgOptsOrQuick(opts []SymbolGraphOpts) SymbolGraphOpts {
+	if len(opts) > 0 {
+		return opts[0]
+	}
+	return symbolGraphQuick
+}
+
 // ProbeSymbol returns all vitals for a single symbol.
-func (p *Engine) ProbeSymbol(ctx context.Context, path, symbol string) (*oculus.ProbeResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path, symbolGraphQuick)
+// Optional SymbolGraphOpts override the default Quick graph (pass Quick:false for deep).
+func (p *Engine) ProbeSymbol(ctx context.Context, path, symbol string, opts ...SymbolGraphOpts) (*oculus.ProbeResult, error) {
+	sg, err := p.GetSymbolGraph(ctx, path, sgOptsOrQuick(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -2672,8 +2766,8 @@ func (p *Engine) ProbeSymbol(ctx context.Context, path, symbol string) (*oculus.
 }
 
 // GetScenario traces a symbol upstream to entry points and downstream to leaves.
-func (p *Engine) GetScenario(ctx context.Context, path, symbol string, depth int, stress bool) (*oculus.ScenarioResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path, symbolGraphQuick)
+func (p *Engine) GetScenario(ctx context.Context, path, symbol string, depth int, stress bool, opts ...SymbolGraphOpts) (*oculus.ScenarioResult, error) {
+	sg, err := p.GetSymbolGraph(ctx, path, sgOptsOrQuick(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -2681,8 +2775,8 @@ func (p *Engine) GetScenario(ctx context.Context, path, symbol string, depth int
 }
 
 // GetConvergence finds where N symbols' downstream call trees overlap.
-func (p *Engine) GetConvergence(ctx context.Context, path string, symbols []string) (*oculus.ConvergenceResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path, symbolGraphQuick)
+func (p *Engine) GetConvergence(ctx context.Context, path string, symbols []string, opts ...SymbolGraphOpts) (*oculus.ConvergenceResult, error) {
+	sg, err := p.GetSymbolGraph(ctx, path, sgOptsOrQuick(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -2690,8 +2784,8 @@ func (p *Engine) GetConvergence(ctx context.Context, path string, symbols []stri
 }
 
 // IsolateSymbol removes a symbol and reports what disconnects.
-func (p *Engine) IsolateSymbol(ctx context.Context, path, symbol string) (*oculus.IsolateResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path, symbolGraphQuick)
+func (p *Engine) IsolateSymbol(ctx context.Context, path, symbol string, opts ...SymbolGraphOpts) (*oculus.IsolateResult, error) {
+	sg, err := p.GetSymbolGraph(ctx, path, sgOptsOrQuick(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -2699,8 +2793,8 @@ func (p *Engine) IsolateSymbol(ctx context.Context, path, symbol string) (*oculu
 }
 
 // FindIslands identifies symbols unreachable from declared entry points.
-func (p *Engine) FindIslands(ctx context.Context, path string, entryPoints []string) (*oculus.IslandResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path, symbolGraphQuick)
+func (p *Engine) FindIslands(ctx context.Context, path string, entryPoints []string, opts ...SymbolGraphOpts) (*oculus.IslandResult, error) {
+	sg, err := p.GetSymbolGraph(ctx, path, sgOptsOrQuick(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -2708,8 +2802,8 @@ func (p *Engine) FindIslands(ctx context.Context, path string, entryPoints []str
 }
 
 // Diagnose probes a symbol and queries the Book with signal-derived keywords.
-func (p *Engine) Diagnose(ctx context.Context, path, symbol string) (*oculus.DiagnoseResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path, symbolGraphQuick)
+func (p *Engine) Diagnose(ctx context.Context, path, symbol string, opts ...SymbolGraphOpts) (*oculus.DiagnoseResult, error) {
+	sg, err := p.GetSymbolGraph(ctx, path, sgOptsOrQuick(opts))
 	if err != nil {
 		return nil, err
 	}

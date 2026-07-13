@@ -55,29 +55,34 @@ func Probe(sg *SymbolGraph, symbol string) *ProbeResult {
 	}
 
 	// TSK-177: for struct/interface kinds, aggregate metrics from methods.
-	// Method FQNs follow the pattern "{pkg}.{TypeName}.{MethodName}".
+	// Accept Go receiver spellings: Type.M, (*Type).M, *Type.M.
+	var methodFQNs []string
 	if sym.Kind == "struct" || sym.Kind == "interface" {
-		methodPrefix := symbol + "."
 		for fqn := range idx {
-			if !strings.HasPrefix(fqn, methodPrefix) {
+			if !methodOfType(symbol, fqn) {
 				continue
 			}
+			methodFQNs = append(methodFQNs, fqn)
 			fi += fanIn[fqn]
 			fo += fanOut[fqn]
 			for _, e := range sg.Edges {
-				if e.SourceFQN == fqn {
+				src := canonicalizeFQN(e.SourceFQN)
+				tgt := canonicalizeFQN(e.TargetFQN)
+				canonMethod := canonicalizeFQN(fqn)
+				if src == canonMethod || e.SourceFQN == fqn {
 					targetPkg := pkgOf(e.TargetFQN)
 					if targetPkg != sym.Package {
 						crossPkg++
 					}
-					outSet[e.TargetFQN] = true
+					outSet[tgt] = true
 					boundaries = appendUniq(boundaries, targetPkg)
 				}
-				if e.TargetFQN == fqn {
-					inSet[e.SourceFQN] = true
+				if tgt == canonMethod || e.TargetFQN == fqn {
+					inSet[src] = true
 				}
 			}
 		}
+		sort.Strings(methodFQNs)
 		// Recompute circuits with aggregated edge sets.
 		circuits = 0
 		for out := range outSet {
@@ -101,6 +106,38 @@ func Probe(sg *SymbolGraph, symbol string) *ProbeResult {
 		}
 	}
 
+	var suggested []string
+	if (sym.Kind == "struct" || sym.Kind == "interface") && len(methodFQNs) > 0 {
+		// Rank methods by degree; surface top pivots when hollow or always as hints.
+		type scored struct {
+			fqn string
+			n   int
+		}
+		var ranked []scored
+		for _, m := range methodFQNs {
+			ranked = append(ranked, scored{m, fanIn[m] + fanOut[m]})
+		}
+		sort.Slice(ranked, func(i, j int) bool {
+			if ranked[i].n != ranked[j].n {
+				return ranked[i].n > ranked[j].n
+			}
+			return ranked[i].fqn < ranked[j].fqn
+		})
+		const maxPivots = 5
+		for i, s := range ranked {
+			if i >= maxPivots {
+				break
+			}
+			suggested = append(suggested, canonicalizeFQN(s.fqn))
+		}
+		if status == CallGraphNotCovered && len(suggested) == 0 {
+			suggested = append(suggested, methodFQNs...)
+			if len(suggested) > maxPivots {
+				suggested = suggested[:maxPivots]
+			}
+		}
+	}
+
 	return &ProbeResult{
 		FQN:             symbol,
 		Package:         sym.Package,
@@ -119,6 +156,7 @@ func Probe(sg *SymbolGraph, symbol string) *ProbeResult {
 		CrossPkg:        crossPkg,
 		Circuits:        circuits,
 		Boundaries:      boundaries,
+		SuggestedPivots: suggested,
 	}
 }
 

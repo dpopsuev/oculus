@@ -2,6 +2,87 @@ package oculus
 
 import "strings"
 
+// normalizeReceiverName rewrites Go method names so pointer/value receivers
+// collapse to Type.Method: (*T).M, *T.M, T.M → T.M.
+func normalizeReceiverName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return name
+	}
+	// (*Type).Method
+	if strings.HasPrefix(name, "(*") {
+		if end := strings.Index(name, ")."); end > 2 {
+			return name[2:end] + "." + name[end+2:]
+		}
+	}
+	// *Type.Method (no parens)
+	if strings.HasPrefix(name, "*") {
+		name = name[1:]
+	}
+	return name
+}
+
+// methodOfType reports whether methodFQN is a method of typeFQN
+// (pkg.Type), accepting Go receiver spellings.
+func methodOfType(typeFQN, methodFQN string) bool {
+	if typeFQN == "" || methodFQN == "" {
+		return false
+	}
+	if strings.HasPrefix(methodFQN, typeFQN+".") {
+		return true
+	}
+	// pkg.Type → try pkg.(*Type).Method and pkg.*Type.Method
+	pkg, typ, ok := splitPkgType(typeFQN)
+	if !ok {
+		return false
+	}
+	candidates := []string{
+		pkg + ".(*" + typ + ").",
+		pkg + ".*" + typ + ".",
+	}
+	for _, prefix := range candidates {
+		if strings.HasPrefix(methodFQN, prefix) {
+			return true
+		}
+	}
+	// Compare canonical forms when packages match.
+	canonType := pkg + "." + normalizeReceiverName(typ)
+	canonMethod := canonicalizeFQN(methodFQN)
+	return strings.HasPrefix(canonMethod, canonType+".")
+}
+
+func splitPkgType(typeFQN string) (pkg, typ string, ok bool) {
+	i := strings.LastIndex(typeFQN, ".")
+	if i <= 0 || i == len(typeFQN)-1 {
+		return "", "", false
+	}
+	return typeFQN[:i], typeFQN[i+1:], true
+}
+
+// canonicalizeFQN normalizes receiver spellings inside a full FQN.
+func canonicalizeFQN(fqn string) string {
+	pkg, name, ok := splitPkgType(fqn)
+	if !ok {
+		return normalizeReceiverName(fqn)
+	}
+	// Name may itself be (*T).M — normalize the whole name part.
+	if strings.Contains(name, "(*") || strings.HasPrefix(name, "*") {
+		return pkg + "." + normalizeReceiverName(name)
+	}
+	// pkg.(*Type).Method — splitPkgType only took last dot; recover.
+	if idx := strings.Index(fqn, ".(*"); idx > 0 {
+		pkg = fqn[:idx]
+		rest := fqn[idx+1:] // (*Type).Method
+		return pkg + "." + normalizeReceiverName(rest)
+	}
+	if idx := strings.Index(fqn, ".*"); idx > 0 {
+		pkg = fqn[:idx]
+		rest := fqn[idx+1:] // *Type.Method
+		return pkg + "." + normalizeReceiverName(rest)
+	}
+	return fqn
+}
+
 // MergeSymbolGraph builds a unified SymbolGraph from call graph, type,
 // and reference data. Deduplicates nodes by FQN and edges by
 // (source, target, kind) triple.
@@ -11,7 +92,7 @@ func MergeSymbolGraph(cg *CallGraph, classes []ClassInfo, impls []ImplEdge, refs
 	edgeSet := make(map[edgeKey]SymbolEdge)
 
 	fqn := func(pkg, name string) string {
-		name = strings.TrimPrefix(name, "*")
+		name = normalizeReceiverName(name)
 		if pkg == "" {
 			return name
 		}
@@ -21,12 +102,20 @@ func MergeSymbolGraph(cg *CallGraph, classes []ClassInfo, impls []ImplEdge, refs
 	// Nodes + edges from CallGraph
 	if cg != nil {
 		for _, n := range cg.Nodes {
+			normName := normalizeReceiverName(n.Name)
 			key := fqn(n.Package, n.Name)
-			if _, exists := nodeMap[key]; !exists {
+			if existing, exists := nodeMap[key]; !exists || existing.Kind == "" {
+				kind := n.Kind
+				if kind == "" {
+					kind = "function"
+					if strings.Contains(normName, ".") {
+						kind = "method"
+					}
+				}
 				nodeMap[key] = Symbol{
-					Name: n.Name, Package: n.Package, Kind: "function",
+					Name: normName, Package: n.Package, Kind: kind,
 					File: n.File, Line: n.Line, EndLine: n.EndLine,
-					Exported: isUpper(n.Name),
+					Exported: isUpper(strings.TrimPrefix(strings.TrimPrefix(normName, "*"), "(")),
 				}
 			}
 		}

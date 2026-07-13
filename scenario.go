@@ -29,6 +29,9 @@ type ProbeResult struct {
 	Centrality      float64         `json:"centrality,omitempty"`
 	Circuits        int             `json:"circuits"`
 	Boundaries      []string        `json:"boundaries,omitempty"`
+	// SuggestedPivots lists method FQNs when a type pivot is hollow or to
+	// guide agents toward deeper scenario traces.
+	SuggestedPivots []string `json:"suggested_pivots,omitempty"`
 }
 
 // ScenarioNode is a symbol in a scenario trace with depth from the pivot.
