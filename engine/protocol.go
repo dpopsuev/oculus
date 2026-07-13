@@ -1939,14 +1939,43 @@ func hybridQueryTerms(query string) []string {
 	})
 	var terms []string
 	seen := map[string]bool{}
-	for _, f := range fields {
+	add := func(f string) {
+		f = strings.ToLower(strings.TrimSpace(f))
 		if len(f) < 3 || hybridStop[f] || seen[f] {
-			continue
+			return
 		}
 		seen[f] = true
 		terms = append(terms, f)
 	}
+	for _, f := range fields {
+		add(f)
+	}
+	// Also split CamelCase tokens from the original query (GetSymbolGraph → symbol, graph).
+	for _, raw := range strings.FieldsFunc(query, func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_')
+	}) {
+		add(raw)
+		for _, part := range splitCamel(raw) {
+			add(part)
+		}
+	}
 	return terms
+}
+
+func splitCamel(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var parts []string
+	start := 0
+	for i := 1; i < len(s); i++ {
+		if s[i] >= 'A' && s[i] <= 'Z' {
+			parts = append(parts, s[start:i])
+			start = i
+		}
+	}
+	parts = append(parts, s[start:])
+	return parts
 }
 
 var queryPatterns = []struct {

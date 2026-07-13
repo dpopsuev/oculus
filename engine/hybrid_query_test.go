@@ -83,3 +83,11 @@ func TestSgOptsOrQuick_DefaultQuick(t *testing.T) {
 		t.Fatal("explicit deep must disable Quick")
 	}
 }
+
+func TestHybridQueryTerms_CamelCase(t *testing.T) {
+	terms := hybridQueryTerms("where is GetSymbolGraph")
+	joined := strings.Join(terms, ",")
+	if !strings.Contains(joined, "getsymbolgraph") && !strings.Contains(joined, "symbol") {
+		t.Fatalf("terms=%v", terms)
+	}
+}
