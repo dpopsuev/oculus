@@ -58,7 +58,7 @@ func (s *PythonScanner) ScanDirs(root string, dirs []string) (*model.Project, er
 		ns := model.NewNamespace(filepath.Base(pkgPath), importPath)
 
 		fullDir := filepath.Join(absRoot, pkgPath)
-		s.extractPythonSymbols(fullDir, ns)
+		s.extractPythonSymbols(fullDir, pkgPath, ns)
 		s.extractPythonImports(fullDir, ns, importPath, pkgSet, externalDeps, proj, pyIndex)
 		proj.AddNamespace(ns)
 	}
@@ -222,7 +222,7 @@ var (
 	rePyClass    = regexp.MustCompile(`^class\s+(\w+)[\s:(]`)
 )
 
-func (s *PythonScanner) extractPythonSymbols(dir string, ns *model.Namespace) {
+func (s *PythonScanner) extractPythonSymbols(dir, pkgPath string, ns *model.Namespace) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
@@ -235,7 +235,8 @@ func (s *PythonScanner) extractPythonSymbols(dir string, ns *model.Namespace) {
 		}
 
 		fullPath := filepath.Join(dir, entry.Name())
-		fileObj := model.NewFile(entry.Name(), ns.Name)
+		relFile := filepath.ToSlash(filepath.Join(pkgPath, entry.Name()))
+		fileObj := model.NewFile(relFile, ns.Name)
 
 		f, err := os.Open(fullPath)
 		if err != nil {
@@ -247,7 +248,7 @@ func (s *PythonScanner) extractPythonSymbols(dir string, ns *model.Namespace) {
 		for sc.Scan() {
 			lineCount++
 			line := sc.Text()
-			addPythonSymbolFromLine(ns, seen, line, entry.Name(), lineCount)
+			addPythonSymbolFromLine(ns, seen, line, relFile, lineCount)
 		}
 		f.Close()
 		fileObj.Lines = lineCount

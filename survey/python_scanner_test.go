@@ -216,6 +216,44 @@ setup(name='legacy-app', version='1.0')
 	}
 }
 
+// TestPythonScannerNestedSymbolFilePaths ensures Symbol.File / File paths are
+// repo-relative (pkg/sub/mod.py), not basename-only (mod.py). Basename-only
+// paths break WarmLSP resolve/show/rename against nested modules.
+func TestPythonScannerNestedSymbolFilePaths(t *testing.T) {
+	dir := t.TempDir()
+	writePyFile(t, dir, "pyproject.toml", "[project]\nname = \"nestedapp\"\n")
+	writePyFile(t, dir, "pkg/__init__.py", "")
+	writePyFile(t, dir, "pkg/sub/__init__.py", "")
+	writePyFile(t, dir, "pkg/sub/mod.py", "def build_graph():\n    pass\n\nclass Cluster:\n    pass\n")
+
+	sc := &PythonScanner{}
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan failed: %v", err)
+	}
+
+	wantFile := "pkg/sub/mod.py"
+	found := false
+	for _, ns := range proj.Namespaces {
+		for _, sym := range ns.Symbols {
+			if sym.Name == "build_graph" || sym.Name == "Cluster" {
+				found = true
+				if sym.File != wantFile {
+					t.Errorf("symbol %s File = %q, want %q", sym.Name, sym.File, wantFile)
+				}
+			}
+		}
+		for _, f := range ns.Files {
+			if strings.HasSuffix(f.Path, "mod.py") && f.Path != wantFile {
+				t.Errorf("File.Path = %q, want %q", f.Path, wantFile)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected build_graph/Cluster symbols in nested package")
+	}
+}
+
 func keys(m map[string]*model.Namespace) []string {
 	k := make([]string, 0, len(m))
 	for key := range m {

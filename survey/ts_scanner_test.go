@@ -263,6 +263,37 @@ func TestTSScan_FileLevel_EachFileIsNamespace(t *testing.T) {
 	}
 }
 
+// TestFileLevel_RelativeImportsProduceEdges verifies FileLevel import edges
+// resolve to concrete file keys (src/a.ts → src/b.ts), not self-collapsed dirs.
+func TestFileLevel_RelativeImportsProduceEdges(t *testing.T) {
+	dir := setupTSProject(t, map[string]string{
+		"package.json": `{"name":"test-pkg"}`,
+		"src/a.ts":     "import { b } from './b';\nexport function a() {}\n",
+		"src/b.ts":     "export function b() {}\n",
+	})
+
+	sc := &survey.TypeScriptScanner{Granularity: survey.FileLevel}
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	if proj.DependencyGraph == nil || len(proj.DependencyGraph.Edges) == 0 {
+		t.Fatalf("expected FileLevel relative-import edges, got 0 (namespaces=%d)", len(proj.Namespaces))
+	}
+
+	found := false
+	for _, e := range proj.DependencyGraph.Edges {
+		if !e.External && e.From == "src/a.ts" && e.To == "src/b.ts" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected edge src/a.ts → src/b.ts; edges=%+v", proj.DependencyGraph.Edges)
+	}
+}
+
 // TestTSScan_DirLevel_IsDefault verifies that TypeScriptScanner with no
 // Granularity set behaves identically to the existing directory-level scan.
 func TestTSScan_DirLevel_IsDefault(t *testing.T) {

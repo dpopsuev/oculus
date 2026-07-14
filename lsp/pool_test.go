@@ -106,6 +106,39 @@ func TestRealPool_GetReusesConnection(t *testing.T) {
 	}
 }
 
+// TestRealPool_AdmitTimeLRUEviction verifies that when MaxActive is full,
+// Get for a new root evicts the LRU server instead of returning at capacity.
+func TestRealPool_AdmitTimeLRUEviction(t *testing.T) {
+	requireGopls(t)
+	rootA := makeGoRoot(t)
+	rootB := makeGoRoot(t)
+	pool := lsp.NewPoolWithConfig(lsp.PoolConfig{MaxActive: 1})
+	defer pool.Shutdown(context.Background()) //nolint:errcheck // best-effort cleanup
+
+	if _, err := pool.Get(lang.Go, rootA); err != nil {
+		t.Fatalf("Get rootA: %v", err)
+	}
+	if s := pool.Status(); s.Active != 1 {
+		t.Fatalf("after rootA: Active=%d want 1", s.Active)
+	}
+
+	cB, err := pool.Get(lang.Go, rootB)
+	if err != nil {
+		t.Fatalf("Get rootB after capacity: %v (want LRU eviction, not at capacity)", err)
+	}
+	if cB == nil {
+		t.Fatal("expected non-nil client for rootB")
+	}
+	if s := pool.Status(); s.Active != 1 {
+		t.Fatalf("after rootB: Active=%d want 1 (A evicted)", s.Active)
+	}
+
+	// Re-acquiring A should spawn fresh (A was evicted).
+	if _, err := pool.Get(lang.Go, rootA); err != nil {
+		t.Fatalf("Get rootA again: %v", err)
+	}
+}
+
 func TestRealPool_ShutdownCleansUp(t *testing.T) {
 	requireGopls(t)
 	dir := makeGoRoot(t)

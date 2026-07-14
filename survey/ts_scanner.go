@@ -202,6 +202,33 @@ func (s *TypeScriptScanner) ScanDirs(root string, dirs []string) (*model.Project
 	allow := allowSet(dirs)
 	filter := len(dirs) > 0
 
+	// Collect all TS/JS relative paths first so FileLevel import resolution
+	// can map ./b → src/b.ts (mirrors Rust FileLevel fileSet).
+	fileSet := make(map[string]bool)
+	err = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if ShouldSkipTSDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !isTSFile(d.Name()) {
+			return nil
+		}
+		rel, relErr := filepath.Rel(absRoot, path)
+		if relErr != nil {
+			return nil
+		}
+		fileSet[filepath.ToSlash(rel)] = true
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	nsMap := make(map[string]*model.Namespace)
 	seen := make(map[string]map[string]bool)
 
@@ -278,7 +305,7 @@ func (s *TypeScriptScanner) ScanDirs(root string, dirs []string) (*model.Project
 			lineCount++
 			line := scanner.Text()
 			s.extractExports(line, ns, seen[dir], rel, lineCount)
-			s.extractImportEdge(line, dir, aliases, proj.DependencyGraph)
+			s.extractImportEdge(line, dir, aliases, proj.DependencyGraph, fileSet)
 		}
 		fileObj.Lines = lineCount
 		ns.AddFile(fileObj)
@@ -323,7 +350,7 @@ func (s *TypeScriptScanner) extractExports(line string, ns *model.Namespace, see
 	matchSymbolPatterns(line, tsExportPatterns, ns, seen, true, filePath, lineNum)
 }
 
-func (s *TypeScriptScanner) extractImportEdge(line, fromDir string, aliases []pathAlias, graph *model.DependencyGraph) {
+func (s *TypeScriptScanner) extractImportEdge(line, fromKey string, aliases []pathAlias, graph *model.DependencyGraph, fileSet map[string]bool) {
 	// Skip type-only imports — erased at compile time, no runtime dependency.
 	if reImportTypeOnly.MatchString(line) {
 		return
@@ -334,20 +361,32 @@ func (s *TypeScriptScanner) extractImportEdge(line, fromDir string, aliases []pa
 	}
 
 	if strings.HasPrefix(spec, "./") || strings.HasPrefix(spec, "../") {
-		resolved := resolveRelativeImport(fromDir, spec)
-		if resolved != fromDir {
-			graph.AddEdge(fromDir, resolved, false)
+		if s.Granularity == FileLevel {
+			if target := resolveRelativeImportFile(fromKey, spec, fileSet); target != "" && target != fromKey {
+				graph.AddEdge(fromKey, target, false)
+			}
+			return
+		}
+		resolved := resolveRelativeImport(fromKey, spec)
+		if resolved != fromKey {
+			graph.AddEdge(fromKey, resolved, false)
 		}
 		return
 	}
 	if dir, ok := resolveAlias(spec, aliases); ok {
+		if s.Granularity == FileLevel {
+			if target := resolveAliasToFile(dir, fileSet); target != "" && target != fromKey {
+				graph.AddEdge(fromKey, target, false)
+			}
+			return
+		}
 		// Path alias resolved to a local namespace — internal edge.
-		if dir != fromDir {
-			graph.AddEdge(fromDir, dir, false)
+		if dir != fromKey {
+			graph.AddEdge(fromKey, dir, false)
 		}
 		return
 	}
-	graph.AddEdge(fromDir, barePackageName(spec), true)
+	graph.AddEdge(fromKey, barePackageName(spec), true)
 }
 
 // parseImportSpec extracts the module specifier from an import/require line.
@@ -379,6 +418,54 @@ func resolveRelativeImport(fromDir, spec string) string {
 		return resolved
 	}
 	return dir
+}
+
+// resolveRelativeImportFile maps a relative import from a FileLevel namespace
+// (file path) onto a concrete file in fileSet (e.g. ./b → src/b.ts).
+func resolveRelativeImportFile(fromFile, spec string, fileSet map[string]bool) string {
+	base := filepath.ToSlash(filepath.Dir(fromFile))
+	if base == "." {
+		base = ""
+	}
+	joined := filepath.ToSlash(filepath.Clean(filepath.Join(base, spec)))
+	candidates := []string{
+		joined,
+		joined + ".ts", joined + ".tsx", joined + ".js", joined + ".jsx", joined + ".mts", joined + ".mjs",
+		joined + "/index.ts", joined + "/index.tsx", joined + "/index.js", joined + "/index.jsx",
+		joined + "/index.mts", joined + "/index.mjs",
+	}
+	for _, c := range candidates {
+		c = filepath.ToSlash(c)
+		if fileSet[c] {
+			return c
+		}
+	}
+	return ""
+}
+
+// resolveAliasToFile maps a tsconfig path-alias directory onto a concrete
+// file key present in FileLevel namespaces.
+func resolveAliasToFile(dir string, fileSet map[string]bool) string {
+	dir = filepath.ToSlash(strings.TrimSuffix(dir, "/"))
+	candidates := []string{
+		dir + ".ts", dir + ".tsx", dir + ".js", dir + ".jsx",
+		dir + "/index.ts", dir + "/index.tsx", dir + "/index.js", dir + "/index.jsx",
+	}
+	for _, c := range candidates {
+		if fileSet[c] {
+			return c
+		}
+	}
+	var best string
+	prefix := dir + "/"
+	for f := range fileSet {
+		if strings.HasPrefix(f, prefix) {
+			if best == "" || f < best {
+				best = f
+			}
+		}
+	}
+	return best
 }
 
 func barePackageName(spec string) string {

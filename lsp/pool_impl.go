@@ -173,8 +173,9 @@ func (p *RealPool) PIDs() []int {
 }
 
 // Get returns a warm LSP client for the given language and workspace root.
-// If no connection exists, one is lazily spawned. Blocks up to 10s if the
-// pool is at capacity (memory bandwidth rate limiting).
+// If no connection exists, one is lazily spawned. When the pool is at
+// MaxActive, the least-recently-used idle server is evicted so a new root
+// can be admitted. Falls back to a 10s wait, then ErrPoolAtCapacity.
 func (p *RealPool) Get(language lang.Language, root string) (*Client, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -210,10 +211,7 @@ func (p *RealPool) Get(language lang.Language, root string) (*Client, error) {
 	p.langActive[language]++
 	p.mu.Unlock()
 
-	// Acquire a pool-wide concurrency slot — blocks FIFO if at capacity.
-	select {
-	case p.sem <- struct{}{}:
-	case <-time.After(10 * time.Second):
+	if !p.acquireSlot() {
 		p.mu.Lock()
 		p.langActive[language]--
 		p.mu.Unlock()
@@ -233,6 +231,86 @@ func (p *RealPool) Get(language lang.Language, root string) (*Client, error) {
 	p.conns[key] = entry
 	p.mu.Unlock()
 	return entry.client, nil
+}
+
+// acquireSlot obtains one pool-wide semaphore token. On capacity it evicts
+// the LRU connection once, then waits up to 10s before failing.
+func (p *RealPool) acquireSlot() bool {
+	select {
+	case p.sem <- struct{}{}:
+		return true
+	default:
+	}
+	if p.evictLRU() > 0 {
+		select {
+		case p.sem <- struct{}{}:
+			return true
+		default:
+		}
+	}
+	select {
+	case p.sem <- struct{}{}:
+		return true
+	case <-time.After(10 * time.Second):
+		return false
+	}
+}
+
+// evictLRU removes the least-recently-used live connection and frees its
+// semaphore slot. Returns 1 if an entry was evicted, 0 otherwise.
+func (p *RealPool) evictLRU() int {
+	p.mu.Lock()
+	var (
+		oldestKey   poolKey
+		oldestEntry *poolEntry
+		oldestTime  time.Time
+		found       bool
+	)
+	for key, entry := range p.conns {
+		if entry.dead.Load() {
+			delete(p.conns, key)
+			select {
+			case <-p.sem:
+			default:
+			}
+			if p.langActive[key.lang] > 0 {
+				p.langActive[key.lang]--
+			}
+			found = true
+			oldestEntry = nil
+			break
+		}
+		if !found || entry.lastUsed.Before(oldestTime) {
+			found = true
+			oldestKey = key
+			oldestEntry = entry
+			oldestTime = entry.lastUsed
+		}
+	}
+	if oldestEntry == nil {
+		p.mu.Unlock()
+		if found {
+			return 1 // cleaned a dead entry
+		}
+		return 0
+	}
+	delete(p.conns, oldestKey)
+	if p.langActive[oldestKey.lang] > 0 {
+		p.langActive[oldestKey.lang]--
+	}
+	root := oldestKey.root
+	idle := time.Since(oldestTime)
+	p.mu.Unlock()
+
+	slog.Info("lsp pool: admit-time LRU eviction",
+		slog.String("root", root),
+		slog.Duration("idle", idle))
+	shutdownEntry(oldestEntry)
+	select {
+	case <-p.sem:
+	default:
+	}
+	return 1
 }
 
 // Release signals that the caller is done with the connection.
