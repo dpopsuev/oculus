@@ -1,6 +1,7 @@
 package survey
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,12 +100,24 @@ func (s *CompositeScanner) Scan(root string) (*model.Project, error) {
 
 func discoverSubProjects(root string) []subProject {
 	var subs []subProject
+	// Key by path+language so co-located manifests (Cargo.toml + package.json
+	// at ".") both survive — path-only seen dropped the second language.
 	seen := make(map[string]bool)
+	mark := func(rel string, lang model.Language) bool {
+		key := fmt.Sprintf("%s\x00%d", rel, lang)
+		if seen[key] {
+			return false
+		}
+		seen[key] = true
+		return true
+	}
 
 	for _, m := range RootProjectMarkers {
 		if _, err := os.Stat(filepath.Join(root, m.File)); err == nil {
-			subs = append(subs, subProject{relPath: ".", lang: ToModelLanguage(m.Lang)})
-			seen["."] = true
+			lang := ToModelLanguage(m.Lang)
+			if mark(".", lang) {
+				subs = append(subs, subProject{relPath: ".", lang: lang})
+			}
 		}
 	}
 
@@ -141,18 +154,26 @@ func discoverSubProjects(root string) []subProject {
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
-		if seen[rel] {
-			return nil
-		}
 		if hasNodeModulesParent(rel) {
 			return nil
 		}
-		seen[rel] = true
+		if !mark(rel, lang) {
+			return nil
+		}
 		subs = append(subs, subProject{relPath: rel, lang: lang})
 		return nil
 	})
 
 	return subs
+}
+
+// IsPolyglot reports whether auto-scan would select CompositeScanner for root.
+func IsPolyglot(root string) bool {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		absRoot = root
+	}
+	return len(discoverSubProjects(absRoot)) > 1
 }
 
 func hasNodeModulesParent(rel string) bool {

@@ -40,13 +40,31 @@ var RootProjectMarkers = []LanguageMarker{
 }
 
 // DetectLanguage inspects marker files in root to determine the project language.
+// First-wins order follows LanguageMarkers (most specific first).
 func DetectLanguage(root string) Language {
-	for _, m := range LanguageMarkers {
-		if _, err := os.Stat(filepath.Join(root, m.File)); err == nil {
-			return m.Lang
-		}
+	langs := DetectLanguages(root)
+	if len(langs) == 0 {
+		return Unknown
 	}
-	// Glob-based detection for languages using variable project file names.
+	return langs[0]
+}
+
+// DetectLanguages returns every language signaled by root marker files,
+// preserving LanguageMarkers order and de-duplicating. Used for polyglot
+// detection (e.g. Cargo.toml + package.json at the same root).
+func DetectLanguages(root string) []Language {
+	seen := make(map[Language]bool)
+	var out []Language
+	for _, m := range LanguageMarkers {
+		if _, err := os.Stat(filepath.Join(root, m.File)); err != nil {
+			continue
+		}
+		if seen[m.Lang] {
+			continue
+		}
+		seen[m.Lang] = true
+		out = append(out, m.Lang)
+	}
 	globs := []struct {
 		pattern string
 		lang    Language
@@ -55,10 +73,14 @@ func DetectLanguage(root string) Language {
 		{"*.sln", CSharp},
 	}
 	for _, g := range globs {
+		if seen[g.lang] {
+			continue
+		}
 		matches, _ := filepath.Glob(filepath.Join(root, g.pattern))
 		if len(matches) > 0 {
-			return g.lang
+			seen[g.lang] = true
+			out = append(out, g.lang)
 		}
 	}
-	return Unknown
+	return out
 }

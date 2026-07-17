@@ -76,6 +76,7 @@ type ProjectInfo struct {
 	LastSHA    string    `json:"last_sha"`
 	LastScan   time.Time `json:"last_scan"`
 	Components int       `json:"components"`
+	Edges      int       `json:"edges,omitempty"`
 }
 
 // ComponentMeta holds auto-generated metadata for a single component.

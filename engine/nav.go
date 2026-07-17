@@ -156,12 +156,9 @@ func (p *Engine) GetShow(ctx context.Context, path, raw string, cacheKey ...stri
 	}
 	syms, err := p.lspDocumentSymbols(ctx, file)
 	if err != nil {
-		return &ShowReport{
-			Locator: raw,
-			Symbol:  hit.FQN,
-			File:    file,
-			Summary: "show unavailable: " + err.Error(),
-		}, nil
+		// Graceful fallback for foreign clones without node_modules/typescript:
+		// return a bounded source excerpt instead of a hard unavailable summary.
+		return p.showSourceExcerpt(raw, hit, file, line, err)
 	}
 	match := matchDocSymbol(syms, leafName(hit.Symbol), line)
 	if match == nil {
@@ -326,6 +323,87 @@ func matchDocSymbol(syms []lsp.DocSymbol, name string, line int) *lsp.DocSymbol 
 	default:
 		return byRange
 	}
+}
+
+const maxShowExcerptLines = 80
+
+// showSourceExcerpt returns a body slice when WarmLSP documentSymbol is
+// unavailable (e.g. typescript-language-server missing workspace typescript).
+func (p *Engine) showSourceExcerpt(raw string, hit *locator.Hit, file string, line int, lspErr error) (*ShowReport, error) {
+	end := estimateBodyEnd(file, line)
+	body, err := readLineRange(file, line, end)
+	if err != nil {
+		return &ShowReport{
+			Locator: raw,
+			Symbol:  hit.FQN,
+			File:    file,
+			Summary: "show unavailable: " + lspErr.Error(),
+		}, nil
+	}
+	return &ShowReport{
+		Locator:   raw,
+		Symbol:    hit.FQN,
+		File:      file,
+		StartLine: line,
+		EndLine:   end,
+		Body:      body,
+		Summary: fmt.Sprintf(
+			"show %s (%s:%d-%d, source excerpt; LSP unavailable: %s)",
+			hit.FQN, filepath.Base(file), line, end, lspErr.Error(),
+		),
+	}, nil
+}
+
+// estimateBodyEnd picks an end line from start using brace depth, capped at
+// maxShowExcerptLines. Falls back to start+min(40, file remainder) when no braces.
+func estimateBodyEnd(file string, start int) int {
+	if start < 1 {
+		start = 1
+	}
+	f, err := os.Open(file)
+	if err != nil {
+		return start
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	buf := make([]byte, 0, 64*1024)
+	sc.Buffer(buf, 1024*1024)
+	n := 0
+	depth := 0
+	seenOpen := false
+	last := start
+	for sc.Scan() {
+		n++
+		if n < start {
+			continue
+		}
+		if n > start+maxShowExcerptLines-1 {
+			break
+		}
+		last = n
+		for _, r := range sc.Text() {
+			switch r {
+			case '{':
+				depth++
+				seenOpen = true
+			case '}':
+				if depth > 0 {
+					depth--
+				}
+				if seenOpen && depth == 0 {
+					return n
+				}
+			}
+		}
+	}
+	if !seenOpen {
+		end := start + 39
+		if last < end {
+			return last
+		}
+		return end
+	}
+	return last
 }
 
 func readLineRange(file string, start, end int) (string, error) {

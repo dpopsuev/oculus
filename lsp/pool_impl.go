@@ -447,7 +447,8 @@ func spawnServer(language lang.Language, absRoot string) (*poolEntry, error) {
 
 	client := NewClient(stdout, stdin)
 
-	enc, err := initialize(client, absRoot)
+	initOpts := mergeInitOptions(regEntry.InitOptions, language)
+	enc, err := initialize(client, absRoot, initOpts)
 	if err != nil {
 		stdin.Close()
 		_ = cmd.Wait()
@@ -478,8 +479,65 @@ func spawnServer(language lang.Language, absRoot string) (*poolEntry, error) {
 
 // initialize performs the LSP initialize/initialized handshake and returns
 // the negotiated OffsetEncoding.
-func initialize(client *Client, root string) (OffsetEncoding, error) {
-	return Initialize(client, root)
+func initialize(client *Client, root string, initOptions ...map[string]any) (OffsetEncoding, error) {
+	return Initialize(client, root, initOptions...)
+}
+
+// mergeInitOptions copies registry InitOptions and injects TypeScript
+// tsserver.path from LOCUS_TSSERVER_PATH or a discovered global install so
+// foreign clones without node_modules/typescript still initialize.
+func mergeInitOptions(base map[string]any, language lang.Language) map[string]any {
+	out := map[string]any{}
+	for k, v := range base {
+		out[k] = v
+	}
+	if language != lang.TypeScript && language != lang.JavaScript {
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	}
+	tsPath := resolveTSServerPath()
+	if tsPath == "" {
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	}
+	tsserver, _ := out["tsserver"].(map[string]any)
+	if tsserver == nil {
+		tsserver = map[string]any{}
+	}
+	if _, ok := tsserver["path"]; !ok {
+		tsserver["path"] = tsPath
+	}
+	out["tsserver"] = tsserver
+	return out
+}
+
+// resolveTSServerPath returns a tsserver.js path for typescript-language-server.
+// Order: LOCUS_TSSERVER_PATH → npm root -g → common install locations.
+func resolveTSServerPath() string {
+	if p := os.Getenv("LOCUS_TSSERVER_PATH"); p != "" {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	if out, err := exec.Command("npm", "root", "-g").Output(); err == nil {
+		candidate := filepath.Join(strings.TrimSpace(string(out)), "typescript", "lib", "tsserver.js")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	for _, c := range []string{
+		"/usr/local/lib/node_modules/typescript/lib/tsserver.js",
+		"/usr/lib/node_modules/typescript/lib/tsserver.js",
+	} {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return ""
 }
 
 // Warm pre-warms the gopls index for a workspace root by sending

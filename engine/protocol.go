@@ -337,10 +337,12 @@ func RenderScanSummary(r *ScanResult, driftInfo string) string {
 		cycleStr = fmt.Sprintf("%d", len(report.Cycles))
 	}
 
+	nComp := len(report.Architecture.Services)
+	nEdges := len(report.Architecture.Edges)
 	summary := fmt.Sprintf("Scanned %s: %d components, %d edges, %s cycles, scanner=%s\ncache_key: %s",
 		report.ModulePath,
-		len(report.Architecture.Services),
-		len(report.Architecture.Edges),
+		nComp,
+		nEdges,
 		cycleStr,
 		report.Scanner,
 		r.CacheKey)
@@ -349,6 +351,14 @@ func RenderScanSummary(r *ScanResult, driftInfo string) string {
 	}
 	if report.ScanMode != "" {
 		summary += fmt.Sprintf("\nscan_mode: %s", report.ScanMode)
+	}
+	if nComp > 0 && nEdges == 0 {
+		summary += "\nWARNING: 0 edges — graph may be incomplete (scheme imports, wrong scanner, or inventory-only). Run probe/scenario before architecture claims."
+	} else if nComp > 5 && float64(nEdges)/float64(nComp) < 0.1 {
+		summary += "\nWARNING: very sparse edge graph — coverage may be thin; prefer probe/scenario over summary alone."
+	}
+	if nComp > 100 {
+		summary += fmt.Sprintf("\nNOTE: large graph (%d components) — summary is package-level; use probe/scenario for depth.", nComp)
 	}
 	if driftInfo != "" {
 		summary += "\n" + driftInfo

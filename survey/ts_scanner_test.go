@@ -3,6 +3,7 @@ package survey_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dpopsuev/oculus/v3/model"
@@ -319,5 +320,53 @@ func TestTSScan_DirLevel_IsDefault(t *testing.T) {
 	}
 	if nsMap["src/foo.ts"] || nsMap["src/bar.ts"] {
 		t.Error("file-level namespace paths should not appear in default (dir-level) mode")
+	}
+}
+
+// TestTSScan_GJSSchemeImports verifies gi:// and resource:// imports become
+// internal edges with ambient namespaces (not collapsed to bare "gi:").
+func TestTSScan_GJSSchemeImports(t *testing.T) {
+	dir := setupTSProject(t, map[string]string{
+		"package.json": `{"name":"gnome-ext"}`,
+		"src/extension.ts": `
+import Gio from 'gi://Gio';
+import 'resource:///org/gnome/shell/ui/main.js';
+export function enable() {}
+`,
+	})
+
+	sc := &survey.TypeScriptScanner{}
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if proj.DependencyGraph == nil || len(proj.DependencyGraph.Edges) == 0 {
+		t.Fatal("expected scheme-import edges, got 0")
+	}
+
+	var sawGI, sawResource bool
+	nsSet := map[string]bool{}
+	for _, ns := range proj.Namespaces {
+		nsSet[ns.ImportPath] = true
+	}
+	for _, e := range proj.DependencyGraph.Edges {
+		if e.External {
+			t.Errorf("scheme import should be internal, got external %+v", e)
+		}
+		switch {
+		case e.To == "gi://Gio":
+			sawGI = true
+		case strings.HasPrefix(e.To, "resource://"):
+			sawResource = true
+		}
+	}
+	if !sawGI {
+		t.Errorf("missing gi://Gio edge; edges=%+v", proj.DependencyGraph.Edges)
+	}
+	if !sawResource {
+		t.Errorf("missing resource:// edge; edges=%+v", proj.DependencyGraph.Edges)
+	}
+	if !nsSet["gi://Gio"] {
+		t.Error("missing ambient namespace gi://Gio")
 	}
 }

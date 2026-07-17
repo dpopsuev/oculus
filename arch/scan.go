@@ -83,6 +83,9 @@ type ScanOpts struct {
 	ChurnDays       int
 	GitDays         int
 	Authors         bool
+	// Budget is a soft output hint: when >0 and component count exceeds it,
+	// ScanMode records a budget note. The architecture graph is not truncated
+	// (analysis must retain the full graph).
 	Budget          int
 	Format          string // "json", "md", "mermaid"
 	Intent          ScanIntent
@@ -202,6 +205,15 @@ func ScanAndBuild(ctx context.Context, root string, opts ScanOpts) (*ContextRepo
 	}
 
 	report.SuggestedDepth = computeSuggestedDepth(proj, modPath, len(archModel.Services))
+	if opts.Budget > 0 && len(archModel.Services) > opts.Budget {
+		note := fmt.Sprintf("budget=%d components>%d (graph retained; use probe/scenario for depth)",
+			opts.Budget, len(archModel.Services))
+		if report.ScanMode == "" {
+			report.ScanMode = note
+		} else {
+			report.ScanMode += ";" + note
+		}
+	}
 
 	if !intent.IncludesCoupling() {
 		return report, nil
@@ -395,6 +407,9 @@ func extractProjectAnchors(root string, proj *model.Project, modPath string) []o
 func resolvedScannerName(override, root string) string {
 	if override != "" && override != "auto" {
 		return override
+	}
+	if survey.IsPolyglot(root) {
+		return "composite"
 	}
 	detected := olang.DetectLanguage(root)
 	switch detected {

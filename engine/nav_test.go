@@ -110,11 +110,12 @@ func TestGetShow_StubPoolDegrades(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Body != "" {
-		t.Fatalf("stub pool should not return body, got %q", r.Body)
+	// Stub pool has no LSP — GetShow falls back to a source excerpt.
+	if r.Body == "" {
+		t.Fatal("expected source-excerpt body when LSP unavailable")
 	}
-	if r.Summary == "" {
-		t.Fatal("expected summary")
+	if !strings.Contains(r.Summary, "source excerpt") {
+		t.Fatalf("expected source-excerpt summary, got %q", r.Summary)
 	}
 	t.Logf("show stub: %s", r.Summary)
 }

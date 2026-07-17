@@ -315,6 +315,20 @@ func (s *TypeScriptScanner) ScanDirs(root string, dirs []string) (*model.Project
 		return nil, err
 	}
 
+	// Ensure ambient namespaces exist for scheme-import edge targets so
+	// ProjectToArchModel keeps the edges (both endpoints must be in nsSet).
+	if proj.DependencyGraph != nil {
+		for _, e := range proj.DependencyGraph.Edges {
+			if !isSchemeImport(e.To) {
+				continue
+			}
+			if nsMap[e.To] != nil {
+				continue
+			}
+			nsMap[e.To] = model.NewNamespace(e.To, e.To)
+		}
+	}
+
 	keys := make([]string, 0, len(nsMap))
 	for k := range nsMap {
 		keys = append(keys, k)
@@ -386,7 +400,24 @@ func (s *TypeScriptScanner) extractImportEdge(line, fromKey string, aliases []pa
 		}
 		return
 	}
+	// GJS / GNOME Shell scheme imports (gi://Gtk, resource:///…). Keep the
+	// full URI as an internal ambient target so edges survive IncludeExternal=false
+	// (barePackageName("gi://Gtk") previously collapsed to "gi:" and was dropped).
+	if isSchemeImport(spec) {
+		graph.AddEdge(fromKey, normalizeSchemeImport(spec), false)
+		return
+	}
 	graph.AddEdge(fromKey, barePackageName(spec), true)
+}
+
+func isSchemeImport(spec string) bool {
+	return strings.HasPrefix(spec, "gi://") || strings.HasPrefix(spec, "resource://")
+}
+
+// normalizeSchemeImport keeps a stable component key for scheme imports.
+// gi://Gtk → gi://Gtk; resource:///org/gnome/Foo → resource:///org/gnome/Foo
+func normalizeSchemeImport(spec string) string {
+	return spec
 }
 
 // parseImportSpec extracts the module specifier from an import/require line.

@@ -131,8 +131,9 @@ type Pool interface {
 // InitializeParams builds the canonical LSP initialize request params.
 // All callers (RealPool, MockPool, ContainerPool, lspConn) must use this
 // to avoid capability drift across initialize paths.
-func InitializeParams(rootURI string) map[string]any {
-	return map[string]any{
+// Optional initOptions are passed as initializationOptions (e.g. tsserver.path).
+func InitializeParams(rootURI string, initOptions ...map[string]any) map[string]any {
+	params := map[string]any{
 		"processId": nil,
 		"rootUri":   rootURI,
 		"workspaceFolders": []map[string]any{
@@ -165,14 +166,19 @@ func InitializeParams(rootURI string) map[string]any {
 			},
 		},
 	}
+	if len(initOptions) > 0 && initOptions[0] != nil {
+		params["initializationOptions"] = initOptions[0]
+	}
+	return params
 }
 
 // Initialize performs the LSP initialize/initialized handshake using
 // canonical params. Returns the negotiated OffsetEncoding so callers can
 // apply correct byte↔UTF-16 conversions for position fields.
-func Initialize(client *Client, root string) (OffsetEncoding, error) {
+// Optional initOptions are forwarded as initializationOptions.
+func Initialize(client *Client, root string, initOptions ...map[string]any) (OffsetEncoding, error) {
 	rootURI := "file://" + root
-	raw, err := client.Request("initialize", InitializeParams(rootURI))
+	raw, err := client.Request("initialize", InitializeParams(rootURI, initOptions...))
 	if err != nil {
 		slog.Error("lsp: initialize failed", "root", root, "error", err)
 		return UTF16, err

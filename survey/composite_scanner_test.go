@@ -432,3 +432,67 @@ func TestCompositeScanner_NoNamespaceDuplication(t *testing.T) {
 		}
 	}
 }
+
+// TestCompositeScanner_CoLocatedRustAndTypeScript verifies ShojiWM-style
+// polyglot roots: Cargo.toml and package.json both at "." must produce a
+// composite scan (Rust + TS), not first-wins Rust-only.
+func TestCompositeScanner_CoLocatedRustAndTypeScript(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"Cargo.toml":   "[package]\nname = \"shoji\"\nversion = \"0.1.0\"\n",
+		"package.json": `{"name": "shoji-config"}`,
+		"src/lib.rs":   "pub fn run() {}",
+		"packages/config/index.ts": "export const cfg = 1;\n",
+	}
+	for name, content := range files {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if !survey.IsPolyglot(dir) {
+		t.Fatal("expected IsPolyglot=true for Cargo.toml+package.json at root")
+	}
+
+	sc := &survey.AutoScanner{}
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("auto scan: %v", err)
+	}
+
+	var hasRust, hasTS bool
+	for _, ns := range proj.Namespaces {
+		switch {
+		case ns.ImportPath == "shoji" || ns.ImportPath == "src" || strings.Contains(ns.ImportPath, "lib"):
+			hasRust = true
+		case strings.Contains(ns.ImportPath, "packages") || strings.Contains(ns.ImportPath, "config"):
+			hasTS = true
+		}
+		for _, f := range ns.Files {
+			if strings.HasSuffix(f.Path, ".rs") {
+				hasRust = true
+			}
+			if strings.HasSuffix(f.Path, ".ts") {
+				hasTS = true
+			}
+		}
+	}
+	if !hasRust {
+		t.Errorf("missing Rust namespaces; got %+v", nsPaths(proj))
+	}
+	if !hasTS {
+		t.Errorf("missing TypeScript namespaces; got %+v", nsPaths(proj))
+	}
+}
+
+func nsPaths(proj *model.Project) []string {
+	out := make([]string, 0, len(proj.Namespaces))
+	for _, ns := range proj.Namespaces {
+		out = append(out, ns.ImportPath)
+	}
+	return out
+}
