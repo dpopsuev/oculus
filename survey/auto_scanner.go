@@ -4,16 +4,20 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/dpopsuev/oculus/v3/model"
 	"github.com/dpopsuev/oculus/v3/lang"
+	"github.com/dpopsuev/oculus/v3/model"
 )
 
 // AutoScanner selects the best available scanner for a project root.
-// Detection order for Go: PackagesScanner -> LSPScanner(gopls) -> GoScanner.
-// For non-Go languages: LSPScanner(detected-server) with no offline fallback.
+//
+// When Override is empty/"auto" (the default agent path), Scan runs a
+// language inventory first pass (root markers + extension census). Multi-language
+// roots use CompositeScanner; single-language roots use the registry scanner.
+// Explicit Override values skip inventory and force that backend (escape hatch).
 type AutoScanner struct {
 	// Override forces a specific scanner backend. Valid values:
-	// "auto" (default), "go", "packages", "lsp".
+	// "auto" (default), "go", "packages", "lsp", "ctags", "rust",
+	// "typescript", "python", "composite".
 	Override string
 	// LSPCmd overrides the LSP server command (e.g. "rust-analyzer").
 	LSPCmd string
@@ -23,17 +27,24 @@ type AutoScanner struct {
 }
 
 func (s *AutoScanner) Scan(root string) (*model.Project, error) {
-	scanner := s.resolve(root)
-
-	if s.Override == "" || s.Override == "auto" {
-		absRoot, _ := filepath.Abs(root)
-		subs := discoverSubProjects(absRoot)
-		if len(subs) > 1 {
-			scanner = &CompositeScanner{TSFileGranularity: s.TSFileGranularity}
-		}
+	if s.Override != "" && s.Override != "auto" {
+		return s.resolve(root).Scan(root)
 	}
 
-	return scanner.Scan(root)
+	absRoot, _ := filepath.Abs(root)
+	inv := lang.InventoryLanguages(absRoot)
+	subs := discoverSubProjects(absRoot)
+
+	// Multi-language (inventory) or multi-subproject layout → composite.
+	if inv.IsMultiLanguage() || len(subs) > 1 {
+		return (&CompositeScanner{TSFileGranularity: s.TSFileGranularity}).Scan(root)
+	}
+
+	if primary := inv.Primary(); primary != lang.Unknown {
+		return s.scannerForLang(ToModelLanguage(primary), root).Scan(root)
+	}
+
+	return s.resolve(root).Scan(root)
 }
 
 func (s *AutoScanner) resolve(root string) Scanner {
@@ -61,23 +72,17 @@ func (s *AutoScanner) resolve(root string) Scanner {
 		return &CompositeScanner{TSFileGranularity: s.TSFileGranularity}
 	}
 
-	lang := DetectLanguage(root)
+	detected := DetectLanguage(root)
 
 	// For languages with dedicated scanners, use the shared registry.
-	if lang != model.LangUnknown {
-		if lang == model.LangTypeScript && s.TSFileGranularity {
-			return &TypeScriptScanner{Granularity: FileLevel}
-		}
-		if lang == model.LangRust && s.TSFileGranularity {
-			return &RustScanner{Granularity: FileLevel}
-		}
-		return ScannerFromRegistry(lang, root)
+	if detected != model.LangUnknown {
+		return s.scannerForLang(detected, root)
 	}
 
 	// Unknown language: try LSP, fall back to ctags.
 	cmd := s.LSPCmd
 	if cmd == "" {
-		cmd = DefaultLSPServer(lang)
+		cmd = DefaultLSPServer(detected)
 	}
 	if cmd != "" {
 		if _, err := exec.LookPath(splitFirst(cmd)); err == nil {
@@ -85,6 +90,16 @@ func (s *AutoScanner) resolve(root string) Scanner {
 		}
 	}
 	return &CtagsScanner{}
+}
+
+func (s *AutoScanner) scannerForLang(l model.Language, root string) Scanner {
+	if l == model.LangTypeScript && s.TSFileGranularity {
+		return &TypeScriptScanner{Granularity: FileLevel}
+	}
+	if l == model.LangRust && s.TSFileGranularity {
+		return &RustScanner{Granularity: FileLevel}
+	}
+	return ScannerFromRegistry(l, root)
 }
 
 // DetectLanguage inspects marker files in root to determine the project language.

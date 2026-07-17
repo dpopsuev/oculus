@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dpopsuev/oculus/v3/lang"
 	"github.com/dpopsuev/oculus/v3/model"
 )
 
@@ -167,11 +168,15 @@ func discoverSubProjects(root string) []subProject {
 	return subs
 }
 
-// IsPolyglot reports whether auto-scan would select CompositeScanner for root.
+// IsPolyglot reports whether auto-scan would select CompositeScanner for root:
+// language inventory finds ≥2 languages, or discoverSubProjects finds ≥2 subs.
 func IsPolyglot(root string) bool {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		absRoot = root
+	}
+	if lang.InventoryLanguages(absRoot).IsMultiLanguage() {
+		return true
 	}
 	return len(discoverSubProjects(absRoot)) > 1
 }

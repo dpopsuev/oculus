@@ -408,21 +408,24 @@ func resolvedScannerName(override, root string) string {
 	if override != "" && override != "auto" {
 		return override
 	}
+	// Inventory + subproject discovery (same decision AutoScanner makes).
 	if survey.IsPolyglot(root) {
 		return "composite"
 	}
-	detected := olang.DetectLanguage(root)
-	switch detected {
+	inv := olang.InventoryLanguages(root)
+	switch inv.Primary() {
 	case olang.Go:
 		return "packages"
 	case olang.Rust:
 		return "rust"
-	case olang.TypeScript:
+	case olang.TypeScript, olang.JavaScript:
 		return "typescript"
 	case olang.Python:
 		return "python"
-	default:
+	case olang.Unknown:
 		return "auto"
+	default:
+		return string(inv.Primary())
 	}
 }
 
