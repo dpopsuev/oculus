@@ -80,6 +80,13 @@ func (s *CompositeScanner) Scan(root string) (*model.Project, error) {
 				Files:      ns.Files,
 				Symbols:    ns.Symbols,
 			}
+			for _, ti := range ns.TypeImports {
+				from := ti.From
+				if from != "" {
+					from = applyPrefix(prefix, from)
+				}
+				merged.AddTypeImport(ti.Name, from)
+			}
 			if seenNS[merged.ImportPath] {
 				continue // first (root-scan) entry wins; skip sub-project duplicate
 			}
@@ -89,11 +96,13 @@ func (s *CompositeScanner) Scan(root string) (*model.Project, error) {
 
 		if subProj.DependencyGraph != nil {
 			for _, edge := range subProj.DependencyGraph.Edges {
-				proj.DependencyGraph.AddEdge(
-					applyPrefix(prefix, edge.From),
-					applyPrefix(prefix, edge.To),
-					edge.External,
-				)
+				from := applyPrefix(prefix, edge.From)
+				to := applyPrefix(prefix, edge.To)
+				if edge.Protocol == "imports-type" {
+					proj.DependencyGraph.AddTypeEdge(from, to)
+					continue
+				}
+				proj.DependencyGraph.AddEdge(from, to, edge.External)
 			}
 		}
 	}
