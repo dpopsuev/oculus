@@ -87,39 +87,46 @@ func (s *FuncIndexSource) Children(_ context.Context, sym Symbol) ([]SourceRelat
 	}
 
 	var rels []SourceRelation
-	for _, callee := range fn.Callees {
-		res := s.resolver.Resolve(callee, fn.Package, fn.File, imports)
-		if res.Symbol == nil {
-			continue
-		}
-		rel := SourceRelation{
-			Target:      s.toSymbol(res.Symbol),
-			Kind:        "call",
-			InWorkspace: true,
-			Confidence:  res.Confidence,
-		}
-		if argExprs := fn.CallArgs[callee]; len(argExprs) > 0 {
-			rel.Args = bindArgs(argExprs, res.Symbol.ParamTypes)
-		}
-		rels = append(rels, rel)
-	}
+	rels = append(rels, s.resolveCallees(fn, fn.Callees, "call", imports, false)...)
+	rels = append(rels, s.resolveCallees(fn, fn.MemberCallees, "call", imports, true)...)
 	for callee, kind := range fn.AsyncCallees {
-		res := s.resolver.Resolve(callee, fn.Package, fn.File, imports)
-		if res.Symbol == nil {
-			continue
-		}
-		rel := SourceRelation{
-			Target:      s.toSymbol(res.Symbol),
-			Kind:        kind,
-			InWorkspace: true,
-			Confidence:  res.Confidence,
-		}
-		if argExprs := fn.CallArgs[callee]; len(argExprs) > 0 {
-			rel.Args = bindArgs(argExprs, res.Symbol.ParamTypes)
-		}
-		rels = append(rels, rel)
+		rels = append(rels, s.resolveOne(fn, callee, kind, imports, false)...)
+	}
+	for callee, kind := range fn.MemberAsyncCallees {
+		rels = append(rels, s.resolveOne(fn, callee, kind, imports, true)...)
 	}
 	return rels, nil
+}
+
+func (s *FuncIndexSource) resolveCallees(fn *Symbol, callees []string, kind string, imports []string, member bool) []SourceRelation {
+	var rels []SourceRelation
+	for _, callee := range callees {
+		rels = append(rels, s.resolveOne(fn, callee, kind, imports, member)...)
+	}
+	return rels
+}
+
+func (s *FuncIndexSource) resolveOne(fn *Symbol, callee, kind string, imports []string, member bool) []SourceRelation {
+	var res Resolution
+	if member {
+		res = s.resolver.ResolveMember(callee, fn.Package, fn.File, imports)
+	} else {
+		res = s.resolver.Resolve(callee, fn.Package, fn.File, imports)
+	}
+	if res.Symbol == nil {
+		return nil
+	}
+	rel := SourceRelation{
+		Target:      s.toSymbol(res.Symbol),
+		Kind:        kind,
+		InWorkspace: true,
+		Confidence:  res.Confidence,
+		Line:        fn.CallLines[callee],
+	}
+	if argExprs := fn.CallArgs[callee]; len(argExprs) > 0 {
+		rel.Args = bindArgs(argExprs, res.Symbol.ParamTypes)
+	}
+	return []SourceRelation{rel}
 }
 
 func (s *FuncIndexSource) Hover(_ context.Context, sym Symbol) (*SourceTypeInfo, error) {

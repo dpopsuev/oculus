@@ -113,13 +113,19 @@ func (a *TreeSitterDeepAnalyzer) extractCallGraphFuncs(opts oculus.CallGraphOpts
 }
 
 // resolveCallee finds the fully qualified key and package for a callee.
-// Same-package wins. A unique bare-name match across the project is accepted.
+// Same-package wins. A unique bare-name match across the project is accepted
+// for bare calls only. Member calls (obj.method) never use unique_name —
+// unknown receivers must not bind to arbitrary same-named funcs.
 // Ambiguous bare names (multiple packages) return ok=false so callers can
 // drop the edge instead of picking an arbitrary first match (name collisions).
-func resolveCallee(callee, callerPkg string, allFuncs map[string]cgFuncDef) (key, pkg string, ok bool) {
+func resolveCallee(callee, callerPkg string, allFuncs map[string]cgFuncDef, member bool) (key, pkg string, ok bool) {
 	calleeKey := callerPkg + "." + callee
 	if _, found := allFuncs[calleeKey]; found {
 		return calleeKey, callerPkg, true
+	}
+	if member {
+		// No same-pkg match — drop (CodeGraph: unknown receiver, no global fallback).
+		return "", "", false
 	}
 	var keys []string
 	var pkgs []string
@@ -158,10 +164,10 @@ func walkCallGraph(allFuncs map[string]cgFuncDef, nodeSet map[string]oculus.Symb
 		if !ok {
 			return
 		}
-		extractCalls(fd.body, fd.src, func(callee string, line int) {
-			calleeKey, calleePkg, resolved := resolveCallee(callee, fd.pkg, allFuncs)
+		extractCalls(fd.body, fd.src, func(callee string, line int, member bool) {
+			calleeKey, calleePkg, resolved := resolveCallee(callee, fd.pkg, allFuncs, member)
 			if !resolved && calleeKey == "" {
-				// Ambiguous bare name across packages — drop (CodeGraph-style).
+				// Ambiguous bare name or unresolved member — drop (CodeGraph-style).
 				return
 			}
 			var calleeParamTypes, calleeReturnTypes []string
@@ -338,7 +344,7 @@ func traceDataFlow(funcIndex map[string]tsFuncDef, dataStores map[string]bool,
 			nodeMap[name] = oculus.DataFlowNode{Name: name, Kind: "process", Pkg: fd.pkg}
 		}
 
-		extractCalls(fd.body, fd.src, func(callee string, _ int) {
+		extractCalls(fd.body, fd.src, func(callee string, _ int, _ bool) {
 			if isStoreAccess(callee) && len(dataStores) > 0 {
 				for store := range dataStores {
 					if _, exists := nodeMap[store]; !exists {

@@ -91,25 +91,20 @@ func extractTSSourceFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]o
 			returnTypes := extractTSReturnType(child, src)
 
 			body := child.ChildByFieldName("body")
-			var callees []string
-			var asyncCallees map[string]string
-			if body != nil {
-				callees = extractTSCallees(body, src)
-				asyncCallees = extractTSAsyncCallees(body, src)
+			sym := oculus.Symbol{
+				Name:        name,
+				Package:     pkg,
+				File:        file,
+				Line:        int(child.StartPoint().Row) + 1,
+				EndLine:     int(child.EndPoint().Row) + 1,
+				ParamTypes:  paramTypes,
+				ReturnTypes: returnTypes,
+				Exported:    true, // TS functions are public by default
 			}
-
-			*funcs = append(*funcs, oculus.Symbol{
-				Name:         name,
-				Package:      pkg,
-				File:         file,
-				Line:         int(child.StartPoint().Row) + 1,
-				EndLine:      int(child.EndPoint().Row) + 1,
-				ParamTypes:   paramTypes,
-				ReturnTypes:  returnTypes,
-				Callees:      callees,
-				AsyncCallees: asyncCallees,
-				Exported:     true, // TS functions are public by default
-			})
+			if body != nil {
+				applyTSCallSites(&sym, body, src)
+			}
+			*funcs = append(*funcs, sym)
 
 		case "export_statement", "lexical_declaration":
 			extractTSSourceFuncs(child, src, pkg, file, funcs)
@@ -120,27 +115,23 @@ func extractTSSourceFuncs(root ts.Node, src []byte, pkg, file string, funcs *[]o
 			if nameNode != nil && valueNode != nil && isArrowOrFunction(valueNode) {
 				name := nameNode.Content(src)
 				body := valueNode.ChildByFieldName("body")
-				var callees []string
-				var asyncCallees map[string]string
-				if body != nil {
-					callees = extractTSCallees(body, src)
-					asyncCallees = extractTSAsyncCallees(body, src)
-				}
 				paramTypes := extractTSParamTypes(valueNode, src)
 				returnTypes := extractTSReturnType(valueNode, src)
 
-				*funcs = append(*funcs, oculus.Symbol{
-					Name:         name,
-					Package:      pkg,
-					File:         file,
-					Line:         int(child.StartPoint().Row) + 1,
-					EndLine:      int(child.EndPoint().Row) + 1,
-					ParamTypes:   paramTypes,
-					ReturnTypes:  returnTypes,
-					Callees:      callees,
-					AsyncCallees: asyncCallees,
-					Exported:     true,
-				})
+				sym := oculus.Symbol{
+					Name:        name,
+					Package:     pkg,
+					File:        file,
+					Line:        int(child.StartPoint().Row) + 1,
+					EndLine:     int(child.EndPoint().Row) + 1,
+					ParamTypes:  paramTypes,
+					ReturnTypes: returnTypes,
+					Exported:    true,
+				}
+				if body != nil {
+					applyTSCallSites(&sym, body, src)
+				}
+				*funcs = append(*funcs, sym)
 			}
 
 		case "class_declaration":
@@ -196,51 +187,119 @@ func isArrowOrFunction(node ts.Node) bool {
 	return t == "arrow_function" || t == "function" || t == "function_expression"
 }
 
+func applyTSCallSites(sym *oculus.Symbol, body ts.Node, src []byte) {
+	sites := extractTSCallSites(body, src)
+	sym.Callees = sites.bare
+	sym.MemberCallees = sites.member
+	sym.AsyncCallees = sites.asyncBare
+	sym.MemberAsyncCallees = sites.asyncMember
+	if len(sites.lines) > 0 {
+		sym.CallLines = sites.lines
+	}
+}
+
+type tsCallSites struct {
+	bare        []string
+	member      []string
+	asyncBare   map[string]string
+	asyncMember map[string]string
+	lines       map[string]int
+}
+
+func extractTSCallSites(node ts.Node, src []byte) tsCallSites {
+	seenBare := make(map[string]bool)
+	seenMember := make(map[string]bool)
+	out := tsCallSites{lines: make(map[string]int)}
+
+	var walk func(ts.Node)
+	walk = func(n ts.Node) {
+		if n.Type() == "call_expression" {
+			if fn := n.ChildByFieldName("function"); fn != nil {
+				name, member := tsCalleeName(fn, src)
+				if name != "" {
+					line := int(fn.StartPoint().Row) + 1
+					out.lines[name] = line
+					if member {
+						if !seenMember[name] {
+							seenMember[name] = true
+							out.member = append(out.member, name)
+						}
+					} else if !seenBare[name] {
+						seenBare[name] = true
+						out.bare = append(out.bare, name)
+					}
+				}
+			}
+		}
+		for i := 0; i < int(n.ChildCount()); i++ {
+			walk(n.Child(i))
+		}
+	}
+	walk(node)
+
+	out.asyncBare, out.asyncMember = extractTSAsyncCalleesSplit(node, src)
+	return out
+}
+
+// extractTSCallees returns bare identifier callees (legacy helper for tests).
 func extractTSCallees(node ts.Node, src []byte) []string {
-	seen := make(map[string]bool)
-	var callees []string
-	collectTSCalls(node, src, seen, &callees)
-	return callees
+	return extractTSCallSites(node, src).bare
 }
 
-func collectTSCalls(node ts.Node, src []byte, seen map[string]bool, callees *[]string) {
-	collectTreeSitterCalls(node, src, "call_expression", "function", tsNameExtractor, seen, callees)
-}
-
-// extractTSAsyncCallees walks a function body and returns async seams:
-//   - await_expression wrapping a call_expression  → CallEdgeAwait
-//   - .then/.catch/.finally on a call or identifier  → CallEdgePromise
-//
-// Returns a map of callee name → edge kind.
+// extractTSAsyncCallees walks a function body and returns async seams
+// (bare + member merged; prefer extractTSAsyncCalleesSplit for resolution).
 func extractTSAsyncCallees(node ts.Node, src []byte) map[string]string {
-	out := make(map[string]string)
+	bare, member := extractTSAsyncCalleesSplit(node, src)
+	if len(bare) == 0 {
+		return member
+	}
+	if len(member) == 0 {
+		return bare
+	}
+	out := make(map[string]string, len(bare)+len(member))
+	for k, v := range bare {
+		out[k] = v
+	}
+	for k, v := range member {
+		out[k] = v
+	}
+	return out
+}
+
+// extractTSAsyncCalleesSplit separates await/promise callees by member vs bare.
+//   - await_expression wrapping a call_expression  → CallEdgeAwait
+//   - .then/.catch/.finally callback identifiers     → CallEdgePromise (bare)
+func extractTSAsyncCalleesSplit(node ts.Node, src []byte) (bare, member map[string]string) {
+	bare = make(map[string]string)
+	member = make(map[string]string)
 	var walk func(ts.Node)
 	walk = func(n ts.Node) {
 		switch n.Type() {
 		case "await_expression":
-			// await <expr> — the child is usually the call_expression
 			for i := 0; i < int(n.ChildCount()); i++ {
 				child := n.Child(i)
 				if child.Type() == "call_expression" {
 					if fn := child.ChildByFieldName("function"); fn != nil {
-						if name := tsNameExtractor(fn, src); name != "" {
-							out[name] = oculus.CallEdgeAwait
+						if name, isMember := tsCalleeName(fn, src); name != "" {
+							if isMember {
+								member[name] = oculus.CallEdgeAwait
+							} else {
+								bare[name] = oculus.CallEdgeAwait
+							}
 						}
 					}
 				}
 			}
 		case "call_expression":
-			// Detect promise chain: expr.then(cb) / .catch(cb) / .finally(cb)
 			if fn := n.ChildByFieldName("function"); fn != nil && fn.Type() == "member_expression" {
 				if prop := fn.ChildByFieldName("property"); prop != nil {
 					switch prop.Content(src) {
 					case "then", "catch", "finally":
-						// The argument is the callback — try to get its name.
 						if args := n.ChildByFieldName("arguments"); args != nil {
 							for i := 0; i < int(args.ChildCount()); i++ {
 								arg := args.Child(i)
 								if arg.Type() == "identifier" {
-									out[arg.Content(src)] = oculus.CallEdgePromise
+									bare[arg.Content(src)] = oculus.CallEdgePromise
 								}
 							}
 						}
@@ -253,17 +312,28 @@ func extractTSAsyncCallees(node ts.Node, src []byte) map[string]string {
 		}
 	}
 	walk(node)
-	return out
+	if len(bare) == 0 {
+		bare = nil
+	}
+	if len(member) == 0 {
+		member = nil
+	}
+	return bare, member
+}
+
+func tsCalleeName(fn ts.Node, src []byte) (name string, member bool) {
+	switch fn.Type() {
+	case "identifier":
+		return fn.Content(src), false
+	case "member_expression":
+		if prop := fn.ChildByFieldName("property"); prop != nil {
+			return prop.Content(src), true
+		}
+	}
+	return "", false
 }
 
 func tsNameExtractor(fn ts.Node, src []byte) string {
-	switch fn.Type() {
-	case "identifier":
-		return fn.Content(src)
-	case "member_expression":
-		if prop := fn.ChildByFieldName("property"); prop != nil {
-			return prop.Content(src)
-		}
-	}
-	return ""
+	name, _ := tsCalleeName(fn, src)
+	return name
 }

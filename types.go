@@ -175,14 +175,21 @@ type Symbol struct {
 
 	// Structure enrichment (GoAST, TreeSitter, LSP callHierarchy)
 	Callees      []string          `json:"callees,omitempty"`
+	// MemberCallees are property names from obj.method() calls. Resolved with
+	// CallResolver.ResolveMember (import/same-pkg only — no unique_name).
+	MemberCallees []string `json:"member_callees,omitempty"`
 	// AsyncCallees maps callee name → edge kind for async seams (goroutine,
 	// channel_send, channel_recv, await_call, promise_chain, task_spawn).
 	// Regular synchronous calls stay in Callees.
 	AsyncCallees map[string]string `json:"async_callees,omitempty"`
+	// MemberAsyncCallees is AsyncCallees for member_expression callees.
+	MemberAsyncCallees map[string]string `json:"member_async_callees,omitempty"`
 
 	// CallArgs maps callee name → argument expressions at the call site.
 	// Populated by tree-sitter extractors for data flow analysis.
 	CallArgs map[string][]string `json:"call_args,omitempty"`
+	// CallLines maps callee name → 1-based call-site line (last wins).
+	CallLines map[string]int `json:"call_lines,omitempty"`
 
 	// Handle for source-specific opaque data (LSP callHierarchyItem, GoAST *ast.FuncDecl)
 	Handle any `json:"-"`

@@ -116,3 +116,58 @@ func TestCallResolver_ImportPrioritySamePkg(t *testing.T) {
 		t.Errorf("expected import_map confidence %v, got %v (%s)", ConfImportMap, res.Confidence, res.Strategy)
 	}
 }
+
+func TestCallResolver_ResolveMember_SkipsUniqueName(t *testing.T) {
+	funcs := []Symbol{
+		{Name: "add", Package: "engine", File: "engine/sse.ts", Line: 31, ParamTypes: []string{"ServerResponse"}},
+		{Name: "normalizeSessionTags", Package: "session", File: "session/metadata.ts", Line: 70},
+		{Name: "helper", Package: "session", File: "session/metadata.ts", Line: 10},
+	}
+	r := NewCallResolver(funcs)
+
+	// seen.add must not bind to unique engine.add
+	res := r.ResolveMember("add", "session", "session/metadata.ts", nil)
+	if res.Symbol != nil {
+		t.Fatalf("member add must be unresolved, got %+v via %s", res.Symbol, res.Strategy)
+	}
+
+	// same-pkg member still resolves
+	res = r.ResolveMember("helper", "session", "session/metadata.ts", nil)
+	if res.Symbol == nil || res.Symbol.Package != "session" {
+		t.Fatalf("same-pkg member helper: %+v", res.Symbol)
+	}
+	if res.Strategy != "same_pkg" {
+		t.Errorf("strategy=%s want same_pkg", res.Strategy)
+	}
+
+	// bare Resolve still unique-names
+	res = r.Resolve("add", "session", "session/metadata.ts", nil)
+	if res.Symbol == nil || res.Symbol.Package != "engine" {
+		t.Fatalf("bare unique add: %+v", res.Symbol)
+	}
+}
+
+func TestFuncIndexSource_MemberCalleesNoUniqueBind(t *testing.T) {
+	funcs := []Symbol{
+		{
+			Name: "normalizeSessionTags", Package: "session", File: "session/metadata.ts", Line: 70,
+			MemberCallees: []string{"add", "push"},
+			CallLines:     map[string]int{"add": 76, "push": 77},
+			Exported:      true,
+		},
+		{
+			Name: "add", Package: "engine", File: "engine/sse.ts", Line: 31,
+			ParamTypes: []string{"ServerResponse"}, Exported: true,
+		},
+	}
+	src := NewFuncIndexSource(funcs)
+	rels, err := src.Children(nil, src.toSymbol(&funcs[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range rels {
+		if rel.Target.Name == "add" {
+			t.Fatalf("member add must not resolve to engine.add, got %+v line=%d", rel.Target, rel.Line)
+		}
+	}
+}

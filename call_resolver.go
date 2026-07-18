@@ -42,15 +42,7 @@ func NewCallResolver(symbols []Symbol) *CallResolver {
 // Resolve resolves a bare callee name given the caller's context.
 // Returns the best match with confidence, or nil if unresolved.
 func (r *CallResolver) Resolve(calleeName, callerPkg, callerFile string, fileImports []string) Resolution {
-	// Strategy 1: import map — callee name matches a symbol reachable via imports.
-	if len(fileImports) > 0 {
-		if res := r.resolveImportMap(calleeName, fileImports); res.Symbol != nil {
-			return res
-		}
-	}
-
-	// Strategy 2: same package — callee exists in caller's package.
-	if res := r.resolveSamePkg(calleeName, callerPkg); res.Symbol != nil {
+	if res := r.resolveImportOrSamePkg(calleeName, callerPkg, fileImports); res.Symbol != nil {
 		return res
 	}
 
@@ -71,6 +63,28 @@ func (r *CallResolver) Resolve(calleeName, callerPkg, callerFile string, fileImp
 		}
 	}
 
+	return Resolution{}
+}
+
+// ResolveMember resolves a method/property call (obj.method).
+// CodeGraph-style: unknown receivers never fall back to global bare-name
+// unique_name/suffix_match — only import_map and same_pkg.
+func (r *CallResolver) ResolveMember(calleeName, callerPkg, callerFile string, fileImports []string) Resolution {
+	return r.resolveImportOrSamePkg(calleeName, callerPkg, fileImports)
+}
+
+func (r *CallResolver) resolveImportOrSamePkg(calleeName, callerPkg string, fileImports []string) Resolution {
+	// Strategy 1: import map — callee name matches a symbol reachable via imports.
+	if len(fileImports) > 0 {
+		if res := r.resolveImportMap(calleeName, fileImports); res.Symbol != nil {
+			return res
+		}
+	}
+
+	// Strategy 2: same package — callee exists in caller's package.
+	if res := r.resolveSamePkg(calleeName, callerPkg); res.Symbol != nil {
+		return res
+	}
 	return Resolution{}
 }
 

@@ -347,7 +347,7 @@ func (a *TreeSitterAnalyzer) goCallChain(root, entry string, maxDepth int) ([]oc
 		if !ok {
 			return
 		}
-		extractCalls(fb.node, fb.src, func(callee string, line int) {
+		extractCalls(fb.node, fb.src, func(callee string, line int, _ bool) {
 			calls = append(calls, oculus.Call{
 				Caller:  funcName,
 				Callee:  callee,
@@ -685,7 +685,7 @@ func extractGoFuncResultTypes(funcNode ts.Node, src []byte) []string {
 	return extractGoFuncParamTypes(resultNode, src)
 }
 
-func extractCallsWithArgs(node ts.Node, src []byte, emit func(callee string, line int, args []string)) {
+func extractCallsWithArgs(node ts.Node, src []byte, emit func(callee string, line int, args []string, member bool)) {
 	if node == nil {
 		return
 	}
@@ -693,14 +693,16 @@ func extractCallsWithArgs(node ts.Node, src []byte, emit func(callee string, lin
 		fn := node.ChildByFieldName("function")
 		if fn != nil {
 			callee := fn.Content(src)
+			member := false
 			if idx := strings.LastIndex(callee, "."); idx >= 0 {
 				callee = callee[idx+1:]
+				member = true
 			}
 			var args []string
 			if argsNode := node.ChildByFieldName("arguments"); argsNode != nil {
 				args = extractArgExprs(argsNode, src)
 			}
-			emit(callee, int(fn.StartPoint().Row)+1, args)
+			emit(callee, int(fn.StartPoint().Row)+1, args, member)
 		}
 	}
 	if node.Type() == "composite_literal" {
@@ -711,7 +713,7 @@ func extractCallsWithArgs(node ts.Node, src []byte, emit func(callee string, lin
 				name = name[idx+1:]
 			}
 			if name != "" {
-				emit(name, int(typeNode.StartPoint().Row)+1, nil)
+				emit(name, int(typeNode.StartPoint().Row)+1, nil, false)
 			}
 		}
 	}
@@ -737,7 +739,7 @@ func extractArgExprs(argsNode ts.Node, src []byte) []string {
 	return args
 }
 
-func extractCalls(node ts.Node, src []byte, emit func(callee string, line int)) {
+func extractCalls(node ts.Node, src []byte, emit func(callee string, line int, member bool)) {
 	if node == nil {
 		return
 	}
@@ -745,10 +747,12 @@ func extractCalls(node ts.Node, src []byte, emit func(callee string, line int)) 
 		fn := node.ChildByFieldName("function")
 		if fn != nil {
 			callee := fn.Content(src)
+			member := false
 			if idx := strings.LastIndex(callee, "."); idx >= 0 {
 				callee = callee[idx+1:]
+				member = true
 			}
-			emit(callee, int(fn.StartPoint().Row)+1)
+			emit(callee, int(fn.StartPoint().Row)+1, member)
 		}
 	}
 	// Struct literal construction: Config{Name: "x"}
@@ -760,7 +764,7 @@ func extractCalls(node ts.Node, src []byte, emit func(callee string, line int)) 
 				name = name[idx+1:]
 			}
 			if name != "" {
-				emit(name, int(typeNode.StartPoint().Row)+1)
+				emit(name, int(typeNode.StartPoint().Row)+1, false)
 			}
 		}
 	}

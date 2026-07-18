@@ -123,12 +123,16 @@ func (p *SymbolPipeline) CallGraph(ctx context.Context, _ string, opts CallGraph
 					EndLine: callee.EndLine,
 				}
 			}
+			line := rel.Line
+			if line <= 0 {
+				line = sym.Line // better than callee def line on caller file
+			}
 			edges = append(edges, CallEdge{
 				Caller:      sym.Name,
 				Callee:      callee.Name,
 				CallerPkg:   sym.Package,
 				CalleePkg:   callee.Package,
-				Line:        callee.Line,
+				Line:        line,
 				File:        sym.File,
 				CrossPkg:    sym.Package != callee.Package,
 				ParamTypes:  paramTypes,

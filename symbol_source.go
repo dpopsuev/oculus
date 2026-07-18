@@ -31,6 +31,7 @@ type SourceRelation struct {
 	InWorkspace bool      `json:"in_workspace"`
 	Confidence  float64   `json:"confidence,omitempty"` // 0.0–1.0 resolution confidence
 	Args        []CallArg `json:"args,omitempty"`       // argument→parameter bindings
+	Line        int       `json:"line,omitempty"`       // 1-based call-site line when known
 }
 
 // SourceTypeInfo holds resolved type information for a symbol.

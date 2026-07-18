@@ -35,12 +35,29 @@ func ParseTreeSitterFunctions(root string) []oculus.Symbol {
 		var callees []string
 		callArgs := make(map[string][]string)
 		seen := make(map[string]bool)
-		extractCallsWithArgs(fd.body, fd.src, func(callee string, _ int, args []string) {
-			calleeKey, _, resolved := resolveCallee(callee, fd.pkg, allFuncs)
+		var memberCallees []string
+		seenMember := make(map[string]bool)
+		callLines := make(map[string]int)
+		extractCallsWithArgs(fd.body, fd.src, func(callee string, line int, args []string, member bool) {
+			calleeKey, _, resolved := resolveCallee(callee, fd.pkg, allFuncs, member)
 			if !resolved {
 				return
 			}
-			if _, found := allFuncs[calleeKey]; found && !seen[callee] {
+			if _, found := allFuncs[calleeKey]; !found {
+				return
+			}
+			callLines[callee] = line
+			if member {
+				if !seenMember[callee] {
+					seenMember[callee] = true
+					memberCallees = append(memberCallees, callee)
+				}
+				if len(args) > 0 {
+					callArgs[callee] = args
+				}
+				return
+			}
+			if !seen[callee] {
 				seen[callee] = true
 				callees = append(callees, callee)
 				if len(args) > 0 {
@@ -56,18 +73,22 @@ func ParseTreeSitterFunctions(root string) []oculus.Symbol {
 		}
 
 		sym := oculus.Symbol{
-			Name:        name,
-			Package:     fd.pkg,
-			File:        fd.file,
-			Line:        fd.line,
-			EndLine:     fd.endLine,
-			ParamTypes:  fd.paramTypes,
-			ReturnTypes: fd.returnTypes,
-			Callees:     callees,
-			Exported:    exported,
+			Name:          name,
+			Package:       fd.pkg,
+			File:          fd.file,
+			Line:          fd.line,
+			EndLine:       fd.endLine,
+			ParamTypes:    fd.paramTypes,
+			ReturnTypes:   fd.returnTypes,
+			Callees:       callees,
+			MemberCallees: memberCallees,
+			Exported:      exported,
 		}
 		if len(callArgs) > 0 {
 			sym.CallArgs = callArgs
+		}
+		if len(callLines) > 0 {
+			sym.CallLines = callLines
 		}
 		funcs = append(funcs, sym)
 	}

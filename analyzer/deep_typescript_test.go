@@ -177,3 +177,77 @@ func TestTypeScript_NonTSRepo(t *testing.T) {
 		t.Error("expected 0 functions for non-TS repo")
 	}
 }
+
+// Set.add must not unique-name-resolve to a sole exported add() elsewhere
+// (alef residual: normalizeSessionTags → engine.add).
+func TestTypeScript_MemberCall_NoUniqueNameBind(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"package.json":  `{"name": "member-collision"}`,
+		"tsconfig.json": `{}`,
+		"session/tags.ts": `
+export function normalizeSessionTags(tags: readonly string[]): string[] {
+	const seen = new Set<string>();
+	const out: string[] = [];
+	for (const tag of tags) {
+		if (seen.has(tag)) continue;
+		seen.add(tag);
+		out.push(tag);
+	}
+	return out;
+}
+`,
+		"engine/sse.ts": `
+export class SSEHub {
+	add(res: unknown): void {
+		void res;
+	}
+}
+`,
+	}
+	for name, content := range files {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	funcs := ParseTypeScriptFunctions(dir)
+	var norm *oculus.Symbol
+	for i := range funcs {
+		if funcs[i].Name == "normalizeSessionTags" {
+			norm = &funcs[i]
+			break
+		}
+	}
+	if norm == nil {
+		t.Fatal("normalizeSessionTags not parsed")
+	}
+	foundMemberAdd := false
+	for _, m := range norm.MemberCallees {
+		if m == "add" {
+			foundMemberAdd = true
+		}
+	}
+	if !foundMemberAdd {
+		t.Fatalf("expected MemberCallees to include add, got %v (Callees=%v)", norm.MemberCallees, norm.Callees)
+	}
+	if line := norm.CallLines["add"]; line == 0 {
+		t.Fatal("expected CallLines[add] call-site line")
+	}
+
+	src := oculus.NewFuncIndexSource(funcs)
+	p := &oculus.SymbolPipeline{Source: src, Root: dir}
+	cg, err := p.CallGraph(context.Background(), dir, oculus.CallGraphOpts{Entry: "normalizeSessionTags", Depth: 3})
+	if err != nil {
+		t.Fatalf("CallGraph: %v", err)
+	}
+	for _, e := range cg.Edges {
+		if e.Caller == "normalizeSessionTags" && e.Callee == "add" {
+			t.Fatalf("false edge normalizeSessionTags → add (pkg=%s line=%d)", e.CalleePkg, e.Line)
+		}
+	}
+}
