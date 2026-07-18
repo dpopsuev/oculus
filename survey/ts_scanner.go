@@ -305,7 +305,7 @@ func (s *TypeScriptScanner) ScanDirs(root string, dirs []string) (*model.Project
 			lineCount++
 			line := scanner.Text()
 			s.extractExports(line, ns, seen[dir], rel, lineCount)
-			s.extractImportEdge(line, dir, aliases, proj.DependencyGraph, fileSet)
+			s.extractImportEdge(line, dir, ns, aliases, proj.DependencyGraph, fileSet)
 			s.extractClassicGJSImports(line, dir, proj.DependencyGraph)
 		}
 		fileObj.Lines = lineCount
@@ -352,11 +352,12 @@ var tsExportPatterns = []symbolPattern{
 }
 
 var (
-	// Match value imports but NOT type-only imports.
-	// `import type { X } from '...'` and `export type { X } from '...'` are
-	// compile-time only (erased by TypeScript) and should not create dependency edges.
+	// Match value imports. Type-only `import type { X }` / `export type { X }`
+	// create imports-type edges (compile-time) via extractImportEdge.
 	reImportFrom     = regexp.MustCompile(`(?:import|export)\s+.*?\s+from\s+['"]([^'"]+)['"]`)
 	reImportTypeOnly = regexp.MustCompile(`^\s*(?:import|export)\s+type\s+\{`)
+	reImportTypeNames = regexp.MustCompile(`(?:import|export)\s+type\s+\{([^}]+)\}`)
+	reInlineTypeSpec  = regexp.MustCompile(`\btype\s+(\w+)`)
 	reImportSide     = regexp.MustCompile(`^\s*import\s+['"]([^'"]+)['"]`)
 	reRequire        = regexp.MustCompile(`require\s*\(\s*['"]([^'"]+)['"]\s*\)`)
 
@@ -370,50 +371,103 @@ func (s *TypeScriptScanner) extractExports(line string, ns *model.Namespace, see
 	matchSymbolPatterns(line, tsExportPatterns, ns, seen, true, filePath, lineNum)
 }
 
-func (s *TypeScriptScanner) extractImportEdge(line, fromKey string, aliases []pathAlias, graph *model.DependencyGraph, fileSet map[string]bool) {
-	// Skip type-only imports — erased at compile time, no runtime dependency.
-	if reImportTypeOnly.MatchString(line) {
-		return
-	}
+func (s *TypeScriptScanner) extractImportEdge(line, fromKey string, ns *model.Namespace, aliases []pathAlias, graph *model.DependencyGraph, fileSet map[string]bool) {
+	typeOnly := reImportTypeOnly.MatchString(line)
 	spec := parseImportSpec(line)
 	if spec == "" {
 		return
 	}
 
+	target, external, ok := s.resolveImportTarget(fromKey, spec, aliases, fileSet)
+	if !ok || target == "" || target == fromKey {
+		return
+	}
+
+	if typeOnly {
+		names := parseTypeImportNames(line)
+		for _, name := range names {
+			if ns != nil {
+				ns.AddTypeImport(name, target)
+			}
+		}
+		graph.AddTypeEdge(fromKey, target)
+		return
+	}
+
+	// Inline `import { type Foo, bar }` — record type names; file edge stays runtime.
+	for _, name := range parseInlineTypeSpecs(line) {
+		if ns != nil {
+			ns.AddTypeImport(name, target)
+		}
+	}
+	graph.AddEdge(fromKey, target, external)
+}
+
+// resolveImportTarget maps an import specifier to a namespace key.
+func (s *TypeScriptScanner) resolveImportTarget(fromKey, spec string, aliases []pathAlias, fileSet map[string]bool) (target string, external bool, ok bool) {
 	if strings.HasPrefix(spec, "./") || strings.HasPrefix(spec, "../") {
 		if s.Granularity == FileLevel {
-			if target := resolveRelativeImportFile(fromKey, spec, fileSet); target != "" && target != fromKey {
-				graph.AddEdge(fromKey, target, false)
+			if t := resolveRelativeImportFile(fromKey, spec, fileSet); t != "" {
+				return t, false, true
 			}
-			return
+			return "", false, false
 		}
-		resolved := resolveRelativeImport(fromKey, spec)
-		if resolved != fromKey {
-			graph.AddEdge(fromKey, resolved, false)
-		}
-		return
+		return resolveRelativeImport(fromKey, spec), false, true
 	}
-	if dir, ok := resolveAlias(spec, aliases); ok {
+	if dir, resolved := resolveAlias(spec, aliases); resolved {
 		if s.Granularity == FileLevel {
-			if target := resolveAliasToFile(dir, fileSet); target != "" && target != fromKey {
-				graph.AddEdge(fromKey, target, false)
+			if t := resolveAliasToFile(dir, fileSet); t != "" {
+				return t, false, true
 			}
-			return
+			return "", false, false
 		}
-		// Path alias resolved to a local namespace — internal edge.
-		if dir != fromKey {
-			graph.AddEdge(fromKey, dir, false)
-		}
-		return
+		return dir, false, true
 	}
-	// GJS / GNOME Shell scheme imports (gi://Gtk, resource:///…). Keep the
-	// full URI as an internal ambient target so edges survive IncludeExternal=false
-	// (barePackageName("gi://Gtk") previously collapsed to "gi:" and was dropped).
 	if isSchemeImport(spec) {
-		graph.AddEdge(fromKey, normalizeSchemeImport(spec), false)
-		return
+		return normalizeSchemeImport(spec), false, true
 	}
-	graph.AddEdge(fromKey, barePackageName(spec), true)
+	return barePackageName(spec), true, true
+}
+
+// parseTypeImportNames extracts identifiers from `import type { A, B as C }`.
+func parseTypeImportNames(line string) []string {
+	m := reImportTypeNames.FindStringSubmatch(line)
+	if m == nil {
+		return nil
+	}
+	return splitImportBindingNames(m[1])
+}
+
+// parseInlineTypeSpecs extracts names from `import { type Foo, bar }`.
+func parseInlineTypeSpecs(line string) []string {
+	if reImportTypeOnly.MatchString(line) {
+		return nil
+	}
+	var names []string
+	for _, m := range reInlineTypeSpec.FindAllStringSubmatch(line, -1) {
+		names = append(names, m[1])
+	}
+	return names
+}
+
+func splitImportBindingNames(inner string) []string {
+	var names []string
+	for _, part := range strings.Split(inner, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		// "Foo as Bar" → consumer binds Bar
+		fields := strings.Fields(part)
+		if len(fields) >= 3 && fields[1] == "as" {
+			names = append(names, fields[2])
+			continue
+		}
+		if len(fields) >= 1 {
+			names = append(names, fields[0])
+		}
+	}
+	return names
 }
 
 // extractClassicGJSImports maps imports.gi.Meta / imports.ui.main /

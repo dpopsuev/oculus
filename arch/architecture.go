@@ -74,6 +74,9 @@ func projectToArchPackageLevel(proj *model.Project, modPath string, m ArchModel,
 				svc.Symbols = append(svc.Symbols, *sym)
 			}
 		}
+		for _, ti := range ns.TypeImports {
+			svc.ImportedTypes = append(svc.ImportedTypes, ti.Name)
+		}
 		populateTestCoverage(&svc, ns.Files)
 		m.Services = append(m.Services, svc)
 	}

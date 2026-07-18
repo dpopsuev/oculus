@@ -20,6 +20,10 @@ type ArchService struct {
 	AvgNesting float64 `json:"avg_nesting,omitempty"`
 	Changed    bool    `json:"changed,omitempty"`
 
+	// ImportedTypes lists type names brought in via import type / type-only
+	// specifiers (CodeGraph imports-type). Used by type_usages.
+	ImportedTypes []string `json:"imported_types,omitempty"`
+
 	// Test coverage metadata — populated by the architecture builder from
 	// scanner file lists. Ratio is test_files / total_files (proxy coverage).
 	HasTests      bool     `json:"has_tests,omitempty"`

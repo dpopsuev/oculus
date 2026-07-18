@@ -126,9 +126,18 @@ func typeUsages(report *arch.ContextReport, typeName string) *TypeUsageReport {
 	for i := range report.Architecture.Services {
 		svc := &report.Architecture.Services[i]
 		var matching []string
+		matchSeen := make(map[string]bool)
 		for _, sym := range svc.Symbols {
-			if strings.ToLower(sym.Name) == lower {
+			if strings.ToLower(sym.Name) == lower && !matchSeen[sym.Name] {
+				matchSeen[sym.Name] = true
 				matching = append(matching, sym.Name)
+			}
+		}
+		// Consumers that only `import type` the name (no local declaration).
+		for _, name := range svc.ImportedTypes {
+			if strings.ToLower(name) == lower && !matchSeen[name] {
+				matchSeen[name] = true
+				matching = append(matching, name)
 			}
 		}
 		if len(matching) > 0 && !seen[svc.Name] {

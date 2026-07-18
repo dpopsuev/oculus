@@ -159,7 +159,7 @@ export function startGame() {}
 	}
 }
 
-func TestTSScanSkipsImportType(t *testing.T) {
+func TestTSScanImportTypeCreatesTypeEdge(t *testing.T) {
 	dir := setupTSProject(t, map[string]string{
 		"package.json": `{"name": "type-import-test"}`,
 		"src/core/types.ts": `import type { GlobeRenderer } from '../globe'
@@ -182,21 +182,59 @@ export class GlobeRenderer {}
 		t.Fatalf("scan: %v", err)
 	}
 
-	// core/types.ts uses `import type` from globe — this should NOT create
-	// a dependency edge because type-only imports are erased at compile time.
+	// import type creates imports-type edges (not runtime import).
 	coreEdges := proj.DependencyGraph.EdgesFrom("src/core")
+	if len(coreEdges) == 0 {
+		t.Fatal("expected imports-type edge from src/core")
+	}
 	for _, e := range coreEdges {
-		if e.To == "src/globe" {
-			t.Errorf("import type should not create dependency edge: src/core -> src/globe")
+		if e.Protocol != "imports-type" {
+			t.Errorf("src/core -> %s protocol=%q, want imports-type", e.To, e.Protocol)
 		}
 	}
 
-	// globe/index.ts uses `import type` from types — also should not create edge.
-	globeEdges := proj.DependencyGraph.EdgesFrom("src/globe")
-	for _, e := range globeEdges {
-		if e.To == "src" || e.To == "(root)" {
-			t.Errorf("import type should not create dependency edge: src/globe -> %s", e.To)
+	var coreNS *model.Namespace
+	for _, ns := range proj.Namespaces {
+		if ns.ImportPath == "src/core" {
+			coreNS = ns
+			break
 		}
+	}
+	if coreNS == nil {
+		t.Fatal("missing namespace src/core")
+	}
+	foundName := false
+	for _, ti := range coreNS.TypeImports {
+		if ti.Name == "GlobeRenderer" {
+			foundName = true
+		}
+	}
+	if !foundName {
+		t.Errorf("TypeImports missing GlobeRenderer: %+v", coreNS.TypeImports)
+	}
+}
+
+func TestTSScanImportTypePathAlias(t *testing.T) {
+	dir := setupTSProject(t, map[string]string{
+		"package.json": `{"name":"alias-type-import"}`,
+		"tsconfig.json": `{"compilerOptions":{"paths":{"@alef/kernel":["./packages/kernel/src/index.ts"]}}}`,
+		"packages/kernel/src/index.ts":  `export interface DiscussionRef { id: string }`,
+		"packages/foundry/src/index.ts": `import type { DiscussionRef } from "@alef/kernel"\nexport type O = { d?: DiscussionRef }\n`,
+	})
+	sc := &survey.TypeScriptScanner{}
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	found := false
+	for _, e := range proj.DependencyGraph.EdgesFrom("packages/foundry/src") {
+		if e.To == "packages/kernel/src" && e.Protocol == "imports-type" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing imports-type packages/foundry/src -> packages/kernel/src; edges=%+v",
+			proj.DependencyGraph.EdgesFrom("packages/foundry/src"))
 	}
 }
 

@@ -95,13 +95,22 @@ func (p *Project) AddNamespace(ns *Namespace) {
 	p.Namespaces = append(p.Namespaces, ns)
 }
 
+// TypeImport records a compile-time type imported into a namespace
+// (e.g. `import type { DiscussionRef } from '…'`). Used by type_usages;
+// does not imply a runtime dependency edge.
+type TypeImport struct {
+	Name string `json:"name"`
+	From string `json:"from,omitempty"` // resolved target namespace when known
+}
+
 // Namespace represents an organizational unit of symbols (Go package,
 // Rust module, Python package, TypeScript module, etc.).
 type Namespace struct {
-	Name       string    `json:"name"`
-	ImportPath string    `json:"import_path"`
-	Files      []*File   `json:"files,omitempty"`
-	Symbols    []*Symbol `json:"symbols,omitempty"`
+	Name        string        `json:"name"`
+	ImportPath  string        `json:"import_path"`
+	Files       []*File       `json:"files,omitempty"`
+	Symbols     []*Symbol     `json:"symbols,omitempty"`
+	TypeImports []*TypeImport `json:"type_imports,omitempty"`
 }
 
 // NewNamespace creates a namespace with the given name and import path.
@@ -117,6 +126,16 @@ func (ns *Namespace) AddFile(f *File) {
 // AddSymbol appends a symbol to the namespace.
 func (ns *Namespace) AddSymbol(s *Symbol) {
 	ns.Symbols = append(ns.Symbols, s)
+}
+
+// AddTypeImport records a type-only import (deduped by name+from).
+func (ns *Namespace) AddTypeImport(name, from string) {
+	for _, ti := range ns.TypeImports {
+		if ti.Name == name && ti.From == from {
+			return
+		}
+	}
+	ns.TypeImports = append(ns.TypeImports, &TypeImport{Name: name, From: from})
 }
 
 // File represents a single source file.
@@ -259,14 +278,34 @@ func NewDependencyGraph() *DependencyGraph {
 
 // AddEdge records a dependency from one namespace to another.
 // Duplicate edges increment weight instead of creating a new entry.
+// A prior imports-type edge is upgraded to a runtime import.
 func (g *DependencyGraph) AddEdge(from, to string, external bool) {
 	for i := range g.Edges {
 		if g.Edges[i].From == from && g.Edges[i].To == to {
 			g.Edges[i].Weight++
+			if g.Edges[i].Protocol == "imports-type" {
+				g.Edges[i].Protocol = "import"
+			}
 			return
 		}
 	}
 	g.Edges = append(g.Edges, DependencyEdge{From: from, To: to, External: external, Weight: 1})
+}
+
+// AddTypeEdge records a compile-time type dependency (imports-type).
+// Does not create a runtime import edge; if an import/call edge already
+// exists it only bumps weight.
+func (g *DependencyGraph) AddTypeEdge(from, to string) {
+	for i := range g.Edges {
+		if g.Edges[i].From == from && g.Edges[i].To == to {
+			g.Edges[i].Weight++
+			if g.Edges[i].Protocol == "" {
+				g.Edges[i].Protocol = "imports-type"
+			}
+			return
+		}
+	}
+	g.Edges = append(g.Edges, DependencyEdge{From: from, To: to, Protocol: "imports-type", Weight: 1})
 }
 
 // AddCallEdge records a call-hierarchy dependency. If an import edge already
