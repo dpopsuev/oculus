@@ -18,25 +18,39 @@ var (
 // Type alias in arch/compat.go provides backward compatibility.
 
 // ValidateArchitecture computes the drift between a desired and actual ArchModel.
+// Component and edge endpoints match after normalizing `_` ↔ `/` so mermaid
+// node IDs like internal_mcp align with package paths internal/mcp.
 func ValidateArchitecture(desired, actual ArchModel) *ArchDrift {
 	desiredComps := make(map[string]bool, len(desired.Services))
 	for i := range desired.Services {
-		desiredComps[desired.Services[i].Name] = true
+		desiredComps[normalizeComponentName(desired.Services[i].Name)] = true
 	}
 	actualComps := make(map[string]bool, len(actual.Services))
+	actualDisplay := make(map[string]string, len(actual.Services)) // norm → first seen display name
 	for i := range actual.Services {
-		actualComps[actual.Services[i].Name] = true
+		n := normalizeComponentName(actual.Services[i].Name)
+		actualComps[n] = true
+		if _, ok := actualDisplay[n]; !ok {
+			actualDisplay[n] = actual.Services[i].Name
+		}
+	}
+	desiredDisplay := make(map[string]string, len(desired.Services))
+	for i := range desired.Services {
+		n := normalizeComponentName(desired.Services[i].Name)
+		if _, ok := desiredDisplay[n]; !ok {
+			desiredDisplay[n] = desired.Services[i].Name
+		}
 	}
 
 	var missing, extra []string
 	for c := range desiredComps {
 		if !actualComps[c] {
-			missing = append(missing, c)
+			missing = append(missing, desiredDisplay[c])
 		}
 	}
 	for c := range actualComps {
 		if !desiredComps[c] {
-			extra = append(extra, c)
+			extra = append(extra, actualDisplay[c])
 		}
 	}
 	sort.Strings(missing)
@@ -45,11 +59,13 @@ func ValidateArchitecture(desired, actual ArchModel) *ArchDrift {
 	type edgeKey struct{ from, to string }
 	desiredEdges := make(map[edgeKey]ArchEdge, len(desired.Edges))
 	for _, e := range desired.Edges {
-		desiredEdges[edgeKey{e.From, e.To}] = e
+		k := edgeKey{normalizeComponentName(e.From), normalizeComponentName(e.To)}
+		desiredEdges[k] = e
 	}
 	actualEdges := make(map[edgeKey]ArchEdge, len(actual.Edges))
 	for _, e := range actual.Edges {
-		actualEdges[edgeKey{e.From, e.To}] = e
+		k := edgeKey{normalizeComponentName(e.From), normalizeComponentName(e.To)}
+		actualEdges[k] = e
 	}
 
 	var missingEdges, extraEdges []ArchEdge
@@ -156,6 +172,18 @@ func hasService(services []ArchService, name string) bool {
 		}
 	}
 	return false
+}
+
+// normalizeComponentName maps mermaid-safe IDs and package paths onto one key:
+// internal_mcp, internal/mcp, and Internal/MCP all become "internal/mcp".
+func normalizeComponentName(name string) string {
+	n := strings.TrimSpace(name)
+	n = strings.ReplaceAll(n, "_", "/")
+	n = strings.ReplaceAll(n, "\\", "/")
+	for strings.Contains(n, "//") {
+		n = strings.ReplaceAll(n, "//", "/")
+	}
+	return strings.ToLower(n)
 }
 
 func sortEdges(edges []ArchEdge) {

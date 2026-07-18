@@ -20,10 +20,13 @@ func tokenize(intent string) []string {
 	return tokens
 }
 
-// jaccardScore returns the Jaccard similarity between intent tokens and
-// tool keywords: |intersection| / |union|. Keywords are pre-lowered at
-// registration time.
-func jaccardScore(intentTokens, keywords []string) float64 {
+// intentCoverageScore returns how much of the intent is covered by tool
+// keywords: |matched intent tokens| / |intent tokens|.
+//
+// Unlike Jaccard, this does not punish tools with large keyword lists
+// (fat MCP tools like "analysis"), which previously crushed confidence
+// to ~0.02 for clear intents such as "find coupling hotspots".
+func intentCoverageScore(intentTokens, keywords []string) float64 {
 	if len(intentTokens) == 0 || len(keywords) == 0 {
 		return 0
 	}
@@ -33,34 +36,39 @@ func jaccardScore(intentTokens, keywords []string) float64 {
 		kwSet[strings.ToLower(k)] = true
 	}
 
-	intersection := 0
+	matched := 0
 	intentSet := make(map[string]bool, len(intentTokens))
 	for _, t := range intentTokens {
-		intentSet[t] = true
-		if kwSet[t] {
-			intersection++
+		if intentSet[t] {
+			continue
 		}
-		// Prefix matching: "perform" matches "performance"
-		if intersection == 0 || !kwSet[t] {
-			for kw := range kwSet {
-				if strings.HasPrefix(kw, t) || strings.HasPrefix(t, kw) {
-					intersection++
-					break
-				}
-			}
+		intentSet[t] = true
+		if keywordMatches(t, kwSet) {
+			matched++
 		}
 	}
-	if intersection == 0 {
+	if matched == 0 {
 		return 0
 	}
+	return float64(matched) / float64(len(intentSet))
+}
 
-	union := len(intentSet)
-	for k := range kwSet {
-		if !intentSet[k] {
-			union++
+// jaccardScore is retained for tests/compat; scoring uses intentCoverageScore.
+func jaccardScore(intentTokens, keywords []string) float64 {
+	return intentCoverageScore(intentTokens, keywords)
+}
+
+func keywordMatches(token string, kwSet map[string]bool) bool {
+	if kwSet[token] {
+		return true
+	}
+	// Prefix matching: "perform" ↔ "performance", "hotspot" ↔ "hot"
+	for kw := range kwSet {
+		if strings.HasPrefix(kw, token) || strings.HasPrefix(token, kw) {
+			return true
 		}
 	}
-	return float64(intersection) / float64(union)
+	return false
 }
 
 var stops = map[string]bool{
@@ -69,6 +77,7 @@ var stops = map[string]bool{
 	"of": true, "and": true, "or": true, "my": true, "me": true,
 	"i": true, "it": true, "do": true, "does": true, "this": true,
 	"that": true, "with": true, "from": true, "can": true, "how": true,
+	"find": true, "show": true, "get": true, "please": true, "about": true,
 }
 
 func stopWord(w string) bool {

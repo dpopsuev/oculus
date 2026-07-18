@@ -73,10 +73,11 @@ func (r *Registry) Triage(intent, path string) TriageResult {
 		score float64
 	}
 
-	// Score each tool by keyword overlap with intent tokens.
+	// Score each tool by intent-token coverage (not Jaccard — fat keyword
+	// lists must not crush clear matches).
 	var hits []scored
 	for _, t := range r.tools {
-		s := jaccardScore(tokens, t.Keywords)
+		s := intentCoverageScore(tokens, t.Keywords)
 		if s > 0 {
 			hits = append(hits, scored{meta: t, score: s})
 		}
@@ -118,7 +119,14 @@ func (r *Registry) Triage(intent, path string) TriageResult {
 		return matches[i].score > matches[j].score
 	})
 
-	confidence := bestScore / float64(len(catScore))
+	// Confidence = best tool coverage in the winning category (not diluted
+	// by how many sibling categories also scored a hit).
+	confidence := 0.0
+	for _, m := range matches {
+		if m.score > confidence {
+			confidence = m.score
+		}
+	}
 	if confidence > 1 {
 		confidence = 1
 	}

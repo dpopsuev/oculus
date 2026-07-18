@@ -135,7 +135,9 @@ func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
 				continue
 			}
 			if r.isEmpty(res.value) || res.quality < r.minQuality {
-				slog.LogAttrs(ctx, slog.LevelError, "racer: attempt rejected",
+				// Normal racing outcome — not an operator error (was ERROR and
+				// flooded locus CLI lint/diagram stderr at default levels).
+				slog.LogAttrs(ctx, slog.LevelDebug, "racer: attempt rejected",
 					slog.String("name", res.name),
 					slog.Int("quality", int(res.quality)),
 					slog.Bool("empty", r.isEmpty(res.value)),

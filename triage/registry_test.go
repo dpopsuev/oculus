@@ -64,10 +64,34 @@ func TestTriage_KeywordMatch(t *testing.T) {
 	if res.Tools[0].Name != "get_hot_spots" {
 		t.Errorf("expected first tool=get_hot_spots, got %q", res.Tools[0].Name)
 	}
-	if res.Confidence <= 0 {
-		t.Errorf("expected positive confidence, got %f", res.Confidence)
+	if res.Confidence < 0.5 {
+		t.Errorf("expected confidence ≥ 0.5 for clear intent, got %f", res.Confidence)
 	}
 	t.Logf("result: category=%s confidence=%.2f tools=%d", res.Category, res.Confidence, len(res.Tools))
+}
+
+func TestTriage_CouplingHotspotsConfidence(t *testing.T) {
+	r := seedRegistry()
+	// Fat keyword lists (like locus "analysis") must not crush confidence.
+	r.Register(ToolMeta{
+		Name:       "analysis",
+		Description: "Walk the symbol graph",
+		Keywords: []string{
+			"depend", "import", "impact", "coupling", "fan", "cycle", "circular",
+			"caller", "callee", "call", "who", "symbol", "function", "component",
+			"pipeline", "chain", "risk", "health", "review", "probe", "scenario",
+			"hotspot", "hotspots", "hot",
+		},
+		Categories: []string{"dependencies", "architecture"},
+		Priority:   1,
+	})
+	res := r.Triage("find coupling hotspots", "")
+	if res.Confidence < 0.5 {
+		t.Fatalf("confidence=%f want ≥ 0.5 (was ~0.02 with Jaccard/cat dilution)", res.Confidence)
+	}
+	if res.Category != "dependencies" && res.Category != "architecture" && res.Category != "performance" {
+		t.Fatalf("unexpected category %q", res.Category)
+	}
 }
 
 func TestTriage_CategoryGrouping(t *testing.T) {

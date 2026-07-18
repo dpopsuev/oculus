@@ -83,3 +83,32 @@ func TestParseDesiredState_Empty(t *testing.T) {
 		t.Error("expected error for empty input")
 	}
 }
+
+func TestValidateArchitecture_UnderscoreSlashAlias(t *testing.T) {
+	desired := ArchModel{
+		Services: []ArchService{{Name: "internal_mcp"}, {Name: "internal_cli"}},
+		Edges:    []ArchEdge{{From: "internal_cli", To: "internal_mcp"}},
+	}
+	actual := ArchModel{
+		Services: []ArchService{{Name: "internal/mcp"}, {Name: "internal/cli"}},
+		Edges:    []ArchEdge{{From: "internal/cli", To: "internal/mcp"}},
+	}
+	drift := ValidateArchitecture(desired, actual)
+	if len(drift.MissingComponents) != 0 || len(drift.ExtraComponents) != 0 {
+		t.Fatalf("expected no component drift with _↔/ aliasing, got missing=%v extra=%v",
+			drift.MissingComponents, drift.ExtraComponents)
+	}
+	if len(drift.MissingEdges) != 0 || len(drift.ExtraEdges) != 0 {
+		t.Fatalf("expected no edge drift with _↔/ aliasing, got missing=%v extra=%v",
+			drift.MissingEdges, drift.ExtraEdges)
+	}
+}
+
+func TestNormalizeComponentName(t *testing.T) {
+	if got := normalizeComponentName("internal_mcp"); got != "internal/mcp" {
+		t.Fatalf("got %q", got)
+	}
+	if got := normalizeComponentName("Internal/MCP"); got != "internal/mcp" {
+		t.Fatalf("got %q", got)
+	}
+}
