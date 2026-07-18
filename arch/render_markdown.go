@@ -2,6 +2,7 @@ package arch
 
 import (
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 
@@ -100,7 +101,37 @@ func qualityNotesMarkdown(report *ContextReport, nComp, nEdges int) string {
 	if w := CrateLikeSparseWarning(report); w != "" {
 		notes = append(notes, "> **"+w+"**\n")
 	}
+	if ScanNeedsTLSHint(report) {
+		notes = append(notes, "> **typescript-language-server missing** — WarmLSP/show use source excerpts; set `LOCUS_TSSERVER_PATH` or `npm i -g typescript typescript-language-server`\n")
+	}
 	return strings.Join(notes, "\n")
+}
+
+// ScanNeedsTLSHint is true when the report looks TypeScript/JS-related and
+// typescript-language-server is not on PATH.
+func ScanNeedsTLSHint(report *ContextReport) bool {
+	if report == nil {
+		return false
+	}
+	hasTS := false
+	for _, l := range report.Languages {
+		if l == "typescript" || l == "javascript" {
+			hasTS = true
+			break
+		}
+	}
+	if !hasTS {
+		// Bare typescript scanner; do not assume every composite needs TLS
+		// (rust-only composites would false-positive).
+		if report.Scanner == "typescript" {
+			hasTS = true
+		}
+	}
+	if !hasTS {
+		return false
+	}
+	_, err := exec.LookPath("typescript-language-server")
+	return err != nil
 }
 
 // CrateLikeSparseWarning fires when composite scans expose several crate-like

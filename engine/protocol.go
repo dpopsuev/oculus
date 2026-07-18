@@ -370,37 +370,13 @@ func RenderScanSummary(r *ScanResult, driftInfo string) string {
 	if w := arch.CrateLikeSparseWarning(report); w != "" {
 		summary += "\nWARNING: " + w
 	}
-	if scanNeedsTLSHint(report) {
+	if arch.ScanNeedsTLSHint(report) {
 		summary += "\nNOTE: typescript-language-server missing — WarmLSP/show use source excerpts; set LOCUS_TSSERVER_PATH or npm i -g typescript typescript-language-server"
 	}
 	if driftInfo != "" {
 		summary += "\n" + driftInfo
 	}
 	return summary
-}
-
-func scanNeedsTLSHint(report *arch.ContextReport) bool {
-	if report == nil {
-		return false
-	}
-	hasTS := false
-	for _, l := range report.Languages {
-		if l == "typescript" || l == "javascript" {
-			hasTS = true
-			break
-		}
-	}
-	if !hasTS {
-		switch report.Scanner {
-		case "typescript", "composite":
-			hasTS = true
-		}
-	}
-	if !hasTS {
-		return false
-	}
-	_, err := exec.LookPath("typescript-language-server")
-	return err != nil
 }
 
 // --- Operations ---
