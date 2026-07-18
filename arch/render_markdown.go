@@ -28,23 +28,16 @@ func RenderMarkdown(report *ContextReport) string {
 	}
 
 	fmt.Fprintf(&b, "# %s\n\n", report.ModulePath)
-	// Language ≠ survey scanner (e.g. Language: go | Survey: packages). Agents
-	// previously read "go | Scanner: packages" as a contradiction.
+	// Languages (inventory) ≠ Survey scanner (e.g. Languages: rust, typescript | Survey: composite).
 	nComp := len(report.Architecture.Services)
 	nEdges := len(report.Architecture.Edges)
-	switch {
-	case lang != "" && report.Scanner != "":
-		fmt.Fprintf(&b, "Language: %s | Survey: %s | Components: %d | Edges: %d\n\n",
-			lang, report.Scanner, nComp, nEdges)
-	case report.Scanner != "":
-		fmt.Fprintf(&b, "Survey: %s | Components: %d | Edges: %d\n\n",
-			report.Scanner, nComp, nEdges)
-	default:
-		fmt.Fprintf(&b, "Components: %d | Edges: %d\n\n", nComp, nEdges)
-	}
+	b.WriteString(formatScanHeader(report, lang, nComp, nEdges))
+	b.WriteByte('\n')
 
-	if len(report.HotSpots) > 0 {
-		b.WriteString("## Hot Spots\n\n")
+	b.WriteString("## Hot Spots\n\n")
+	if len(report.HotSpots) == 0 {
+		b.WriteString("_None above threshold (churn / fan-in / nesting)._\n\n")
+	} else {
 		spots := make([]HotSpot, len(report.HotSpots))
 		copy(spots, report.HotSpots)
 		sort.Slice(spots, func(i, j int) bool { return spots[i].Churn > spots[j].Churn })
@@ -57,8 +50,17 @@ func RenderMarkdown(report *ContextReport) string {
 			if s.Nesting > 0 {
 				nest = fmt.Sprintf("  nesting=%d", s.Nesting)
 			}
-			fmt.Fprintf(&b, "- %s  churn=%d  fan_in=%d%s\n", s.Component, s.Churn, fanIn[s.Component], nest)
+			comp := s.Component
+			if comp == "." || comp == "" {
+				comp = "(root)"
+			}
+			fmt.Fprintf(&b, "- %s  churn=%d  fan_in=%d%s\n", comp, s.Churn, fanIn[s.Component], nest)
 		}
+		b.WriteByte('\n')
+	}
+
+	if note := qualityNotesMarkdown(report, nComp, nEdges); note != "" {
+		b.WriteString(note)
 		b.WriteByte('\n')
 	}
 
@@ -69,6 +71,70 @@ func RenderMarkdown(report *ContextReport) string {
 	b.WriteByte('\n')
 
 	return b.String()
+}
+
+func formatScanHeader(report *ContextReport, projectLang string, nComp, nEdges int) string {
+	survey := report.Scanner
+	langs := report.Languages
+	if len(langs) == 0 && projectLang != "" {
+		langs = []string{projectLang}
+	}
+	switch {
+	case len(langs) > 0 && survey != "":
+		return fmt.Sprintf("Languages: %s | Survey: %s | Components: %d | Edges: %d\n",
+			strings.Join(langs, ", "), survey, nComp, nEdges)
+	case survey != "":
+		return fmt.Sprintf("Survey: %s | Components: %d | Edges: %d\n", survey, nComp, nEdges)
+	default:
+		return fmt.Sprintf("Components: %d | Edges: %d\n", nComp, nEdges)
+	}
+}
+
+func qualityNotesMarkdown(report *ContextReport, nComp, nEdges int) string {
+	var notes []string
+	if nComp > 100 {
+		notes = append(notes, fmt.Sprintf(
+			"> **Large graph** (%d components) — do not reason from this summary alone; use `analysis action=probe|scenario` with `top_n` / a narrow component.\n",
+			nComp))
+	}
+	if w := CrateLikeSparseWarning(report); w != "" {
+		notes = append(notes, "> **"+w+"**\n")
+	}
+	return strings.Join(notes, "\n")
+}
+
+// CrateLikeSparseWarning fires when composite scans expose several crate-like
+// components (ShojiWM-style) with no edges among them — usually missing Cargo
+// path-deps, not a total graph failure (TS edges may still exist).
+func CrateLikeSparseWarning(report *ContextReport) string {
+	if report == nil || report.Scanner != "composite" {
+		return ""
+	}
+	crateLike := map[string]bool{}
+	for _, s := range report.Architecture.Services {
+		name := s.Name
+		if name == "" || name == "." || name == "(root)" {
+			continue
+		}
+		// Bare crate / package identifiers (no path separators).
+		if !strings.Contains(name, "/") && !strings.Contains(name, "\\") {
+			crateLike[name] = true
+		}
+	}
+	if len(crateLike) < 2 {
+		return ""
+	}
+	among := 0
+	for _, e := range report.Architecture.Edges {
+		if crateLike[e.From] && crateLike[e.To] {
+			among++
+		}
+	}
+	if among > 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d crate-like components with 0 edges among them — Rust/workspace coupling may be absent in manifests; prefer path-deps or probe TS packages",
+		len(crateLike))
 }
 
 // RenderCouplingTable produces a markdown table of components with fan-in, fan-out,
@@ -128,8 +194,12 @@ func RenderCouplingTable(report *ContextReport, sortBy string, topN int) string 
 
 	nameW := len("Package")
 	for _, r := range rows {
-		if len(r.Name) > nameW {
-			nameW = len(r.Name)
+		name := r.Name
+		if name == "." || name == "" {
+			name = "(root)"
+		}
+		if len(name) > nameW {
+			nameW = len(name)
 		}
 	}
 
@@ -144,7 +214,11 @@ func RenderCouplingTable(report *ContextReport, sortBy string, topN int) string 
 		strings.Repeat("-", 7))
 
 	for _, r := range rows {
-		fmt.Fprintf(&b, "%-*s  %6d  %7d  %5d  %5d  %7d  %7d\n", nameW, r.Name, r.FanIn, r.FanOut, r.LOC, r.Churn, r.MaxNesting, r.Symbols)
+		name := r.Name
+		if name == "." || name == "" {
+			name = "(root)"
+		}
+		fmt.Fprintf(&b, "%-*s  %6d  %7d  %5d  %5d  %7d  %7d\n", nameW, name, r.FanIn, r.FanOut, r.LOC, r.Churn, r.MaxNesting, r.Symbols)
 	}
 
 	return b.String()

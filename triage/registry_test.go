@@ -99,6 +99,9 @@ func TestTriage_CouplingHotspotsConfidence(t *testing.T) {
 	if tm.Params["action"] != "coupling" || tm.Params["view"] != "hot_spots" {
 		t.Fatalf("expected concrete coupling/hot_spots params, got %#v", tm.Params)
 	}
+	if tm.Name != "analysis/coupling/hot_spots" {
+		t.Fatalf("expected tool name analysis/coupling/hot_spots, got %q", tm.Name)
+	}
 }
 
 func TestTriage_CategoryGrouping(t *testing.T) {

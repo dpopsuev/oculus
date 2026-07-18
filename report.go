@@ -94,6 +94,9 @@ type ScanCore struct {
 	Architecture   ArchModel      `json:"architecture"`
 	ModulePath     string         `json:"module_path"`
 	Scanner        string         `json:"scanner"`
+	// Languages is the inventory first-pass set (e.g. rust, typescript for
+	// polyglot roots). Distinct from Scanner (composite/packages/…).
+	Languages      []string       `json:"languages,omitempty"`
 	SuggestedDepth int            `json:"suggested_depth,omitempty"`
 	// MerkleRoot is a content fingerprint of the working-tree source files
 	// at scan time. Used to invalidate SHA cache hits when the tree is dirty.

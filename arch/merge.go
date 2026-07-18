@@ -165,6 +165,7 @@ func MergeScan(ctx context.Context, root string, baseline *ContextReport, change
 			ModulePath:   modPath,
 			Scanner:      baseline.Scanner,
 			ScanMode:     ScanModeMerge,
+			Languages:    inventoryLanguageNames(root),
 		},
 	}
 	if report.Scanner == "" {

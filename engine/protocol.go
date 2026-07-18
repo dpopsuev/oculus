@@ -339,12 +339,17 @@ func RenderScanSummary(r *ScanResult, driftInfo string) string {
 
 	nComp := len(report.Architecture.Services)
 	nEdges := len(report.Architecture.Edges)
-	summary := fmt.Sprintf("Scanned %s: %d components, %d edges, %s cycles, scanner=%s\ncache_key: %s",
+	langPart := ""
+	if len(report.Languages) > 0 {
+		langPart = " languages=" + strings.Join(report.Languages, ",")
+	}
+	summary := fmt.Sprintf("Scanned %s: %d components, %d edges, %s cycles, survey=%s%s\ncache_key: %s",
 		report.ModulePath,
 		nComp,
 		nEdges,
 		cycleStr,
 		report.Scanner,
+		langPart,
 		r.CacheKey)
 	if report.MerkleRoot != "" {
 		summary += fmt.Sprintf("\nmerkle_root: %s", report.MerkleRoot)
@@ -358,12 +363,44 @@ func RenderScanSummary(r *ScanResult, driftInfo string) string {
 		summary += "\nWARNING: very sparse edge graph — coverage may be thin; prefer probe/scenario over summary alone."
 	}
 	if nComp > 100 {
-		summary += fmt.Sprintf("\nNOTE: large graph (%d components) — summary is package-level; use probe/scenario for depth.", nComp)
+		summary += fmt.Sprintf("\nNOTE: LARGE GRAPH (%d components) — do not reason from summary alone; use analysis action=probe|scenario with top_n or a narrow component.", nComp)
+	} else if nComp > 50 {
+		summary += fmt.Sprintf("\nNOTE: sizable graph (%d components) — prefer probe/scenario over reading the full coupling table.", nComp)
+	}
+	if w := arch.CrateLikeSparseWarning(report); w != "" {
+		summary += "\nWARNING: " + w
+	}
+	if scanNeedsTLSHint(report) {
+		summary += "\nNOTE: typescript-language-server missing — WarmLSP/show use source excerpts; set LOCUS_TSSERVER_PATH or npm i -g typescript typescript-language-server"
 	}
 	if driftInfo != "" {
 		summary += "\n" + driftInfo
 	}
 	return summary
+}
+
+func scanNeedsTLSHint(report *arch.ContextReport) bool {
+	if report == nil {
+		return false
+	}
+	hasTS := false
+	for _, l := range report.Languages {
+		if l == "typescript" || l == "javascript" {
+			hasTS = true
+			break
+		}
+	}
+	if !hasTS {
+		switch report.Scanner {
+		case "typescript", "composite":
+			hasTS = true
+		}
+	}
+	if !hasTS {
+		return false
+	}
+	_, err := exec.LookPath("typescript-language-server")
+	return err != nil
 }
 
 // --- Operations ---

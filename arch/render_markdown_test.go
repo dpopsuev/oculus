@@ -86,14 +86,37 @@ func TestRenderMarkdown_HotSpotsBeforeEdges(t *testing.T) {
 
 func TestRenderMarkdown_LanguageAndSurveyLabels(t *testing.T) {
 	md := RenderMarkdown(testReport())
-	if !strings.Contains(md, "Language: go") {
-		t.Fatalf("missing Language label: %s", md[:200])
+	if !strings.Contains(md, "Languages: go") {
+		t.Fatalf("missing Languages label: %s", md[:200])
 	}
 	if !strings.Contains(md, "Survey: packages") {
 		t.Fatalf("missing Survey label: %s", md[:200])
 	}
 	if strings.Contains(md, "go | Scanner:") {
 		t.Fatal("legacy dual Scanner wording should be gone")
+	}
+	if !strings.Contains(md, "## Hot Spots") {
+		t.Fatal("Hot Spots section must always be present")
+	}
+}
+
+func TestRenderMarkdown_LanguagesFromInventoryField(t *testing.T) {
+	r := testReport()
+	r.Languages = []string{"rust", "typescript"}
+	r.Scanner = "composite"
+	r.Project.Language = model.LangUnknown
+	md := RenderMarkdown(r)
+	if !strings.Contains(md, "Languages: rust, typescript") {
+		t.Fatalf("want inventory languages, got: %s", md[:240])
+	}
+}
+
+func TestRenderMarkdown_HotSpotsNoneAboveThreshold(t *testing.T) {
+	r := testReport()
+	r.HotSpots = nil
+	md := RenderMarkdown(r)
+	if !strings.Contains(md, "None above threshold") {
+		t.Fatalf("expected empty hot-spots explanation: %s", md)
 	}
 }
 

@@ -142,6 +142,16 @@ func (r *Registry) Triage(intent, path string) TriageResult {
 			tm.Reason = m.meta.Description
 		}
 		enrichConcreteActions(&tm, tokens)
+		// Bare "analysis" hides action/view; fold them into the name agents read first.
+		if strings.EqualFold(tm.Name, "analysis") {
+			if action, ok := tm.Params["action"].(string); ok && action != "" {
+				label := "analysis/" + action
+				if view, ok := tm.Params["view"].(string); ok && view != "" {
+					label += "/" + view
+				}
+				tm.Name = label
+			}
+		}
 		tools = append(tools, tm)
 	}
 

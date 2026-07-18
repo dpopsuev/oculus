@@ -201,6 +201,7 @@ func ScanAndBuild(ctx context.Context, root string, opts ScanOpts) (*ContextRepo
 			Architecture: archModel,
 			ModulePath:   modPath,
 			Scanner:      resolvedScannerName(opts.ScannerOverride, root),
+			Languages:    inventoryLanguageNames(root),
 		},
 	}
 
@@ -427,6 +428,21 @@ func resolvedScannerName(override, root string) string {
 	default:
 		return string(inv.Primary())
 	}
+}
+
+func inventoryLanguageNames(root string) []string {
+	inv := olang.InventoryLanguages(root)
+	if len(inv.Languages) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(inv.Languages))
+	for _, l := range inv.Languages {
+		if l == olang.Unknown {
+			continue
+		}
+		out = append(out, string(l))
+	}
+	return out
 }
 
 func computeHotSpots(m ArchModel) []HotSpot {

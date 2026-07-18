@@ -230,11 +230,16 @@ func buildGroupEdges(proj *model.Project, modPath string, m ArchModel, opts Sync
 }
 
 func shortImportPath(modPath, importPath string) string {
-	if importPath == modPath {
-		return "."
+	// Prefer "(root)" over "." — agents misread "." as a relative path / CWD.
+	if importPath == modPath || importPath == "" || importPath == "." || importPath == "(root)" {
+		return "(root)"
 	}
 	if strings.HasPrefix(importPath, modPath+"/") {
-		return strings.TrimPrefix(importPath, modPath+"/")
+		rel := strings.TrimPrefix(importPath, modPath+"/")
+		if rel == "" || rel == "." {
+			return "(root)"
+		}
+		return rel
 	}
 	return importPath
 }
