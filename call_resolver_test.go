@@ -75,16 +75,16 @@ func TestCallResolver_SuffixMatch(t *testing.T) {
 	}
 	r := NewCallResolver(funcs)
 
-	// No imports, not in same package, not unique — falls to suffix_match
+	// No imports, not in same package, not unique — must NOT guess.
 	res := r.Resolve("Process", "pkg/d", "pkg/d/d.go", nil)
-	if res.Symbol == nil {
-		t.Fatal("expected resolution")
+	if res.Symbol != nil {
+		t.Fatalf("ambiguous bare name must be unresolved, got %+v via %s", res.Symbol, res.Strategy)
 	}
-	if res.Confidence >= ConfUniqueName {
-		t.Errorf("expected confidence < %v, got %v", ConfUniqueName, res.Confidence)
-	}
-	if res.Strategy != "suffix_match" {
-		t.Errorf("expected strategy suffix_match, got %s", res.Strategy)
+
+	// Unique import reachability still resolves.
+	res = r.Resolve("Process", "pkg/d", "pkg/d/d.go", []string{"pkg/b"})
+	if res.Symbol == nil || res.Symbol.Package != "pkg/b" {
+		t.Fatalf("expected pkg/b via import map/suffix, got %+v", res.Symbol)
 	}
 }
 

@@ -36,7 +36,10 @@ func ParseTreeSitterFunctions(root string) []oculus.Symbol {
 		callArgs := make(map[string][]string)
 		seen := make(map[string]bool)
 		extractCallsWithArgs(fd.body, fd.src, func(callee string, _ int, args []string) {
-			calleeKey, _ := resolveCallee(callee, fd.pkg, allFuncs)
+			calleeKey, _, resolved := resolveCallee(callee, fd.pkg, allFuncs)
+			if !resolved {
+				return
+			}
 			if _, found := allFuncs[calleeKey]; found && !seen[callee] {
 				seen[callee] = true
 				callees = append(callees, callee)

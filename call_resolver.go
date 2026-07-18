@@ -118,23 +118,11 @@ func (r *CallResolver) resolveSuffixMatch(calleeName string, candidates []*Symbo
 				Strategy:   "suffix_match",
 			}
 		}
-		if len(reachable) > 1 {
-			// Multiple import-reachable candidates — pick first, penalize.
-			penalty := min(1.0, 3.0/float64(len(reachable)))
-			return Resolution{
-				Symbol:     reachable[0],
-				Confidence: ConfSuffixMatch * penalty,
-				Strategy:   "suffix_match",
-			}
-		}
+		// Multiple import-reachable (or zero) — do not guess (name collisions).
+		return Resolution{}
 	}
-	// No import info or no reachable candidates — use all, heavily penalized.
-	penalty := min(1.0, 3.0/float64(len(candidates)))
-	return Resolution{
-		Symbol:     candidates[0],
-		Confidence: ConfSuffixMatch * 0.5 * penalty,
-		Strategy:   "suffix_match",
-	}
+	// No import info with multiple candidates — unresolved (CodeGraph-style).
+	return Resolution{}
 }
 
 // isImportReachable checks if a package is reachable from the given imports.

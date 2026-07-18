@@ -113,17 +113,32 @@ func (a *TreeSitterDeepAnalyzer) extractCallGraphFuncs(opts oculus.CallGraphOpts
 }
 
 // resolveCallee finds the fully qualified key and package for a callee.
-func resolveCallee(callee, callerPkg string, allFuncs map[string]cgFuncDef) (key, pkg string) {
+// Same-package wins. A unique bare-name match across the project is accepted.
+// Ambiguous bare names (multiple packages) return ok=false so callers can
+// drop the edge instead of picking an arbitrary first match (name collisions).
+func resolveCallee(callee, callerPkg string, allFuncs map[string]cgFuncDef) (key, pkg string, ok bool) {
 	calleeKey := callerPkg + "." + callee
-	calleePkg := callerPkg
-	if _, found := allFuncs[calleeKey]; !found {
-		for k, f := range allFuncs {
-			if f.name == callee {
-				return k, f.pkg
-			}
+	if _, found := allFuncs[calleeKey]; found {
+		return calleeKey, callerPkg, true
+	}
+	var keys []string
+	var pkgs []string
+	for k, f := range allFuncs {
+		if f.name == callee {
+			keys = append(keys, k)
+			pkgs = append(pkgs, f.pkg)
 		}
 	}
-	return calleeKey, calleePkg
+	switch len(keys) {
+	case 0:
+		// Unresolved external — keep historical same-pkg placeholder, mark !ok
+		// so walkCallGraph can still emit a best-effort edge without walking.
+		return calleeKey, callerPkg, false
+	case 1:
+		return keys[0], pkgs[0], true
+	default:
+		return "", "", false
+	}
 }
 
 // walkCallGraph walks the call graph from roots determined by opts.
@@ -144,7 +159,11 @@ func walkCallGraph(allFuncs map[string]cgFuncDef, nodeSet map[string]oculus.Symb
 			return
 		}
 		extractCalls(fd.body, fd.src, func(callee string, line int) {
-			calleeKey, calleePkg := resolveCallee(callee, fd.pkg, allFuncs)
+			calleeKey, calleePkg, resolved := resolveCallee(callee, fd.pkg, allFuncs)
+			if !resolved && calleeKey == "" {
+				// Ambiguous bare name across packages — drop (CodeGraph-style).
+				return
+			}
 			var calleeParamTypes, calleeReturnTypes []string
 			if cf, ok := allFuncs[calleeKey]; ok {
 				calleeParamTypes = cf.paramTypes
