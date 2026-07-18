@@ -141,6 +141,7 @@ func (r *Registry) Triage(intent, path string) TriageResult {
 		if tm.Reason == "" {
 			tm.Reason = m.meta.Description
 		}
+		enrichConcreteActions(&tm, tokens)
 		tools = append(tools, tm)
 	}
 
@@ -148,6 +149,54 @@ func (r *Registry) Triage(intent, path string) TriageResult {
 		Category:   bestCat,
 		Confidence: confidence,
 		Tools:      tools,
+	}
+}
+
+// enrichConcreteActions sets analysis-style action/view params from intent
+// tokens so agents get coupling/hot_spots instead of a bare tool name.
+func enrichConcreteActions(tm *ToolMatch, tokens []string) {
+	if tm == nil || tm.Params == nil {
+		return
+	}
+	name := strings.ToLower(tm.Name)
+	if name != "analysis" && name != "get_coupling_table" && name != "get_hot_spots" {
+		return
+	}
+	has := func(words ...string) bool {
+		for _, w := range words {
+			for _, t := range tokens {
+				if t == w || strings.HasPrefix(t, w) || strings.HasPrefix(w, t) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	switch {
+	case has("coupling", "fan", "depend") && has("hotspot", "hotspots", "hot", "bottleneck", "churn", "risk"):
+		tm.Params["action"] = "coupling"
+		tm.Params["view"] = "hot_spots"
+		tm.Params["top_n"] = 10
+		tm.Reason = "Coupling hot spots (fan-in × churn)"
+	case has("hotspot", "hotspots", "bottleneck", "churn") && has("perf", "performance", "slow", "risk"):
+		tm.Params["action"] = "coupling"
+		tm.Params["view"] = "hot_spots"
+		tm.Params["top_n"] = 10
+		tm.Reason = "Performance hot spots via coupling view"
+	case has("cycle", "circular", "loop"):
+		tm.Params["action"] = "cycles"
+		tm.Reason = "Circular dependency detection"
+	case has("coupling", "fan", "depend", "blast"):
+		tm.Params["action"] = "coupling"
+		tm.Params["view"] = "hot_spots"
+		tm.Params["top_n"] = 10
+		tm.Reason = "Package coupling / blast-radius table"
+	case has("impact"):
+		tm.Params["action"] = "impact"
+		tm.Reason = "Transitive blast radius for a component"
+	case has("island", "islands", "dead"):
+		tm.Params["action"] = "islands"
+		tm.Reason = "Unreachable / dead-code islands"
 	}
 }
 

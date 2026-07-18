@@ -84,6 +84,19 @@ func TestRenderMarkdown_HotSpotsBeforeEdges(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdown_LanguageAndSurveyLabels(t *testing.T) {
+	md := RenderMarkdown(testReport())
+	if !strings.Contains(md, "Language: go") {
+		t.Fatalf("missing Language label: %s", md[:200])
+	}
+	if !strings.Contains(md, "Survey: packages") {
+		t.Fatalf("missing Survey label: %s", md[:200])
+	}
+	if strings.Contains(md, "go | Scanner:") {
+		t.Fatal("legacy dual Scanner wording should be gone")
+	}
+}
+
 func TestRenderEdgeList_CapsAtMaxEdges(t *testing.T) {
 	report := testReport()
 	for i := 0; i < 25; i++ {

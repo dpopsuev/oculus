@@ -19,7 +19,7 @@ func Dataflow(in core.Input, opts core.Options) (string, error) {
 
 	entry := opts.Entry
 	if entry == "" {
-		entry = "main"
+		return "", fmt.Errorf("%w — dataflow needs an entry symbol", core.ErrNoEntryProvided)
 	}
 	depth := opts.Depth
 	if depth <= 0 {
@@ -28,7 +28,7 @@ func Dataflow(in core.Input, opts core.Options) (string, error) {
 
 	flow, err := in.DeepAnalyzer.DataFlowTrace(in.Ctx, in.Root, entry, depth)
 	if err != nil {
-		return "", fmt.Errorf("dataflow trace from %q: %w", entry, err)
+		return "", fmt.Errorf("dataflow trace from %q: %w — try --entry <symbol>", entry, err)
 	}
 
 	var b strings.Builder

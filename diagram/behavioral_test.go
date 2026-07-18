@@ -27,16 +27,15 @@ func TestDataflow_Basic(t *testing.T) {
 	assertContains(t, out, "-->")
 }
 
-func TestDataflow_DefaultEntry(t *testing.T) {
+func TestDataflow_RequiresEntry(t *testing.T) {
 	in := core.Input{
 		Root:         "/tmp",
 		DeepAnalyzer: &testkit.StubDeepAnalyzer{},
 	}
-	out, err := Dataflow(in, core.Options{})
-	if err != nil {
-		t.Fatal(err)
+	_, err := Dataflow(in, core.Options{})
+	if !errors.Is(err, core.ErrNoEntryProvided) {
+		t.Fatalf("got %v, want ErrNoEntryProvided", err)
 	}
-	assertContains(t, out, "flowchart LR")
 }
 
 func TestDataflow_NodeShapes(t *testing.T) {

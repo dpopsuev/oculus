@@ -54,6 +54,17 @@ func TestResolve_NotFound(t *testing.T) {
 	if r.Hit != nil || r.Summary == "" {
 		t.Fatalf("%+v", r)
 	}
+	if !strings.Contains(r.Summary, "action=resolve") {
+		t.Fatalf("expected resolve hint, got %q", r.Summary)
+	}
+}
+
+func TestResolve_NotFoundWrongLineHint(t *testing.T) {
+	p, _ := Parse("engine/protocol.go:1:WarmLSP")
+	r := Resolve(p, nil)
+	if !strings.Contains(r.Summary, "line looks wrong") {
+		t.Fatalf("expected wrong-line hint, got %q", r.Summary)
+	}
 }
 
 func TestEscalations_PreferPathLine(t *testing.T) {

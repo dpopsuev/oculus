@@ -74,7 +74,7 @@ func TestTriage_CouplingHotspotsConfidence(t *testing.T) {
 	r := seedRegistry()
 	// Fat keyword lists (like locus "analysis") must not crush confidence.
 	r.Register(ToolMeta{
-		Name:       "analysis",
+		Name:        "analysis",
 		Description: "Walk the symbol graph",
 		Keywords: []string{
 			"depend", "import", "impact", "coupling", "fan", "cycle", "circular",
@@ -91,6 +91,13 @@ func TestTriage_CouplingHotspotsConfidence(t *testing.T) {
 	}
 	if res.Category != "dependencies" && res.Category != "architecture" && res.Category != "performance" {
 		t.Fatalf("unexpected category %q", res.Category)
+	}
+	if len(res.Tools) == 0 {
+		t.Fatal("expected tools")
+	}
+	tm := res.Tools[0]
+	if tm.Params["action"] != "coupling" || tm.Params["view"] != "hot_spots" {
+		t.Fatalf("expected concrete coupling/hot_spots params, got %#v", tm.Params)
 	}
 }
 

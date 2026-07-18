@@ -28,12 +28,19 @@ func RenderMarkdown(report *ContextReport) string {
 	}
 
 	fmt.Fprintf(&b, "# %s\n\n", report.ModulePath)
-	if lang != "" {
-		fmt.Fprintf(&b, "%s | Scanner: %s | Components: %d | Edges: %d\n\n",
-			lang, report.Scanner, len(report.Architecture.Services), len(report.Architecture.Edges))
-	} else {
-		fmt.Fprintf(&b, "Scanner: %s | Components: %d | Edges: %d\n\n",
-			report.Scanner, len(report.Architecture.Services), len(report.Architecture.Edges))
+	// Language ≠ survey scanner (e.g. Language: go | Survey: packages). Agents
+	// previously read "go | Scanner: packages" as a contradiction.
+	nComp := len(report.Architecture.Services)
+	nEdges := len(report.Architecture.Edges)
+	switch {
+	case lang != "" && report.Scanner != "":
+		fmt.Fprintf(&b, "Language: %s | Survey: %s | Components: %d | Edges: %d\n\n",
+			lang, report.Scanner, nComp, nEdges)
+	case report.Scanner != "":
+		fmt.Fprintf(&b, "Survey: %s | Components: %d | Edges: %d\n\n",
+			report.Scanner, nComp, nEdges)
+	default:
+		fmt.Fprintf(&b, "Components: %d | Edges: %d\n\n", nComp, nEdges)
 	}
 
 	if len(report.HotSpots) > 0 {

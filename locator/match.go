@@ -56,7 +56,7 @@ func Resolve(p Parsed, pool []Hit) Result {
 	case 0:
 		return Result{
 			Locator: p,
-			Summary: fmt.Sprintf("no symbol matching %q", p.Raw),
+			Summary: notFoundSummary(p),
 		}
 	case 1:
 		h := hits[0]
@@ -72,6 +72,23 @@ func Resolve(p Parsed, pool []Hit) Result {
 			Escalations: Escalations(p, hits),
 			Summary:     fmt.Sprintf("%d candidates for %q; escalate with path:Symbol or Parent.Symbol", len(hits), p.Raw),
 		}
+	}
+}
+
+// notFoundSummary explains a miss with actionable next steps for agents.
+func notFoundSummary(p Parsed) string {
+	base := fmt.Sprintf("no symbol matching %q", p.Raw)
+	switch {
+	case p.Path != "" && p.Line > 0 && p.Line <= 2:
+		return base + " — line looks wrong; use the definition line, bare name, or analysis action=resolve"
+	case p.Path != "" && p.Line > 0:
+		return base + " — try bare name or correct file:line:Name; analysis action=resolve"
+	case p.Path != "":
+		return base + " — try path:line:Name or bare name; analysis action=resolve"
+	case strings.Contains(p.Name, "."):
+		return base + " — try file:line:Name or analysis action=resolve"
+	default:
+		return base + " — try file:line:Name (definition line) or analysis action=resolve"
 	}
 }
 
