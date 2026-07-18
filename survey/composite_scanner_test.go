@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dpopsuev/oculus/v3/arch"
 	"github.com/dpopsuev/oculus/v3/model"
 	"github.com/dpopsuev/oculus/v3/survey"
 	"github.com/dpopsuev/oculus/v3/testkit"
@@ -495,4 +496,84 @@ func nsPaths(proj *model.Project) []string {
 		out = append(out, ns.ImportPath)
 	}
 	return out
+}
+
+// TestCompositeScanner_RustPathDepEdgesSurviveMerge verifies post-merge repair
+// on a synthetic ShojiWM-style fixture: Cargo path-deps between workspace crates
+// become internal edges under final import paths, and ProjectToArchModel keeps
+// at least one cross-crate edge (IncludeExternal=false).
+func TestCompositeScanner_RustPathDepEdgesSurviveMerge(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"Cargo.toml": `[workspace]
+members = ["src/shojiwm", "src/shojiwm_protocol"]
+`,
+		"src/shojiwm/Cargo.toml": `[package]
+name = "shoji_wm"
+version = "0.1.0"
+
+[dependencies]
+shojiwm_protocol = { path = "../shojiwm_protocol" }
+`,
+		"src/shojiwm/src/lib.rs":          "pub fn run() {}",
+		"src/shojiwm_protocol/Cargo.toml": "[package]\nname = \"shojiwm_protocol\"\nversion = \"0.1.0\"\n",
+		"src/shojiwm_protocol/src/lib.rs": "pub struct Msg;",
+		"package.json":                 `{"name":"shoji-root"}`,
+		"packages/config/package.json": `{"name":"config"}`,
+		"packages/config/src/index.ts": `
+import { createIpc } from "../shoji_wm/src/ipc";
+export const cfg = createIpc();
+`,
+		"packages/shoji_wm/package.json": `{"name":"shoji_wm"}`,
+		"packages/shoji_wm/src/ipc.ts":   "export function createIpc() { return 1; }\n",
+		"packages/shoji_wm/src/index.ts": "export * from './ipc';\n",
+	}
+	for name, content := range files {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	proj, err := (&survey.CompositeScanner{}).Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if proj.DependencyGraph == nil {
+		t.Fatal("nil graph")
+	}
+
+	var sawCross bool
+	for _, e := range proj.DependencyGraph.Edges {
+		if e.External {
+			continue
+		}
+		if (e.From == "shoji_wm" || strings.Contains(e.From, "shoji_wm")) &&
+			strings.Contains(e.To, "shojiwm_protocol") {
+			sawCross = true
+			break
+		}
+	}
+	if !sawCross {
+		t.Fatalf("expected shoji_wm → shojiwm_protocol internal edge; edges=%+v ns=%v",
+			proj.DependencyGraph.Edges, nsPaths(proj))
+	}
+
+	archModel := arch.ProjectToArchModel(proj, arch.SyncOptions{})
+	if len(archModel.Edges) == 0 {
+		t.Fatalf("arch edges=0 after repair; services=%d", len(archModel.Services))
+	}
+	var sawArchCross bool
+	for _, e := range archModel.Edges {
+		if strings.Contains(e.From, "shoji_wm") && strings.Contains(e.To, "shojiwm_protocol") {
+			sawArchCross = true
+			break
+		}
+	}
+	if !sawArchCross {
+		t.Fatalf("expected arch cross-crate shoji_wm → shojiwm_protocol; edges=%+v", archModel.Edges)
+	}
 }

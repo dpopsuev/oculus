@@ -515,6 +515,12 @@ func mergeInitOptions(base map[string]any, language lang.Language) map[string]an
 	return out
 }
 
+// ResolveTSServerPath returns a tsserver.js path for typescript-language-server.
+// Order: LOCUS_TSSERVER_PATH → npm root -g → common install locations.
+func ResolveTSServerPath() string {
+	return resolveTSServerPath()
+}
+
 // resolveTSServerPath returns a tsserver.js path for typescript-language-server.
 // Order: LOCUS_TSSERVER_PATH → npm root -g → common install locations.
 func resolveTSServerPath() string {

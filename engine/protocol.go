@@ -377,15 +377,10 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 
 	sha := p.db.ResolveHEAD(path)
 
-	// TSK-176: include intent in cache key so different intents produce
-	// different cached entries for the same SHA.
-	cacheKey := sha
-	if opts.Intent != "" {
-		cacheKey = sha + "-" + opts.Intent
-	}
-	if opts.TSFileGranularity {
-		cacheKey += "-file"
-	}
+	// Cache key: sha[-intent][-file]-sc:<scanner>
+	// Scanner must be part of the key so scanner=typescript cannot hit a
+	// prior composite/auto report for the same SHA.
+	cacheKey := buildScanCacheKey(sha, opts.Intent, opts.TSFileGranularity, opts.Scanner)
 
 	merkle, merkleErr := cache.BuildMerkle(path)
 
@@ -395,23 +390,25 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 		// Dirty working tree: SHA unchanged but source Merkle moved → miss.
 		// Legacy entries with empty MerkleRoot keep the SHA hit (one-time
 		// migration happens on the next real rescan that stamps a root).
-		if dirty || (merkleErr == nil && cached.MerkleRoot != "" && cached.MerkleRoot != merkle.Root) {
+		scannerMismatch := !scannerCacheCompatible(opts.Scanner, cached.Scanner)
+		if dirty || scannerMismatch || (merkleErr == nil && cached.MerkleRoot != "" && cached.MerkleRoot != merkle.Root) {
 			prior = cached
+			if scannerMismatch {
+				prior = nil // different scanner — do not merge; full rescan
+			}
 			p.SGCacheFlush()
-			slog.LogAttrs(ctx, slog.LevelInfo, "scan: merkle mismatch or dirty, rescanning",
+			slog.LogAttrs(ctx, slog.LevelInfo, "scan: merkle mismatch, dirty, or scanner mismatch — rescanning",
 				slog.String("path", path),
 				slog.Bool("dirty", dirty),
+				slog.Bool("scanner_mismatch", scannerMismatch),
 				slog.String("cached_merkle", cached.MerkleRoot),
 				slog.String("current_merkle", merkle.Root),
 			)
 		} else {
-			// CacheKey must include the intent suffix (sha+"-"+intent) so that
-			// analysis tools calling getOrScan with this key find the same DB
-			// entry as the one that was stored here.
-			//
-			// Also ensure the plain-sha slot is warm so that analysis tools
-			// called without a cache_key never trigger a cold getOrScan rescan.
-			if cacheKey != sha && sha != "" {
+			// Warm plain-sha only for default/auto scans so analysis tools
+			// without cache_key still hit; never let a monoglot override
+			// stomp the auto slot.
+			if isDefaultScanner(opts.Scanner) && sha != "" {
 				if _, plainHit, _ := p.db.GetReport(ctx, path, sha); !plainHit {
 					_ = p.db.PutReport(ctx, path, sha, cached)
 				}
@@ -457,10 +454,9 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 	if sha != "" {
 		_ = p.db.PutReport(ctx, path, cacheKey, report)
 		_ = p.db.PutComponentMeta(ctx, path, cacheKey, generateComponentMeta(report))
-		// Also store under the plain sha so that analysis tools called without
-		// a cache_key find the most recent scan via getOrScan's plain-sha lookup
-		// and never trigger a slow cold rescan on a large workspace.
-		if cacheKey != sha {
+		// Plain-sha slot is reserved for default/auto scans only. Monoglot
+		// overrides must not overwrite it (agents would then see the wrong graph).
+		if isDefaultScanner(opts.Scanner) {
 			_ = p.db.PutReport(ctx, path, sha, report)
 		}
 		abs, _ := filepath.Abs(path)
@@ -468,6 +464,46 @@ func (p *Engine) ScanProject(ctx context.Context, path string, opts ScanOpts) (*
 	}
 	p.ClearDirty(path)
 	return &ScanResult{Report: report, CacheKey: path + "@" + cacheKey, SHA: sha}, nil
+}
+
+// buildScanCacheKey builds the DB key for a scan result.
+// Format: sha[-intent][-file]-sc:<scanner> with empty/auto → sc:auto.
+func buildScanCacheKey(sha, intent string, fileGranularity bool, scanner string) string {
+	key := sha
+	if intent != "" {
+		key = sha + "-" + intent
+	}
+	if fileGranularity {
+		key += "-file"
+	}
+	key += "-sc:" + normalizeScannerCacheLabel(scanner)
+	return key
+}
+
+func normalizeScannerCacheLabel(scanner string) string {
+	s := strings.ToLower(strings.TrimSpace(scanner))
+	if s == "" || s == "auto" {
+		return "auto"
+	}
+	return s
+}
+
+func isDefaultScanner(scanner string) bool {
+	return normalizeScannerCacheLabel(scanner) == "auto"
+}
+
+// scannerCacheCompatible reports whether a cached report may satisfy the
+// requested scanner override. Auto slots accept any stored Scanner name
+// (composite/packages/…); explicit overrides require an exact match.
+func scannerCacheCompatible(requested, cachedScanner string) bool {
+	req := normalizeScannerCacheLabel(requested)
+	if req == "auto" {
+		return true
+	}
+	if cachedScanner == "" {
+		return true // legacy entries
+	}
+	return cachedScanner == req
 }
 
 // markChangedFromMerkle sets Changed on architecture services whose package
@@ -3135,12 +3171,11 @@ func (p *Engine) getOrScan(ctx context.Context, path string, cacheKeys ...string
 	}
 
 	// Before running a cold ScanAndBuild, probe intent-keyed slots in order
-	// of richness. This prevents the scanner-selection divergence that occurs
-	// when getOrScan's ScanAndBuild (no ScannerOverride) picks a different
-	// scanner than scan_local used (e.g. CompositeScanner vs TypeScriptScanner
-	// in a TypeScript monorepo), producing sub-project-relative component
-	// names that don't match what scan_local stored.
+	// of richness. Prefer -sc:auto (current), then legacy keys without -sc:.
 	for _, intent := range []string{"full", "health", "coupling", "architecture"} {
+		if cached, hit, _ := p.db.GetReport(ctx, path, sha+"-"+intent+"-sc:auto"); hit {
+			return cached, nil
+		}
 		if cached, hit, _ := p.db.GetReport(ctx, path, sha+"-"+intent); hit {
 			return cached, nil
 		}
@@ -3303,6 +3338,8 @@ func (p *Engine) Health(ctx context.Context) *HealthResult {
 		})
 	}
 
+	r.Checks = append(r.Checks, checkTypeScriptLanguageServer(), checkTSServerPath())
+
 	// Pool status if available.
 	if p.pool != nil {
 		status := p.pool.Status()
@@ -3343,6 +3380,30 @@ func checkDir(name, path string) HealthCheck {
 
 func checkGit() HealthCheck {
 	return HealthCheck{Name: "git", OK: true, Detail: "go-git (compiled-in)"}
+}
+
+func checkTypeScriptLanguageServer() HealthCheck {
+	const name = "typescript_language_server"
+	if _, err := exec.LookPath("typescript-language-server"); err != nil {
+		return HealthCheck{
+			Name:   name,
+			OK:     true, // optional — survey still works; WarmLSP/show fall back
+			Detail: "missing — set PATH or npm i -g typescript-language-server (show uses source excerpt)",
+		}
+	}
+	return HealthCheck{Name: name, OK: true, Detail: "ok"}
+}
+
+func checkTSServerPath() HealthCheck {
+	const name = "tsserver_path"
+	if p := lsp.ResolveTSServerPath(); p != "" {
+		return HealthCheck{Name: name, OK: true, Detail: p}
+	}
+	detail := "empty — set LOCUS_TSSERVER_PATH or npm i -g typescript typescript-language-server"
+	if _, err := exec.LookPath("tsc"); err == nil {
+		detail = "typescript on PATH but tsserver.js not resolved — set LOCUS_TSSERVER_PATH to …/typescript/lib/tsserver.js"
+	}
+	return HealthCheck{Name: name, OK: true, Detail: detail}
 }
 
 // --- Evolution ---

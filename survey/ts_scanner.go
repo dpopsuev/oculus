@@ -306,6 +306,7 @@ func (s *TypeScriptScanner) ScanDirs(root string, dirs []string) (*model.Project
 			line := scanner.Text()
 			s.extractExports(line, ns, seen[dir], rel, lineCount)
 			s.extractImportEdge(line, dir, aliases, proj.DependencyGraph, fileSet)
+			s.extractClassicGJSImports(line, dir, proj.DependencyGraph)
 		}
 		fileObj.Lines = lineCount
 		ns.AddFile(fileObj)
@@ -358,6 +359,11 @@ var (
 	reImportTypeOnly = regexp.MustCompile(`^\s*(?:import|export)\s+type\s+\{`)
 	reImportSide     = regexp.MustCompile(`^\s*import\s+['"]([^'"]+)['"]`)
 	reRequire        = regexp.MustCompile(`require\s*\(\s*['"]([^'"]+)['"]\s*\)`)
+
+	// Classic GJS (GNOME Shell) ambient imports — pre-ESM style.
+	reImportsGI   = regexp.MustCompile(`imports\.gi\.(\w+)`)
+	reImportsUI   = regexp.MustCompile(`imports\.ui\.(\w+)`)
+	reImportsMisc = regexp.MustCompile(`imports\.misc\.(\w+)`)
 )
 
 func (s *TypeScriptScanner) extractExports(line string, ns *model.Namespace, seen map[string]bool, filePath string, lineNum int) {
@@ -408,6 +414,24 @@ func (s *TypeScriptScanner) extractImportEdge(line, fromKey string, aliases []pa
 		return
 	}
 	graph.AddEdge(fromKey, barePackageName(spec), true)
+}
+
+// extractClassicGJSImports maps imports.gi.Meta / imports.ui.main /
+// imports.misc.extensionUtils to ambient scheme targets consistent with ESM
+// gi:// and resource:///org/gnome/shell/… edges.
+func (s *TypeScriptScanner) extractClassicGJSImports(line, fromKey string, graph *model.DependencyGraph) {
+	if graph == nil {
+		return
+	}
+	if m := reImportsGI.FindStringSubmatch(line); m != nil {
+		graph.AddEdge(fromKey, "gi://"+m[1], false)
+	}
+	if m := reImportsUI.FindStringSubmatch(line); m != nil {
+		graph.AddEdge(fromKey, "resource:///org/gnome/shell/ui/"+m[1], false)
+	}
+	if m := reImportsMisc.FindStringSubmatch(line); m != nil {
+		graph.AddEdge(fromKey, "resource:///org/gnome/shell/misc/"+m[1], false)
+	}
 }
 
 func isSchemeImport(spec string) bool {

@@ -37,7 +37,8 @@ type RustScanner struct {
 }
 
 type cargoWorkspace struct {
-	Members []string `toml:"members"`
+	Members []string       `toml:"members"`
+	Deps    map[string]any `toml:"dependencies"` // [workspace.dependencies]
 }
 
 type cargoPackage struct {

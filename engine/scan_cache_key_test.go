@@ -1,17 +1,11 @@
 package engine
 
-// scan_cache_key_test.go verifies two invariants of ScanProject's cache key contract:
+// scan_cache_key_test.go verifies invariants of ScanProject's cache key contract:
 //
-//   1. The returned CacheKey includes the intent suffix (sha+"-"+intent) so that
-//      downstream analysis tools calling getOrScan find the same DB entry that
-//      ScanProject wrote. A plain-sha CacheKey causes a cache miss and all
-//      analysis tools return empty results.
-//
-//   2. The survey scanner is never forced to "lsp" regardless of intent. The LSP
-//      pool drives deep analysis independently; the survey scanner must be left
-//      on auto so that language-specific scanners (e.g. TypeScriptScanner) produce
-//      correct import edges. Forcing LSPScanner for the survey produces 0 import
-//      edges and breaks coupling, cycles, and risk_scores.
+//   1. The returned CacheKey includes intent + scanner suffix so analysis tools
+//      calling getOrScan find the same DB entry ScanProject wrote.
+//   2. Monoglot scanner overrides do not share / stomp the auto plain-sha slot.
+//   3. The survey scanner is never forced to "lsp" regardless of intent.
 
 import (
 	"context"
@@ -48,16 +42,17 @@ func reportWithEdges(from, to string) *arch.ContextReport {
 	return r
 }
 
-// TestScanProject_CacheKey_IncludesIntentSuffix verifies that the CacheKey
-// returned by ScanProject(intent=X) encodes the same key used to store the
-// report in the DB (sha+"-"+intent), so that analysis tools can resolve it.
-//
-// Given a DB populated only with a "sha-full" entry
-// When ScanProject is called with intent=full
-// Then CacheKey must end with "sha-full", not the plain "sha"
-func TestScanProject_CacheKey_IncludesIntentSuffix(t *testing.T) {
+func reportWithScanner(scanner, from, to string) *arch.ContextReport {
+	r := reportWithEdges(from, to)
+	r.Scanner = scanner
+	return r
+}
+
+// TestScanProject_CacheKey_IncludesIntentAndScanner verifies that the CacheKey
+// returned by ScanProject(intent=X) encodes sha-intent-sc:auto.
+func TestScanProject_CacheKey_IncludesIntentAndScanner(t *testing.T) {
 	const sha, intent = "deadbeef", "full"
-	storedKey := sha + "-" + intent
+	storedKey := buildScanCacheKey(sha, intent, false, "")
 
 	ms := &mockStore{
 		headSHA:      sha,
@@ -77,23 +72,23 @@ func TestScanProject_CacheKey_IncludesIntentSuffix(t *testing.T) {
 	shaPart := result.CacheKey[idx+1:]
 
 	if shaPart != storedKey {
-		t.Errorf("CacheKey sha-part = %q, want %q\n"+
-			"analysis tools receive %q, look for %q in the DB — cache miss, empty results",
-			shaPart, storedKey, result.CacheKey, sha)
+		t.Errorf("CacheKey sha-part = %q, want %q", shaPart, storedKey)
+	}
+	if !strings.Contains(shaPart, "-sc:auto") {
+		t.Errorf("CacheKey missing scanner suffix: %q", shaPart)
 	}
 }
 
-// TestScanProject_CacheKey_PlainSHAWhenNoIntent verifies backward compatibility:
-// a ScanProject call without an intent suffix returns a plain-sha CacheKey.
-//
-// Given a DB populated with a plain sha entry
-// When ScanProject is called with no intent
-// Then CacheKey must end with the plain sha, unchanged
-func TestScanProject_CacheKey_PlainSHAWhenNoIntent(t *testing.T) {
+// TestScanProject_CacheKey_NoIntentStillHasScannerSuffix verifies that even
+// without intent, the key is sha-sc:auto (not bare sha). Plain sha remains a
+// warm lookup slot written separately for auto scans.
+func TestScanProject_CacheKey_NoIntentStillHasScannerSuffix(t *testing.T) {
 	const sha = "deadbeef"
+	storedKey := buildScanCacheKey(sha, "", false, "")
+
 	ms := &mockStore{
 		headSHA:      sha,
-		reportsBySHA: map[string]*arch.ContextReport{sha: reportWithSymbol("svc", "Hello")},
+		reportsBySHA: map[string]*arch.ContextReport{storedKey: reportWithSymbol("svc", "Hello")},
 	}
 	eng := New(ms, nil)
 
@@ -106,21 +101,17 @@ func TestScanProject_CacheKey_PlainSHAWhenNoIntent(t *testing.T) {
 	if idx < 0 {
 		t.Fatalf("CacheKey contains no '@' separator: %q", result.CacheKey)
 	}
-	if got := result.CacheKey[idx+1:]; got != sha {
-		t.Errorf("CacheKey sha-part = %q, want %q for intent-less scan", got, sha)
+	if got := result.CacheKey[idx+1:]; got != storedKey {
+		t.Errorf("CacheKey sha-part = %q, want %q", got, storedKey)
 	}
 }
 
 // TestScanProject_CacheKey_RoundtripsToAnalysisTools is the end-to-end
 // contract: the CacheKey returned by ScanProject must allow any downstream
 // analysis tool to locate the same cached report without re-scanning.
-//
-// Given a completed scan with intent=full
-// When SearchSymbols is called with the CacheKey returned by ScanProject
-// Then the symbols from the original scan are returned without triggering a new scan
 func TestScanProject_CacheKey_RoundtripsToAnalysisTools(t *testing.T) {
 	const sha, intent = "deadbeef", "full"
-	storedKey := sha + "-" + intent
+	storedKey := buildScanCacheKey(sha, intent, false, "")
 
 	ms := &mockStore{
 		headSHA:      sha,
@@ -145,21 +136,13 @@ func TestScanProject_CacheKey_RoundtripsToAnalysisTools(t *testing.T) {
 }
 
 // TestScanProject_SurveyScanner_NotForcedByIntent verifies that no intent
-// value causes the engine to override the survey scanner. The LSP pool drives
-// deep analysis independently; the survey scanner must remain on auto so that
-// language-specific scanners produce correct structural data (import edges,
-// component grouping). Forcing LSPScanner for the survey produces 0 import
-// edges and breaks coupling, cycles, and risk_scores.
-//
-// Given a cached report with import edges stored under sha-full
-// When ScanProject is called with intent=full and no explicit scanner
-// Then the cached report is returned with its edges intact (auto scanner hit cache)
+// value causes the engine to override the survey scanner.
 func TestScanProject_SurveyScanner_NotForcedByIntent(t *testing.T) {
 	const sha = "deadbeef"
 	ms := &mockStore{
 		headSHA: sha,
 		reportsBySHA: map[string]*arch.ContextReport{
-			sha + "-full": reportWithEdges("api", "domain"),
+			buildScanCacheKey(sha, "full", false, ""): reportWithEdges("api", "domain"),
 		},
 	}
 	eng := New(ms, nil)
@@ -172,5 +155,70 @@ func TestScanProject_SurveyScanner_NotForcedByIntent(t *testing.T) {
 	if len(result.Report.Architecture.Edges) == 0 {
 		t.Error("0 import edges in result for intent=full — survey scanner may have been overridden " +
 			"to LSPScanner which produces no import edges; auto scanner should have returned cached data")
+	}
+}
+
+// TestScanProject_ScannerOverride_SeparateCacheSlot verifies that scanner=typescript
+// and scanner=auto (empty) use different cache keys and do not overwrite each other.
+func TestScanProject_ScannerOverride_SeparateCacheSlot(t *testing.T) {
+	const sha = "deadbeef"
+	autoKey := buildScanCacheKey(sha, "full", false, "")
+	tsKey := buildScanCacheKey(sha, "full", false, "typescript")
+
+	autoReport := reportWithScanner("composite", "rust_crate", "ts_pkg")
+	tsReport := reportWithScanner("typescript", "src", "lib")
+
+	ms := &mockStore{
+		headSHA: sha,
+		reportsBySHA: map[string]*arch.ContextReport{
+			autoKey: autoReport,
+			tsKey:   tsReport,
+		},
+	}
+	eng := New(ms, nil)
+
+	autoHit, err := eng.ScanProject(context.Background(), ".", ScanOpts{Intent: "full"})
+	if err != nil {
+		t.Fatalf("auto ScanProject: %v", err)
+	}
+	tsHit, err := eng.ScanProject(context.Background(), ".", ScanOpts{Intent: "full", Scanner: "typescript"})
+	if err != nil {
+		t.Fatalf("typescript ScanProject: %v", err)
+	}
+
+	if autoHit.CacheKey == tsHit.CacheKey {
+		t.Fatalf("auto and typescript share CacheKey %q — scanner must be part of the key", autoHit.CacheKey)
+	}
+	if !strings.Contains(autoHit.CacheKey, "-sc:auto") {
+		t.Errorf("auto CacheKey missing -sc:auto: %q", autoHit.CacheKey)
+	}
+	if !strings.Contains(tsHit.CacheKey, "-sc:typescript") {
+		t.Errorf("typescript CacheKey missing -sc:typescript: %q", tsHit.CacheKey)
+	}
+	if autoHit.Report.Scanner != "composite" {
+		t.Errorf("auto hit Scanner=%q, want composite", autoHit.Report.Scanner)
+	}
+	if tsHit.Report.Scanner != "typescript" {
+		t.Errorf("typescript hit Scanner=%q, want typescript", tsHit.Report.Scanner)
+	}
+}
+
+func TestBuildScanCacheKey(t *testing.T) {
+	cases := []struct {
+		sha, intent, scanner string
+		file                 bool
+		want                 string
+	}{
+		{"abc", "full", "", false, "abc-full-sc:auto"},
+		{"abc", "full", "auto", false, "abc-full-sc:auto"},
+		{"abc", "full", "typescript", false, "abc-full-sc:typescript"},
+		{"abc", "", "rust", true, "abc-file-sc:rust"},
+	}
+	for _, tc := range cases {
+		got := buildScanCacheKey(tc.sha, tc.intent, tc.file, tc.scanner)
+		if got != tc.want {
+			t.Errorf("buildScanCacheKey(%q,%q,%v,%q)=%q want %q",
+				tc.sha, tc.intent, tc.file, tc.scanner, got, tc.want)
+		}
 	}
 }

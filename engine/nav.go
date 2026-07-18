@@ -348,7 +348,7 @@ func (p *Engine) showSourceExcerpt(raw string, hit *locator.Hit, file string, li
 		EndLine:   end,
 		Body:      body,
 		Summary: fmt.Sprintf(
-			"show %s (%s:%d-%d, source excerpt; LSP unavailable: %s)",
+			"show %s (%s:%d-%d, source excerpt; LSP unavailable: %s — set LOCUS_TSSERVER_PATH or npm i -g typescript typescript-language-server)",
 			hit.FQN, filepath.Base(file), line, end, lspErr.Error(),
 		),
 	}, nil

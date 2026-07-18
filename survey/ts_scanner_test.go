@@ -370,3 +370,52 @@ export function enable() {}
 		t.Error("missing ambient namespace gi://Gio")
 	}
 }
+
+// TestTSScan_ClassicGJSImports verifies pre-ESM GNOME Shell imports.gi /
+// imports.ui / imports.misc become ambient scheme edges.
+func TestTSScan_ClassicGJSImports(t *testing.T) {
+	dir := setupTSProject(t, map[string]string{
+		"package.json": `{"name":"gnome-classic"}`,
+		"extension.js": `
+const { Meta } = imports.gi.Meta;
+const Main = imports.ui.main;
+const ExtensionUtils = imports.misc.extensionUtils;
+function enable() {}
+`,
+	})
+
+	sc := &survey.TypeScriptScanner{}
+	proj, err := sc.Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if proj.DependencyGraph == nil {
+		t.Fatal("nil dependency graph")
+	}
+
+	var sawGI, sawUI, sawMisc bool
+	nsSet := map[string]bool{}
+	for _, ns := range proj.Namespaces {
+		nsSet[ns.ImportPath] = true
+	}
+	for _, e := range proj.DependencyGraph.Edges {
+		if e.External {
+			t.Errorf("classic GJS import should be internal: %+v", e)
+		}
+		switch e.To {
+		case "gi://Meta":
+			sawGI = true
+		case "resource:///org/gnome/shell/ui/main":
+			sawUI = true
+		case "resource:///org/gnome/shell/misc/extensionUtils":
+			sawMisc = true
+		}
+	}
+	if !sawGI || !sawUI || !sawMisc {
+		t.Errorf("missing classic GJS edges (gi=%v ui=%v misc=%v); edges=%+v",
+			sawGI, sawUI, sawMisc, proj.DependencyGraph.Edges)
+	}
+	if !nsSet["gi://Meta"] {
+		t.Error("missing ambient namespace gi://Meta")
+	}
+}

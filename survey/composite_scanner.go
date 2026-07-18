@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/BurntSushi/toml"
+
 	"github.com/dpopsuev/oculus/v3/lang"
 	"github.com/dpopsuev/oculus/v3/model"
 )
@@ -96,7 +98,208 @@ func (s *CompositeScanner) Scan(root string) (*model.Project, error) {
 		}
 	}
 
+	repairMergedDependencyGraph(proj, absRoot, subs)
 	return proj, nil
+}
+
+// repairMergedDependencyGraph fixes post-merge coupling gaps common in polyglot
+// repos (ShojiWM-style): Cargo path-deps remapped away from nsSet, file-ish
+// TypeScript targets that should collapse to dir namespaces, and external edges
+// whose To already exists as a merged namespace.
+func repairMergedDependencyGraph(proj *model.Project, absRoot string, subs []subProject) {
+	if proj == nil || proj.DependencyGraph == nil {
+		return
+	}
+	nsSet := make(map[string]bool, len(proj.Namespaces))
+	for _, ns := range proj.Namespaces {
+		nsSet[ns.ImportPath] = true
+	}
+
+	crateToIP := buildRustCrateImportPathMap(absRoot, subs, nsSet)
+	emitRustCargoPathEdges(proj, absRoot, subs, crateToIP, nsSet)
+	normalizeMergedEdges(proj, nsSet)
+}
+
+// buildRustCrateImportPathMap maps Cargo package.name → final merged ImportPath.
+func buildRustCrateImportPathMap(absRoot string, subs []subProject, nsSet map[string]bool) map[string]string {
+	out := make(map[string]string)
+	for _, sub := range subs {
+		if sub.lang != model.LangRust {
+			continue
+		}
+		var cm cargoManifest
+		cargoPath := filepath.Join(absRoot, sub.relPath, "Cargo.toml")
+		if _, err := toml.DecodeFile(cargoPath, &cm); err != nil {
+			continue
+		}
+		registerRustManifestCrates(absRoot, sub.relPath, &cm, nsSet, out)
+	}
+	return out
+}
+
+func registerRustManifestCrates(absRoot, subRel string, cm *cargoManifest, nsSet map[string]bool, out map[string]string) {
+	if cm.Package != nil && cm.Package.Name != "" {
+		pickRustCrateImportPath(cm.Package.Name, subRel, nsSet, out)
+	}
+	if cm.Workspace == nil {
+		return
+	}
+	for _, member := range cm.Workspace.Members {
+		memberDirs, err := resolveWorkspaceMember(filepath.Join(absRoot, subRel), member)
+		if err != nil {
+			continue
+		}
+		for _, memberDir := range memberDirs {
+			var mcm cargoManifest
+			if _, err := toml.DecodeFile(filepath.Join(memberDir, "Cargo.toml"), &mcm); err != nil || mcm.Package == nil {
+				continue
+			}
+			rel, err := filepath.Rel(absRoot, memberDir)
+			if err != nil {
+				continue
+			}
+			pickRustCrateImportPath(mcm.Package.Name, filepath.ToSlash(rel), nsSet, out)
+		}
+	}
+}
+
+func pickRustCrateImportPath(crateName, subRel string, nsSet map[string]bool, out map[string]string) {
+	if crateName == "" {
+		return
+	}
+	candidates := []string{crateName, rustImportPath(subRel, crateName)}
+	for _, c := range candidates {
+		if nsSet[c] {
+			out[crateName] = c
+			return
+		}
+	}
+	// Prefer crate-name when present after workspace scan; else remapped path.
+	if nsSet[crateName] {
+		out[crateName] = crateName
+		return
+	}
+	out[crateName] = rustImportPath(subRel, crateName)
+}
+
+func emitRustCargoPathEdges(proj *model.Project, absRoot string, subs []subProject, crateToIP map[string]string, nsSet map[string]bool) {
+	add := func(fromCrate, toCrate string) {
+		from, okFrom := crateToIP[fromCrate]
+		to, okTo := crateToIP[toCrate]
+		if !okFrom || !okTo {
+			return
+		}
+		if !nsSet[from] || !nsSet[to] || from == to {
+			return
+		}
+		proj.DependencyGraph.AddEdge(from, to, false)
+	}
+
+	for _, sub := range subs {
+		if sub.lang != model.LangRust {
+			continue
+		}
+		var cm cargoManifest
+		cargoPath := filepath.Join(absRoot, sub.relPath, "Cargo.toml")
+		if _, err := toml.DecodeFile(cargoPath, &cm); err != nil {
+			continue
+		}
+		emitManifestPathDeps(&cm, absRoot, sub.relPath, crateToIP, add)
+
+		if cm.Workspace == nil {
+			continue
+		}
+		for _, member := range cm.Workspace.Members {
+			memberDirs, err := resolveWorkspaceMember(filepath.Join(absRoot, sub.relPath), member)
+			if err != nil {
+				continue
+			}
+			for _, memberDir := range memberDirs {
+				var mcm cargoManifest
+				if _, err := toml.DecodeFile(filepath.Join(memberDir, "Cargo.toml"), &mcm); err != nil {
+					continue
+				}
+				rel, _ := filepath.Rel(absRoot, memberDir)
+				emitManifestPathDeps(&mcm, absRoot, filepath.ToSlash(rel), crateToIP, add)
+			}
+		}
+	}
+}
+
+func emitManifestPathDeps(cm *cargoManifest, absRoot, crateRel string, crateToIP map[string]string, add func(from, to string)) {
+	fromName := ""
+	if cm.Package != nil {
+		fromName = cm.Package.Name
+	}
+	if fromName == "" {
+		return
+	}
+	deps := cm.Deps
+	if deps == nil && cm.Workspace != nil {
+		deps = cm.Workspace.Deps
+	}
+	for depName, depVal := range deps {
+		dep := parseCargoDep(depVal)
+		if dep.Path == "" {
+			// Workspace crate referenced by name (no path=) still couples.
+			if _, ok := crateToIP[depName]; ok {
+				add(fromName, depName)
+			}
+			continue
+		}
+		// Resolve path dep to a package name when possible.
+		depDir := filepath.Clean(filepath.Join(absRoot, crateRel, dep.Path))
+		var dcm cargoManifest
+		if _, err := toml.DecodeFile(filepath.Join(depDir, "Cargo.toml"), &dcm); err == nil && dcm.Package != nil {
+			add(fromName, dcm.Package.Name)
+			continue
+		}
+		if _, ok := crateToIP[depName]; ok {
+			add(fromName, depName)
+		}
+	}
+}
+
+// normalizeMergedEdges collapses file-ish targets onto dir namespaces and
+// promotes external edges whose endpoints both exist in nsSet to internal.
+func normalizeMergedEdges(proj *model.Project, nsSet map[string]bool) {
+	old := proj.DependencyGraph.Edges
+	ng := model.NewDependencyGraph()
+	for _, e := range old {
+		from := normalizeEdgeEndpoint(e.From, nsSet)
+		to := e.To
+		external := e.External
+		if norm := normalizeEdgeEndpoint(e.To, nsSet); nsSet[norm] {
+			to = norm
+		}
+		if nsSet[from] && nsSet[to] {
+			external = false
+		}
+		if !external && (!nsSet[from] || !nsSet[to]) {
+			continue // orphan internal — drop
+		}
+		for w := 0; w < e.Weight; w++ {
+			ng.AddEdge(from, to, external)
+		}
+	}
+	proj.DependencyGraph = ng
+}
+
+func normalizeEdgeEndpoint(ep string, nsSet map[string]bool) string {
+	if nsSet[ep] {
+		return ep
+	}
+	cur := ep
+	for {
+		i := strings.LastIndex(cur, "/")
+		if i <= 0 {
+			return ep
+		}
+		cur = cur[:i]
+		if nsSet[cur] {
+			return cur
+		}
+	}
 }
 
 func discoverSubProjects(root string) []subProject {
