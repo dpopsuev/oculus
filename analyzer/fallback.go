@@ -138,7 +138,13 @@ func (f *FallbackAnalyzer) FieldRefs(ctx context.Context, _ string) ([]oculus.Fi
 // Sequential fallback for less-hot methods.
 
 func (f *FallbackAnalyzer) CallChain(ctx context.Context, root, entry string, depth int) ([]oculus.Call, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	for _, a := range f.analyzers {
+		if a == nil {
+			continue
+		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}

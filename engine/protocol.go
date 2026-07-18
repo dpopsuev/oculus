@@ -2769,11 +2769,11 @@ func (p *Engine) DiffCodographs(ctx context.Context, path string) (*history.Codo
 	abs, _ := filepath.Abs(path)
 	prev, err := p.db.GetHistoryReport(ctx, abs, -2)
 	if err != nil {
-		return nil, fmt.Errorf("get previous codograph: %w", err)
+		return nil, fmt.Errorf("get previous codograph: %w — run `locus scan %s` twice (or scan after changes) so history has two entries", err, path)
 	}
 	latest, err := p.db.GetHistoryReport(ctx, abs, -1)
 	if err != nil {
-		return nil, fmt.Errorf("get latest codograph: %w", err)
+		return nil, fmt.Errorf("get latest codograph: %w — run `locus scan %s`", err, path)
 	}
 	return history.DiffReports(prev, latest), nil
 }

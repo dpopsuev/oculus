@@ -385,6 +385,17 @@ func TestSymbolPipeline_DataFlowTrace_Basic(t *testing.T) {
 		t.Fatalf("DataFlowTrace: %v", err)
 	}
 
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("DataFlowTrace(nil ctx) panicked: %v", r)
+			}
+		}()
+		if _, err := p.DataFlowTrace(nil, "/workspace", "HandleRequest", 2); err != nil {
+			t.Fatalf("DataFlowTrace(nil ctx): %v", err)
+		}
+	}()
+
 	if len(df.Nodes) == 0 {
 		t.Error("expected data flow nodes")
 	}

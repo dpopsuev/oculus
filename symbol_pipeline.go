@@ -179,6 +179,9 @@ func (p *SymbolPipeline) CallGraph(ctx context.Context, _ string, opts CallGraph
 }
 
 func (p *SymbolPipeline) DataFlowTrace(ctx context.Context, _, entry string, maxDepth int) (*DataFlow, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if maxDepth <= 0 {
 		maxDepth = DefaultDataFlowDepth
 	}

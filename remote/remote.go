@@ -121,19 +121,38 @@ func shallowClone(ctx context.Context, repoURL, ref, dir string) error {
 		return err
 	}
 
-	cloneOpts := &gogit.CloneOptions{
-		URL:   normalizedURL,
-		Depth: 1,
-	}
-	if ref != "HEAD" {
-		cloneOpts.ReferenceName = plumbing.NewBranchReferenceName(ref)
-		cloneOpts.SingleBranch = true
+	if ref == "HEAD" {
+		_, err := gogit.PlainCloneContext(ctx, dir, false, &gogit.CloneOptions{
+			URL:   normalizedURL,
+			Depth: 1,
+		})
+		if err != nil {
+			return fmt.Errorf("git clone: %w", err)
+		}
+		return nil
 	}
 
-	if _, err := gogit.PlainCloneContext(ctx, dir, false, cloneOpts); err != nil {
-		return fmt.Errorf("git clone: %w", err)
+	// Prefer branch, then tag (locus codograph --ref v1.2.3), then bare name.
+	candidates := []plumbing.ReferenceName{
+		plumbing.NewBranchReferenceName(ref),
+		plumbing.NewTagReferenceName(ref),
+		plumbing.ReferenceName(ref),
 	}
-	return nil
+	var lastErr error
+	for _, refName := range candidates {
+		_ = os.RemoveAll(dir)
+		_, err := gogit.PlainCloneContext(ctx, dir, false, &gogit.CloneOptions{
+			URL:           normalizedURL,
+			Depth:         1,
+			ReferenceName: refName,
+			SingleBranch:  true,
+		})
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+	}
+	return fmt.Errorf("git clone: %w (tried branch, tag, and raw ref %q)", lastErr, ref)
 }
 
 // NormalizeURL converts shorthand GitHub URLs to full HTTPS URLs.
