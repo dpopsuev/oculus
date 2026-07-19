@@ -1525,6 +1525,11 @@ type SymbolGraphOpts struct {
 	Interactive bool
 }
 
+// Normalize applies Quick→AllowLSP alias. Agent-facing builds default Interactive.
+func (o SymbolGraphOpts) Normalize() SymbolGraphOpts {
+	return o.normalize()
+}
+
 // normalize applies Quick→AllowLSP alias. Agent-facing builds default Interactive.
 func (o SymbolGraphOpts) normalize() SymbolGraphOpts {
 	if o.Quick {
