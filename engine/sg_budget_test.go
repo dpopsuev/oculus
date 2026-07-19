@@ -8,7 +8,7 @@ import (
 
 func TestOverlayCallGraph_MergesLSPEdges(t *testing.T) {
 	sg := &oculus.SymbolGraph{
-		QualityTier: "ast",
+		GraphProvenance: oculus.GraphProvenance{QualityTier: "ast"},
 		Nodes: []oculus.Symbol{
 			{Name: "normalizeSessionTags", Package: "session"},
 		},
@@ -57,14 +57,14 @@ func TestSymbolLocation(t *testing.T) {
 			{Name: "other", Package: "pkg", File: "other.ts", Line: 1},
 		},
 	}
-	file, line := symbolLocation(sg, "packages/core/session/src/context.applySessionMetadataRefresh", "applySessionMetadataRefresh")
+	file, line := symbolLocation(sg, "packages/core/session/src/context.applySessionMetadataRefresh")
 	if file != "packages/core/session/src/context/metadata.ts" || line != 170 {
 		t.Fatalf("got %s:%d", file, line)
 	}
 }
 
 func TestStampFocus(t *testing.T) {
-	base := &oculus.SymbolGraph{QualityTier: "ast", CGWinner: "ast"}
+	base := &oculus.SymbolGraph{GraphProvenance: oculus.GraphProvenance{QualityTier: "ast", CGWinner: "ast"}}
 	out := stampFocus(base, "Foo")
 	if out == base {
 		t.Fatal("stampFocus must clone")

@@ -214,11 +214,7 @@ func (a *LSPDeepAnalyzer) CallGraph(ctx context.Context, _ string, opts oculus.C
 		if gCtx.Err() != nil {
 			break
 		}
-		fileHint, lineHint := opts.EntryFile, opts.EntryLine
-		if opts.Entry != "" && entry != opts.Entry {
-			fileHint, lineHint = "", 0
-		}
-		item, err := conn.findCallHierarchyItem(a.root, entry, fileHint, lineHint, opts.Interactive)
+		item, err := conn.findCallHierarchyItem(a.root, entry, opts)
 		if err != nil || item == nil {
 			continue
 		}
@@ -370,7 +366,7 @@ func (a *LSPDeepAnalyzer) DataFlowTrace(ctx context.Context, _, entry string, ma
 
 	nodeMap[entry] = oculus.DataFlowNode{Name: entry, Kind: "entry"}
 
-	item, err := conn.findCallHierarchyItem(a.root, entry, "", 0, false)
+	item, err := conn.findCallHierarchyItem(a.root, entry, oculus.CallGraphOpts{})
 	if err != nil || item == nil {
 		return &oculus.DataFlow{
 			Nodes: []oculus.DataFlowNode{{Name: entry, Kind: "entry"}},
@@ -583,7 +579,7 @@ func exportedRootsFromWorkspaceSymbols(symbols []workspaceSymbol) []string {
 	seen := make(map[string]bool)
 	roots := make([]string, 0, len(symbols))
 	for _, s := range symbols {
-		if s.Kind != 12 && s.Kind != 6 { // function or method
+		if !lspFuncOrMethod(s.Kind) {
 			continue
 		}
 		name := s.Name
@@ -611,7 +607,7 @@ func lspExportedRootsFromDocumentSymbols(conn *lspConn, root string) []string {
 			continue
 		}
 		for _, sym := range syms {
-			if sym.Kind != 12 && sym.Kind != 6 {
+			if !lspFuncOrMethod(sym.Kind) {
 				continue
 			}
 			name := sym.Name

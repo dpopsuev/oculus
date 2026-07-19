@@ -307,18 +307,22 @@ func (e SymbolEdge) Source() string { return e.SourceFQN }
 // Target implements graph.Edge.
 func (e SymbolEdge) Target() string { return e.TargetFQN }
 
+// GraphProvenance is build-quality metadata shared by SymbolGraph and
+// agent-facing results (probe/scenario). Embedded so JSON stays flat.
+type GraphProvenance struct {
+	QualityTier string `json:"quality_tier,omitempty"` // "ast" | "ast+lsp"
+	CGWinner     string `json:"cg_winner,omitempty"`
+	EntryScoped  bool   `json:"entry_scoped,omitempty"`
+	FocusEntry   string `json:"focus_entry,omitempty"`
+	ASTMs        int64  `json:"ast_ms,omitempty"`
+	LSPMs        int64  `json:"lsp_ms,omitempty"`
+}
+
 // SymbolGraph is the unified symbol-level graph result.
 type SymbolGraph struct {
 	Nodes []Symbol     `json:"nodes"`
 	Edges []SymbolEdge `json:"edges"`
-
-	// Build provenance (unified budgeted path).
-	QualityTier string `json:"quality_tier,omitempty"` // "ast" | "ast+lsp"
-	CGWinner     string `json:"cg_winner,omitempty"`
-	ASTMs        int64  `json:"ast_ms,omitempty"` // AST phase wall time
-	LSPMs        int64  `json:"lsp_ms,omitempty"` // scoped LSP phase wall time
-	EntryScoped  bool   `json:"entry_scoped,omitempty"`
-	FocusEntry   string `json:"focus_entry,omitempty"`
+	GraphProvenance
 }
 
 // PipelineStep represents a single function in a detected pipeline.

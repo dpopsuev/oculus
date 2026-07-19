@@ -25,7 +25,7 @@ func TestGetSymbolGraph_DefaultTimeoutRaised(t *testing.T) {
 // TestSgStore_UnifiedKey ensures a single path@sha key holds the AST base graph.
 func TestSgStore_UnifiedKey(t *testing.T) {
 	eng := New(nil, nil)
-	full := &oculus.SymbolGraph{QualityTier: "ast"}
+	full := &oculus.SymbolGraph{GraphProvenance: oculus.GraphProvenance{QualityTier: "ast"}}
 	eng.sgStore("proj@abc", full)
 
 	got, ok := eng.sgLoad("proj@abc")

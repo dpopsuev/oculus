@@ -245,8 +245,7 @@ func (c *lspConn) callChain(root, entry string, maxDepth int) ([]oculus.Call, er
 	if maxDepth <= 0 {
 		maxDepth = 5
 	}
-	// Find the entry function via workspace/symbol
-	item, err := c.findCallHierarchyItem(root, entry, "", 0, false)
+	item, err := c.findCallHierarchyItem(root, entry, oculus.CallGraphOpts{})
 	if err != nil || item == nil {
 		return nil, fmt.Errorf("%w: %q", ErrCallChainEntryNotFound, entry)
 	}
@@ -602,78 +601,84 @@ func splitParams(s string) []string {
 }
 
 // findCallHierarchyItem locates a callHierarchy item for name.
-// When fileHint is set, prepareCallHierarchy is tried at that location first
-// (agent-scoped path). Interactive skips the full-repo documentSymbol fallback
-// that otherwise walks every source file on TypeScript "No Project" roots.
-func (c *lspConn) findCallHierarchyItem(root, name, fileHint string, lineHint int, interactive bool) (*callHierarchyItem, error) {
+// CallGraphOpts.EntryFile/EntryLine prefer a single-file prepare; Interactive
+// skips the full-repo documentSymbol fallback (TS "No Project" RSS storm).
+func (c *lspConn) findCallHierarchyItem(root, name string, opts oculus.CallGraphOpts) (*callHierarchyItem, error) {
+	fileHint, lineHint := opts.EntryFile, opts.EntryLine
+	if opts.Entry != "" && name != opts.Entry {
+		fileHint, lineHint = "", 0
+	}
 	if fileHint != "" {
-		abs := fileHint
-		if !filepath.IsAbs(abs) {
-			abs = filepath.Join(root, fileHint)
-		}
-		uri := pathToURI(abs)
-		line := lineHint
-		if line > 0 {
-			line-- // LSP is 0-based
-		}
-		if item := c.prepareCallHierarchyAt(uri, line, 0); item != nil {
+		if item := c.prepareInFile(root, fileHint, name, lineHint); item != nil {
 			return item, nil
 		}
-		// Retry via documentSymbol on the single hinted file only.
-		if syms, err := c.documentSymbols(abs, root); err == nil {
-			for _, sym := range syms {
-				if sym.Name != name || (sym.Kind != 12 && sym.Kind != 6) {
-					continue
-				}
-				if item := c.prepareCallHierarchyAt(uri, sym.Line, sym.Col); item != nil {
-					return item, nil
-				}
-			}
-		}
 	}
 
-	// Strategy 1: workspace/symbol — fast, supported by gopls and most servers.
-	wsResult, err := c.request("workspace/symbol", map[string]any{"query": name})
-	if err == nil {
-		var symbols []workspaceSymbol
-		if json.Unmarshal(wsResult, &symbols) == nil {
-			for _, s := range symbols {
-				if s.Name != name || (s.Kind != 12 && s.Kind != 6) {
-					continue
-				}
-				if item := c.prepareCallHierarchyAt(s.Location.URI, s.Location.Range.Start.Line, s.Location.Range.Start.Character); item != nil {
-					return item, nil
-				}
-			}
-		}
+	if item := c.prepareFromWorkspaceSymbol(name); item != nil {
+		return item, nil
 	}
 
-	// Strategy 2: documentSymbol fallback — needed for servers like pyright
-	// that return empty workspace/symbol but support documentSymbol.
-	// Interactive / agent-scoped lookups must not scan the whole tree (RSS + latency).
-	if interactive || fileHint != "" {
+	if opts.Interactive || fileHint != "" {
 		return nil, fmt.Errorf("%w: %q (interactive: skipped full-repo documentSymbol)", ErrSymbolNotFound, name)
 	}
 	for _, f := range findSrcFiles(root) {
 		if c.ctx != nil && c.ctx.Err() != nil {
 			break
 		}
-		syms, err := c.documentSymbols(f, root)
-		if err != nil {
-			continue
-		}
-		for _, sym := range syms {
-			if sym.Name != name || (sym.Kind != 12 && sym.Kind != 6) {
-				continue
-			}
-			uri := pathToURI(f)
-			if item := c.prepareCallHierarchyAt(uri, sym.Line, sym.Col); item != nil {
-				return item, nil
-			}
+		if item := c.prepareInFile(root, f, name, 0); item != nil {
+			return item, nil
 		}
 	}
-
 	return nil, fmt.Errorf("%w: %q", ErrSymbolNotFound, name)
+}
+
+func lspFuncOrMethod(kind int) bool { return kind == 12 || kind == 6 }
+
+func (c *lspConn) prepareFromWorkspaceSymbol(name string) *callHierarchyItem {
+	wsResult, err := c.request("workspace/symbol", map[string]any{"query": name})
+	if err != nil {
+		return nil
+	}
+	var symbols []workspaceSymbol
+	if json.Unmarshal(wsResult, &symbols) != nil {
+		return nil
+	}
+	for _, s := range symbols {
+		if s.Name != name || !lspFuncOrMethod(s.Kind) {
+			continue
+		}
+		if item := c.prepareCallHierarchyAt(s.Location.URI, s.Location.Range.Start.Line, s.Location.Range.Start.Character); item != nil {
+			return item
+		}
+	}
+	return nil
+}
+
+// prepareInFile tries prepareCallHierarchy at lineHint (1-based), then documentSymbol in that file.
+func (c *lspConn) prepareInFile(root, file, name string, lineHint int) *callHierarchyItem {
+	abs := file
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(root, file)
+	}
+	uri := pathToURI(abs)
+	if lineHint > 0 {
+		if item := c.prepareCallHierarchyAt(uri, lineHint-1, 0); item != nil {
+			return item
+		}
+	}
+	syms, err := c.documentSymbols(abs, root)
+	if err != nil {
+		return nil
+	}
+	for _, sym := range syms {
+		if sym.Name != name || !lspFuncOrMethod(sym.Kind) {
+			continue
+		}
+		if item := c.prepareCallHierarchyAt(uri, sym.Line, sym.Col); item != nil {
+			return item
+		}
+	}
+	return nil
 }
 
 // prepareCallHierarchyAt sends prepareCallHierarchy at a specific position.

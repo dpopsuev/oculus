@@ -1497,6 +1497,9 @@ const DefaultLSPAttemptBudget = 90 * time.Second
 // DefaultInteractiveHops is the LSP call-hierarchy depth for focus-scoped enrichment.
 const DefaultInteractiveHops = 3
 
+// DefaultInteractiveLSPBudget caps Phase B when Interactive and MaxLSP is unset.
+const DefaultInteractiveLSPBudget = 5 * time.Second
+
 // SymbolGraphOpts configures GetSymbolGraph behavior (unified budgeted path).
 type SymbolGraphOpts struct {
 	OnProgress func(oculus.ProgressUpdate) // optional progress callback
@@ -1508,7 +1511,7 @@ type SymbolGraphOpts struct {
 	// and FocusEntry is set. Default false (AST-only) for interactive agents.
 	AllowLSP bool
 
-	// MaxLSP caps Phase B duration. 0 derives from ctx deadline / DefaultLSPAttemptBudget.
+	// MaxLSP caps Phase B duration. 0 derives from ctx + Interactive default.
 	MaxLSP time.Duration
 
 	// FocusEntry is a symbol locator/FQN; bare name is used as CallGraphOpts.Entry
@@ -1519,22 +1522,43 @@ type SymbolGraphOpts struct {
 	Hops int
 
 	// Interactive cancels racer losers and disables background LSP upgrades.
-	// Default true for agent-facing builds.
 	Interactive bool
 }
 
-// normalize applies Quick→AllowLSP alias and interactive default.
-// Zero-value and Quick:true mean AST-only. Prefer AllowLSP=true for scoped LSP
-// (legacy Quick:false alone is ambiguous with zero-value — use AllowLSP).
+// normalize applies Quick→AllowLSP alias. Agent-facing builds default Interactive.
 func (o SymbolGraphOpts) normalize() SymbolGraphOpts {
 	if o.Quick {
 		o.AllowLSP = false
 	}
-	o.Quick = !o.AllowLSP // keep in sync for callers that still read Quick
+	o.Quick = !o.AllowLSP
 	if !o.AllowLSP || o.FocusEntry != "" {
 		o.Interactive = true
 	}
+	if o.Hops <= 0 && o.AllowLSP {
+		o.Hops = DefaultInteractiveHops
+	}
 	return o
+}
+
+// lspBudget returns the Phase B timeout from MaxLSP or Interactive/ctx defaults.
+func lspBudget(ctx context.Context, o SymbolGraphOpts) time.Duration {
+	budget := o.MaxLSP
+	if budget <= 0 {
+		budget = DefaultLSPAttemptBudget
+		if o.Interactive {
+			budget = DefaultInteractiveLSPBudget
+		}
+	}
+	if dl, ok := ctx.Deadline(); ok {
+		rem := time.Until(dl) - 200*time.Millisecond
+		if rem < budget {
+			budget = rem
+		}
+	}
+	if budget < 0 {
+		return 0
+	}
+	return budget
 }
 
 // call graph, type hierarchy, and field reference data.
@@ -1706,96 +1730,56 @@ func (p *Engine) buildSymbolGraph(ctx context.Context, path, sha, cacheKey strin
 
 // enrichScopedLSP runs Phase B: entry-scoped LSP CallGraph overlay when
 // AllowLSP, pool, FocusEntry, and remaining budget allow. Never walks all
-// exported roots. Returns a shallow copy when overlaying so the AST cache
-// stays pristine.
+// exported roots. Clones before mutation so the AST cache stays pristine.
 func (p *Engine) enrichScopedLSP(ctx context.Context, path string, base *oculus.SymbolGraph, opts SymbolGraphOpts) (*oculus.SymbolGraph, error) {
 	if base == nil {
 		return nil, fmt.Errorf("symbol graph: nil base")
 	}
 	opts = opts.normalize()
 	entry := focusEntryName(opts.FocusEntry)
-	if entry != "" {
-		// Stamp focus on a copy so callers see honesty even when Phase B is skipped.
-		base = stampFocus(base, entry)
-	}
-	if !opts.AllowLSP || p.pool == nil || entry == "" {
-		return base, nil
-	}
-	if ctx.Err() != nil {
-		return base, nil
+	out := stampFocus(base, entry)
+
+	budget := lspBudget(ctx, opts)
+	if !opts.AllowLSP || p.pool == nil || entry == "" || ctx.Err() != nil || budget < 50*time.Millisecond {
+		return out, nil
 	}
 
-	budget := opts.MaxLSP
-	if budget <= 0 {
-		budget = DefaultLSPAttemptBudget
-		if opts.Interactive {
-			budget = 5 * time.Second // interactive deep: spend leftover, not 90s
-		}
-		if dl, ok := ctx.Deadline(); ok {
-			rem := time.Until(dl)
-			const headroom = 200 * time.Millisecond
-			if rem > headroom {
-				rem -= headroom
-			}
-			if rem < budget {
-				budget = rem
-			}
-		}
-	}
-	if budget < 50*time.Millisecond {
-		return base, nil
-	}
-
-	hops := opts.Hops
-	if hops <= 0 {
-		hops = DefaultInteractiveHops
-	}
-
-	fileHint, lineHint := symbolLocation(base, opts.FocusEntry, entry)
-
+	fileHint, lineHint := symbolLocation(out, opts.FocusEntry)
 	lspCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 
-	da := analyzer.NewLSPDeepWithPool(path, p.pool)
 	start := time.Now()
-	lspCG, err := da.CallGraph(lspCtx, path, oculus.CallGraphOpts{
+	lspCG, err := analyzer.NewLSPDeepWithPool(path, p.pool).CallGraph(lspCtx, path, oculus.CallGraphOpts{
 		Entry:       entry,
 		EntryFile:   fileHint,
 		EntryLine:   lineHint,
-		Depth:       hops,
+		Depth:       opts.Hops,
 		Interactive: true,
 	})
-	lspMs := time.Since(start).Milliseconds()
+	out.LSPMs = time.Since(start).Milliseconds()
 	if err != nil || lspCG == nil || len(lspCG.Edges) == 0 {
 		slog.LogAttrs(ctx, slog.LevelDebug, "mesh: scoped_lsp skipped",
 			slog.String("entry", entry),
 			slog.String("file", fileHint),
-			slog.Duration("elapsed", time.Since(start)),
+			slog.Int64("lsp_ms", out.LSPMs),
 			slog.Any("error", err),
 		)
-		out := stampFocus(base, entry)
-		out.LSPMs = lspMs
 		return out, nil
 	}
 
-	out := cloneSymbolGraph(base)
 	overlayCallGraph(out, lspCG)
 	out.QualityTier = "ast+lsp"
 	out.CGWinner = "lsp-scoped"
-	out.LSPMs = lspMs
-	out.EntryScoped = true
-	out.FocusEntry = entry
 	slog.LogAttrs(ctx, slog.LevelInfo, "mesh: scoped_lsp overlay",
 		slog.String("entry", entry),
 		slog.String("file", fileHint),
 		slog.Int("lsp_edges", len(lspCG.Edges)),
-		slog.Int64("lsp_ms", lspMs),
+		slog.Int64("lsp_ms", out.LSPMs),
 	)
 	return out, nil
 }
 
-// stampFocus returns sg with FocusEntry set, cloning when needed so the AST
-// cache entry stays immutable.
+// stampFocus returns a clone with FocusEntry set (cache stays immutable).
 func stampFocus(sg *oculus.SymbolGraph, entry string) *oculus.SymbolGraph {
 	if sg == nil || entry == "" {
 		return sg
@@ -1815,22 +1799,23 @@ func stampFocus(sg *oculus.SymbolGraph, entry string) *oculus.SymbolGraph {
 	return out
 }
 
-// symbolLocation finds File/Line for a focus symbol from the AST graph.
-func symbolLocation(sg *oculus.SymbolGraph, focus, bare string) (file string, line int) {
+// symbolLocation finds File/Line for a focus locator/FQN from the AST graph.
+func symbolLocation(sg *oculus.SymbolGraph, focus string) (file string, line int) {
 	if sg == nil {
 		return "", 0
 	}
 	focus = strings.TrimSpace(focus)
+	bare := focusEntryName(focus)
 	for _, n := range sg.Nodes {
+		if n.File == "" {
+			continue
+		}
 		fqn := n.Package + "." + n.Name
 		if focus != "" && (fqn == focus || n.Name == focus || strings.HasSuffix(fqn, "."+focus)) {
-			if n.File != "" {
-				return n.File, n.Line
-			}
+			return n.File, n.Line
 		}
-		if bare != "" && n.Name == bare && n.File != "" {
+		if n.Name == bare {
 			file, line = n.File, n.Line
-			// keep scanning for exact FQN match
 		}
 	}
 	return file, line
@@ -1845,9 +1830,7 @@ func focusEntryName(symbol string) string {
 	if i := strings.LastIndex(s, "."); i >= 0 {
 		s = s[i+1:]
 	}
-	// Strip Go receiver wrappers: (*Engine).Foo already handled by last '.'
-	s = strings.Trim(s, "()")
-	return s
+	return strings.Trim(s, "()")
 }
 
 func cloneSymbolGraph(sg *oculus.SymbolGraph) *oculus.SymbolGraph {
@@ -3206,7 +3189,7 @@ func (p *Engine) QueryBook(keywords []string, hops int) (*book.BookResult, error
 
 // symbolGraphInteractive is the default for probe/scenario/callers: AST base,
 // no whole-repo LSP. Pass AllowLSP=true + FocusEntry for scoped enrichment.
-var symbolGraphInteractive = SymbolGraphOpts{Quick: true, AllowLSP: false, Interactive: true}
+var symbolGraphInteractive = SymbolGraphOpts{AllowLSP: false, Interactive: true}
 
 // Deprecated: use symbolGraphInteractive.
 var symbolGraphQuick = symbolGraphInteractive
@@ -3218,61 +3201,49 @@ func sgOptsOrQuick(opts []SymbolGraphOpts) SymbolGraphOpts {
 	return symbolGraphInteractive.normalize()
 }
 
-func withFocus(opts SymbolGraphOpts, symbol string) SymbolGraphOpts {
-	opts = opts.normalize()
-	if opts.FocusEntry == "" {
-		opts.FocusEntry = symbol
+// focusedSGOpts merges caller opts with a focus symbol for probe/scenario/etc.
+func focusedSGOpts(opts []SymbolGraphOpts, symbol string) SymbolGraphOpts {
+	o := sgOptsOrQuick(opts)
+	if o.FocusEntry == "" {
+		o.FocusEntry = symbol
 	}
-	return opts
+	return o
 }
 
 // ProbeSymbol returns all vitals for a single symbol.
 // quality=deep maps to AllowLSP with FocusEntry=symbol (scoped LSP overlay).
 func (p *Engine) ProbeSymbol(ctx context.Context, path, symbol string, opts ...SymbolGraphOpts) (*oculus.ProbeResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path, withFocus(sgOptsOrQuick(opts), symbol))
+	sg, err := p.GetSymbolGraph(ctx, path, focusedSGOpts(opts, symbol))
 	if err != nil {
 		return nil, err
 	}
 	r := oculus.Probe(sg, symbol)
 	if r != nil && sg != nil {
-		r.QualityTier = sg.QualityTier
-		r.CGWinner = sg.CGWinner
-		r.EntryScoped = sg.EntryScoped
-		r.ASTMs = sg.ASTMs
-		r.LSPMs = sg.LSPMs
+		r.GraphProvenance = sg.GraphProvenance
 	}
 	return r, nil
 }
 
 // GetScenario traces a symbol upstream to entry points and downstream to leaves.
 func (p *Engine) GetScenario(ctx context.Context, path, symbol string, depth int, stress bool, opts ...SymbolGraphOpts) (*oculus.ScenarioResult, error) {
-	o := withFocus(sgOptsOrQuick(opts), symbol)
-	sg, err := p.GetSymbolGraph(ctx, path, o)
+	sg, err := p.GetSymbolGraph(ctx, path, focusedSGOpts(opts, symbol))
 	if err != nil {
 		return nil, err
 	}
 	r := oculus.TraceScenario(sg, symbol, depth, stress, 0)
 	if r != nil && sg != nil {
-		r.QualityTier = sg.QualityTier
-		r.CGWinner = sg.CGWinner
-		r.EntryScoped = sg.EntryScoped
-		r.FocusEntry = sg.FocusEntry
-		if r.FocusEntry == "" {
-			r.FocusEntry = focusEntryName(o.FocusEntry)
-		}
-		r.ASTMs = sg.ASTMs
-		r.LSPMs = sg.LSPMs
+		r.GraphProvenance = sg.GraphProvenance
 	}
 	return r, nil
 }
 
 // GetConvergence finds where N symbols' downstream call trees overlap.
 func (p *Engine) GetConvergence(ctx context.Context, path string, symbols []string, opts ...SymbolGraphOpts) (*oculus.ConvergenceResult, error) {
-	o := sgOptsOrQuick(opts)
-	if o.FocusEntry == "" && len(symbols) > 0 {
-		o.FocusEntry = symbols[0]
+	focus := ""
+	if len(symbols) > 0 {
+		focus = symbols[0]
 	}
-	sg, err := p.GetSymbolGraph(ctx, path, o)
+	sg, err := p.GetSymbolGraph(ctx, path, focusedSGOpts(opts, focus))
 	if err != nil {
 		return nil, err
 	}
@@ -3281,7 +3252,7 @@ func (p *Engine) GetConvergence(ctx context.Context, path string, symbols []stri
 
 // IsolateSymbol removes a symbol and reports what disconnects.
 func (p *Engine) IsolateSymbol(ctx context.Context, path, symbol string, opts ...SymbolGraphOpts) (*oculus.IsolateResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path, withFocus(sgOptsOrQuick(opts), symbol))
+	sg, err := p.GetSymbolGraph(ctx, path, focusedSGOpts(opts, symbol))
 	if err != nil {
 		return nil, err
 	}
@@ -3299,7 +3270,7 @@ func (p *Engine) FindIslands(ctx context.Context, path string, entryPoints []str
 
 // Diagnose probes a symbol and queries the Book with signal-derived keywords.
 func (p *Engine) Diagnose(ctx context.Context, path, symbol string, opts ...SymbolGraphOpts) (*oculus.DiagnoseResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path, withFocus(sgOptsOrQuick(opts), symbol))
+	sg, err := p.GetSymbolGraph(ctx, path, focusedSGOpts(opts, symbol))
 	if err != nil {
 		return nil, err
 	}
