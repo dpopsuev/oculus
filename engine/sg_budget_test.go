@@ -49,3 +49,30 @@ func TestNormalize_AllowLSP(t *testing.T) {
 		t.Fatal("focus+AllowLSP must be interactive")
 	}
 }
+
+func TestSymbolLocation(t *testing.T) {
+	sg := &oculus.SymbolGraph{
+		Nodes: []oculus.Symbol{
+			{Name: "applySessionMetadataRefresh", Package: "packages/core/session/src/context", File: "packages/core/session/src/context/metadata.ts", Line: 170},
+			{Name: "other", Package: "pkg", File: "other.ts", Line: 1},
+		},
+	}
+	file, line := symbolLocation(sg, "packages/core/session/src/context.applySessionMetadataRefresh", "applySessionMetadataRefresh")
+	if file != "packages/core/session/src/context/metadata.ts" || line != 170 {
+		t.Fatalf("got %s:%d", file, line)
+	}
+}
+
+func TestStampFocus(t *testing.T) {
+	base := &oculus.SymbolGraph{QualityTier: "ast", CGWinner: "ast"}
+	out := stampFocus(base, "Foo")
+	if out == base {
+		t.Fatal("stampFocus must clone")
+	}
+	if !out.EntryScoped || out.FocusEntry != "Foo" {
+		t.Fatalf("got %+v", out)
+	}
+	if base.FocusEntry != "" {
+		t.Fatal("base must stay pristine")
+	}
+}

@@ -34,6 +34,7 @@ type ProbeResult struct {
 	SuggestedPivots []string `json:"suggested_pivots,omitempty"`
 	// Graph build provenance (unified budgeted path).
 	QualityTier string `json:"quality_tier,omitempty"`
+	CGWinner     string `json:"cg_winner,omitempty"`
 	EntryScoped  bool   `json:"entry_scoped,omitempty"`
 	ASTMs        int64  `json:"ast_ms,omitempty"`
 	LSPMs        int64  `json:"lsp_ms,omitempty"`
@@ -60,6 +61,7 @@ type ScenarioResult struct {
 	GraphEdgeCount int            `json:"graph_edge_count"`
 	// Graph build provenance (unified budgeted path).
 	QualityTier string `json:"quality_tier,omitempty"`
+	CGWinner     string `json:"cg_winner,omitempty"`
 	EntryScoped  bool   `json:"entry_scoped,omitempty"`
 	FocusEntry   string `json:"focus_entry,omitempty"`
 	ASTMs        int64  `json:"ast_ms,omitempty"`

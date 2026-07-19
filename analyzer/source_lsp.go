@@ -28,7 +28,7 @@ var _ oculus.SymbolSource = (*LSPSymbolSource)(nil)
 func (s *LSPSymbolSource) Roots(ctx context.Context, query string) ([]oculus.Symbol, error) {
 	if query != "" {
 		// Single entry: find it via workspace/symbol + prepareCallHierarchy.
-		item, err := s.conn.findCallHierarchyItem(s.root, query)
+		item, err := s.conn.findCallHierarchyItem(s.root, query, "", 0, false)
 		if err != nil || item == nil {
 			return nil, err
 		}
@@ -83,7 +83,7 @@ func (s *LSPSymbolSource) Children(ctx context.Context, sym oculus.Symbol) ([]oc
 	if !ok || item == nil {
 		// No call hierarchy handle — try to resolve it.
 		var err error
-		item, err = s.conn.findCallHierarchyItem(s.root, sym.Name)
+		item, err = s.conn.findCallHierarchyItem(s.root, sym.Name, sym.File, sym.Line, false)
 		if err != nil || item == nil {
 			return nil, nil
 		}

@@ -1714,6 +1714,10 @@ func (p *Engine) enrichScopedLSP(ctx context.Context, path string, base *oculus.
 	}
 	opts = opts.normalize()
 	entry := focusEntryName(opts.FocusEntry)
+	if entry != "" {
+		// Stamp focus on a copy so callers see honesty even when Phase B is skipped.
+		base = stampFocus(base, entry)
+	}
 	if !opts.AllowLSP || p.pool == nil || entry == "" {
 		return base, nil
 	}
@@ -1724,6 +1728,9 @@ func (p *Engine) enrichScopedLSP(ctx context.Context, path string, base *oculus.
 	budget := opts.MaxLSP
 	if budget <= 0 {
 		budget = DefaultLSPAttemptBudget
+		if opts.Interactive {
+			budget = 5 * time.Second // interactive deep: spend leftover, not 90s
+		}
 		if dl, ok := ctx.Deadline(); ok {
 			rem := time.Until(dl)
 			const headroom = 200 * time.Millisecond
@@ -1744,6 +1751,8 @@ func (p *Engine) enrichScopedLSP(ctx context.Context, path string, base *oculus.
 		hops = DefaultInteractiveHops
 	}
 
+	fileHint, lineHint := symbolLocation(base, opts.FocusEntry, entry)
+
 	lspCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 
@@ -1751,6 +1760,8 @@ func (p *Engine) enrichScopedLSP(ctx context.Context, path string, base *oculus.
 	start := time.Now()
 	lspCG, err := da.CallGraph(lspCtx, path, oculus.CallGraphOpts{
 		Entry:       entry,
+		EntryFile:   fileHint,
+		EntryLine:   lineHint,
 		Depth:       hops,
 		Interactive: true,
 	})
@@ -1758,10 +1769,13 @@ func (p *Engine) enrichScopedLSP(ctx context.Context, path string, base *oculus.
 	if err != nil || lspCG == nil || len(lspCG.Edges) == 0 {
 		slog.LogAttrs(ctx, slog.LevelDebug, "mesh: scoped_lsp skipped",
 			slog.String("entry", entry),
+			slog.String("file", fileHint),
 			slog.Duration("elapsed", time.Since(start)),
 			slog.Any("error", err),
 		)
-		return base, nil
+		out := stampFocus(base, entry)
+		out.LSPMs = lspMs
+		return out, nil
 	}
 
 	out := cloneSymbolGraph(base)
@@ -1773,10 +1787,53 @@ func (p *Engine) enrichScopedLSP(ctx context.Context, path string, base *oculus.
 	out.FocusEntry = entry
 	slog.LogAttrs(ctx, slog.LevelInfo, "mesh: scoped_lsp overlay",
 		slog.String("entry", entry),
+		slog.String("file", fileHint),
 		slog.Int("lsp_edges", len(lspCG.Edges)),
 		slog.Int64("lsp_ms", lspMs),
 	)
 	return out, nil
+}
+
+// stampFocus returns sg with FocusEntry set, cloning when needed so the AST
+// cache entry stays immutable.
+func stampFocus(sg *oculus.SymbolGraph, entry string) *oculus.SymbolGraph {
+	if sg == nil || entry == "" {
+		return sg
+	}
+	if sg.FocusEntry == entry && sg.EntryScoped {
+		return sg
+	}
+	out := cloneSymbolGraph(sg)
+	out.FocusEntry = entry
+	out.EntryScoped = true
+	if out.QualityTier == "" {
+		out.QualityTier = "ast"
+	}
+	if out.CGWinner == "" {
+		out.CGWinner = "ast"
+	}
+	return out
+}
+
+// symbolLocation finds File/Line for a focus symbol from the AST graph.
+func symbolLocation(sg *oculus.SymbolGraph, focus, bare string) (file string, line int) {
+	if sg == nil {
+		return "", 0
+	}
+	focus = strings.TrimSpace(focus)
+	for _, n := range sg.Nodes {
+		fqn := n.Package + "." + n.Name
+		if focus != "" && (fqn == focus || n.Name == focus || strings.HasSuffix(fqn, "."+focus)) {
+			if n.File != "" {
+				return n.File, n.Line
+			}
+		}
+		if bare != "" && n.Name == bare && n.File != "" {
+			file, line = n.File, n.Line
+			// keep scanning for exact FQN match
+		}
+	}
+	return file, line
 }
 
 // focusEntryName extracts a bare CallGraph Entry from a locator/FQN.
@@ -3179,6 +3236,7 @@ func (p *Engine) ProbeSymbol(ctx context.Context, path, symbol string, opts ...S
 	r := oculus.Probe(sg, symbol)
 	if r != nil && sg != nil {
 		r.QualityTier = sg.QualityTier
+		r.CGWinner = sg.CGWinner
 		r.EntryScoped = sg.EntryScoped
 		r.ASTMs = sg.ASTMs
 		r.LSPMs = sg.LSPMs
@@ -3188,15 +3246,20 @@ func (p *Engine) ProbeSymbol(ctx context.Context, path, symbol string, opts ...S
 
 // GetScenario traces a symbol upstream to entry points and downstream to leaves.
 func (p *Engine) GetScenario(ctx context.Context, path, symbol string, depth int, stress bool, opts ...SymbolGraphOpts) (*oculus.ScenarioResult, error) {
-	sg, err := p.GetSymbolGraph(ctx, path, withFocus(sgOptsOrQuick(opts), symbol))
+	o := withFocus(sgOptsOrQuick(opts), symbol)
+	sg, err := p.GetSymbolGraph(ctx, path, o)
 	if err != nil {
 		return nil, err
 	}
 	r := oculus.TraceScenario(sg, symbol, depth, stress, 0)
 	if r != nil && sg != nil {
 		r.QualityTier = sg.QualityTier
+		r.CGWinner = sg.CGWinner
 		r.EntryScoped = sg.EntryScoped
 		r.FocusEntry = sg.FocusEntry
+		if r.FocusEntry == "" {
+			r.FocusEntry = focusEntryName(o.FocusEntry)
+		}
 		r.ASTMs = sg.ASTMs
 		r.LSPMs = sg.LSPMs
 	}

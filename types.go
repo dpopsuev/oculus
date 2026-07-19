@@ -98,6 +98,8 @@ const (
 // CallGraphOpts configures call graph construction.
 type CallGraphOpts struct {
 	Entry        string      // entry function name; empty = all exported
+	EntryFile    string      // optional relative/abs path hint for Entry (skips full-repo lookup)
+	EntryLine    int         // optional 1-based line for Entry (with EntryFile)
 	Depth        int         // max recursion depth; 0 = default (10)
 	ExportedOnly bool        // only include exported functions as roots
 	Scope        string      // limit to this package prefix
@@ -105,6 +107,7 @@ type CallGraphOpts struct {
 
 	// Interactive cancels losing racer attempts when a winner returns and
 	// disables background cache upgrades (agent hot path / RSS safety).
+	// Also skips full-repo documentSymbol fallback when Entry lookup fails.
 	Interactive bool
 
 	// OnProgress is called after each root function is resolved.

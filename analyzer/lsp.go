@@ -246,7 +246,7 @@ func (c *lspConn) callChain(root, entry string, maxDepth int) ([]oculus.Call, er
 		maxDepth = 5
 	}
 	// Find the entry function via workspace/symbol
-	item, err := c.findCallHierarchyItem(root, entry)
+	item, err := c.findCallHierarchyItem(root, entry, "", 0, false)
 	if err != nil || item == nil {
 		return nil, fmt.Errorf("%w: %q", ErrCallChainEntryNotFound, entry)
 	}
@@ -601,7 +601,37 @@ func splitParams(s string) []string {
 	return parts
 }
 
-func (c *lspConn) findCallHierarchyItem(root, name string) (*callHierarchyItem, error) {
+// findCallHierarchyItem locates a callHierarchy item for name.
+// When fileHint is set, prepareCallHierarchy is tried at that location first
+// (agent-scoped path). Interactive skips the full-repo documentSymbol fallback
+// that otherwise walks every source file on TypeScript "No Project" roots.
+func (c *lspConn) findCallHierarchyItem(root, name, fileHint string, lineHint int, interactive bool) (*callHierarchyItem, error) {
+	if fileHint != "" {
+		abs := fileHint
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(root, fileHint)
+		}
+		uri := pathToURI(abs)
+		line := lineHint
+		if line > 0 {
+			line-- // LSP is 0-based
+		}
+		if item := c.prepareCallHierarchyAt(uri, line, 0); item != nil {
+			return item, nil
+		}
+		// Retry via documentSymbol on the single hinted file only.
+		if syms, err := c.documentSymbols(abs, root); err == nil {
+			for _, sym := range syms {
+				if sym.Name != name || (sym.Kind != 12 && sym.Kind != 6) {
+					continue
+				}
+				if item := c.prepareCallHierarchyAt(uri, sym.Line, sym.Col); item != nil {
+					return item, nil
+				}
+			}
+		}
+	}
+
 	// Strategy 1: workspace/symbol — fast, supported by gopls and most servers.
 	wsResult, err := c.request("workspace/symbol", map[string]any{"query": name})
 	if err == nil {
@@ -620,6 +650,10 @@ func (c *lspConn) findCallHierarchyItem(root, name string) (*callHierarchyItem, 
 
 	// Strategy 2: documentSymbol fallback — needed for servers like pyright
 	// that return empty workspace/symbol but support documentSymbol.
+	// Interactive / agent-scoped lookups must not scan the whole tree (RSS + latency).
+	if interactive || fileHint != "" {
+		return nil, fmt.Errorf("%w: %q (interactive: skipped full-repo documentSymbol)", ErrSymbolNotFound, name)
+	}
 	for _, f := range findSrcFiles(root) {
 		if c.ctx != nil && c.ctx.Err() != nil {
 			break
