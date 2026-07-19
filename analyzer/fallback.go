@@ -59,7 +59,7 @@ func newFallback(root string, pool lsp.Pool, quick bool) *FallbackAnalyzer {
 		classAttempts = append(classAttempts, Attempt[[]oculus.ClassInfo]{
 			Name: name, Quality: quality,
 			Fn: func(ctx context.Context) ([]oculus.ClassInfo, error) {
-				aCtx, cancel := context.WithTimeout(ctx, perAnalyzerTimeout)
+				aCtx, cancel := context.WithTimeout(ctx, analyzerTimeout(ctx))
 				defer cancel()
 				return a.Classes(aCtx, root)
 			},
@@ -67,7 +67,7 @@ func newFallback(root string, pool lsp.Pool, quick bool) *FallbackAnalyzer {
 		implAttempts = append(implAttempts, Attempt[[]oculus.ImplEdge]{
 			Name: name, Quality: quality,
 			Fn: func(ctx context.Context) ([]oculus.ImplEdge, error) {
-				aCtx, cancel := context.WithTimeout(ctx, perAnalyzerTimeout)
+				aCtx, cancel := context.WithTimeout(ctx, analyzerTimeout(ctx))
 				defer cancel()
 				return a.Implements(aCtx, root)
 			},
@@ -75,7 +75,7 @@ func newFallback(root string, pool lsp.Pool, quick bool) *FallbackAnalyzer {
 		refAttempts = append(refAttempts, Attempt[[]oculus.FieldRef]{
 			Name: name, Quality: quality,
 			Fn: func(ctx context.Context) ([]oculus.FieldRef, error) {
-				aCtx, cancel := context.WithTimeout(ctx, perAnalyzerTimeout)
+				aCtx, cancel := context.WithTimeout(ctx, analyzerTimeout(ctx))
 				defer cancel()
 				return a.FieldRefs(aCtx, root)
 			},
@@ -84,9 +84,9 @@ func newFallback(root string, pool lsp.Pool, quick bool) *FallbackAnalyzer {
 
 	return &FallbackAnalyzer{
 		analyzers:       analyzers,
-		classesRacer:    NewRacer(func(r []oculus.ClassInfo) bool { return len(r) == 0 }, classAttempts...).WithMinQuality(QualityTreeSitter),
-		implementsRacer: NewRacer(func(r []oculus.ImplEdge) bool { return len(r) == 0 }, implAttempts...).WithMinQuality(QualityTreeSitter),
-		fieldRefsRacer:  NewRacer(func(r []oculus.FieldRef) bool { return len(r) == 0 }, refAttempts...),
+		classesRacer:    NewRacer(func(r []oculus.ClassInfo) bool { return len(r) == 0 }, classAttempts...).WithMinQuality(QualityTreeSitter).WithInteractive(quick),
+		implementsRacer: NewRacer(func(r []oculus.ImplEdge) bool { return len(r) == 0 }, implAttempts...).WithMinQuality(QualityTreeSitter).WithInteractive(quick),
+		fieldRefsRacer:  NewRacer(func(r []oculus.FieldRef) bool { return len(r) == 0 }, refAttempts...).WithInteractive(quick),
 	}
 }
 

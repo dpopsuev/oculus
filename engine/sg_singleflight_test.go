@@ -20,26 +20,17 @@ func TestGetSymbolGraph_DefaultTimeoutRaised(t *testing.T) {
 	if DefaultLSPAttemptBudget <= 0 || DefaultLSPAttemptBudget >= DefaultMeshTimeout {
 		t.Fatalf("DefaultLSPAttemptBudget = %v, want (0, DefaultMeshTimeout)", DefaultLSPAttemptBudget)
 	}
-	if DefaultMeshTimeout-DefaultLSPAttemptBudget < 45*time.Second {
-		t.Fatalf("no headroom for Quick degrade: mesh=%v lsp=%v", DefaultMeshTimeout, DefaultLSPAttemptBudget)
-	}
 }
 
-// TestSgStore_QuickKeySeparate ensures Quick graphs do not overwrite full keys.
-func TestSgStore_QuickKeySeparate(t *testing.T) {
+// TestSgStore_UnifiedKey ensures a single path@sha key holds the AST base graph.
+func TestSgStore_UnifiedKey(t *testing.T) {
 	eng := New(nil, nil)
-	full := &oculus.SymbolGraph{}
-	quick := &oculus.SymbolGraph{}
+	full := &oculus.SymbolGraph{QualityTier: "ast"}
 	eng.sgStore("proj@abc", full)
-	eng.sgStore("proj@abc-quick", quick)
 
 	got, ok := eng.sgLoad("proj@abc")
 	if !ok || got != full {
-		t.Fatal("full key miss")
-	}
-	gotQ, ok := eng.sgLoad("proj@abc-quick")
-	if !ok || gotQ != quick {
-		t.Fatal("quick key miss")
+		t.Fatal("unified key miss")
 	}
 }
 

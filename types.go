@@ -103,6 +103,10 @@ type CallGraphOpts struct {
 	Scope        string      // limit to this package prefix
 	Granularity  Granularity // requested detail level; 0 = default (TypedCallGraph)
 
+	// Interactive cancels losing racer attempts when a winner returns and
+	// disables background cache upgrades (agent hot path / RSS safety).
+	Interactive bool
+
 	// OnProgress is called after each root function is resolved.
 	// Optional — nil means no progress notifications.
 	OnProgress func(ProgressUpdate)
@@ -302,8 +306,16 @@ func (e SymbolEdge) Target() string { return e.TargetFQN }
 
 // SymbolGraph is the unified symbol-level graph result.
 type SymbolGraph struct {
-	Nodes []Symbol `json:"nodes"`
+	Nodes []Symbol     `json:"nodes"`
 	Edges []SymbolEdge `json:"edges"`
+
+	// Build provenance (unified budgeted path).
+	QualityTier string `json:"quality_tier,omitempty"` // "ast" | "ast+lsp"
+	CGWinner     string `json:"cg_winner,omitempty"`
+	ASTMs        int64  `json:"ast_ms,omitempty"` // AST phase wall time
+	LSPMs        int64  `json:"lsp_ms,omitempty"` // scoped LSP phase wall time
+	EntryScoped  bool   `json:"entry_scoped,omitempty"`
+	FocusEntry   string `json:"focus_entry,omitempty"`
 }
 
 // PipelineStep represents a single function in a detected pipeline.

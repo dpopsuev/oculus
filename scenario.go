@@ -32,6 +32,11 @@ type ProbeResult struct {
 	// SuggestedPivots lists method FQNs when a type pivot is hollow or to
 	// guide agents toward deeper scenario traces.
 	SuggestedPivots []string `json:"suggested_pivots,omitempty"`
+	// Graph build provenance (unified budgeted path).
+	QualityTier string `json:"quality_tier,omitempty"`
+	EntryScoped  bool   `json:"entry_scoped,omitempty"`
+	ASTMs        int64  `json:"ast_ms,omitempty"`
+	LSPMs        int64  `json:"lsp_ms,omitempty"`
 }
 
 // ScenarioNode is a symbol in a scenario trace with depth from the pivot.
@@ -53,6 +58,12 @@ type ScenarioResult struct {
 	Circuits       [][]string     `json:"circuits,omitempty"`
 	Boundaries     []string       `json:"boundaries,omitempty"`
 	GraphEdgeCount int            `json:"graph_edge_count"`
+	// Graph build provenance (unified budgeted path).
+	QualityTier string `json:"quality_tier,omitempty"`
+	EntryScoped  bool   `json:"entry_scoped,omitempty"`
+	FocusEntry   string `json:"focus_entry,omitempty"`
+	ASTMs        int64  `json:"ast_ms,omitempty"`
+	LSPMs        int64  `json:"lsp_ms,omitempty"`
 }
 
 // ConvergenceNode is a shared dependency reached by multiple input symbols.

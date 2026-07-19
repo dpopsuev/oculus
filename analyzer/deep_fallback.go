@@ -41,6 +41,8 @@ func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts 
 	// Build attempts from SymbolSources + raw analyzers.
 	var attempts []Attempt[*oculus.CallGraph]
 
+	attemptTimeout := analyzerTimeout(ctx)
+
 	sources := resolveSymbolSources(f.root, f.pool, opts.Granularity)
 	for i, src := range sources {
 		name := fmt.Sprintf("source[%d]/%T", i, src)
@@ -55,7 +57,7 @@ func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts 
 					Root:        f.root,
 					Concurrency: oculus.DefaultPipelineConcurrency,
 				}
-				aCtx, cancel := context.WithTimeout(ctx, perAnalyzerTimeout)
+				aCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
 				defer cancel()
 				return p.CallGraph(aCtx, root, opts)
 			},
@@ -73,7 +75,7 @@ func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts 
 			Name:    name,
 			Quality: quality,
 			Fn: func(ctx context.Context) (*oculus.CallGraph, error) {
-				aCtx, cancel := context.WithTimeout(ctx, perAnalyzerTimeout)
+				aCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
 				defer cancel()
 				return analyzer.CallGraph(aCtx, root, opts)
 			},
@@ -96,7 +98,7 @@ func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts 
 
 	racer := NewRacer(func(cg *oculus.CallGraph) bool {
 		return cg == nil || len(cg.Edges) == 0
-	}, attempts...).WithMinQuality(minQuality)
+	}, attempts...).WithMinQuality(minQuality).WithInteractive(opts.Interactive)
 
 	start := time.Now()
 	result, err := racer.Race(ctx)
@@ -141,10 +143,27 @@ func (f *DeepFallbackAnalyzer) CallGraph(ctx context.Context, root string, opts 
 
 
 
-// perAnalyzerTimeout is the max time each analyzer gets before the fallback
-// chain moves to the next one. 5 minutes gives gopls time to index large
-// repos with many external dependencies.
+// perAnalyzerTimeout is the max time each analyzer gets when the parent
+// context has no deadline. Prefer analyzerTimeout(ctx) so agent budgets bind.
 const perAnalyzerTimeout = 5 * time.Minute
+
+// analyzerTimeout returns a per-attempt timeout capped by the parent deadline.
+func analyzerTimeout(ctx context.Context) time.Duration {
+	if dl, ok := ctx.Deadline(); ok {
+		rem := time.Until(dl)
+		if rem <= 0 {
+			return time.Millisecond
+		}
+		// Leave a tiny sliver for merge/return.
+		if rem > 50*time.Millisecond {
+			rem -= 20 * time.Millisecond
+		}
+		if rem < perAnalyzerTimeout {
+			return rem
+		}
+	}
+	return perAnalyzerTimeout
+}
 
 func (f *DeepFallbackAnalyzer) DataFlowTrace(ctx context.Context, root, entry string, depth int) (*oculus.DataFlow, error) {
 	sources := resolveSymbolSources(f.root, f.pool)

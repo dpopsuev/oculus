@@ -43,13 +43,14 @@ type RaceResult[T any] struct {
 }
 
 // Racer races multiple analyzers in parallel. The first non-empty result
-// wins and returns immediately. Losers continue in background and cache
-// their results with quality tiers. Next call returns the highest-quality
-// cached result in O(1).
+// wins and returns immediately. By default losers continue in background and
+// upgrade the cache. Interactive mode cancels losers and skips upgrades
+// (agent hot path — prevents LSP RSS balloon after AST wins).
 type Racer[T any] struct {
-	attempts   []Attempt[T]
-	isEmpty    func(T) bool
-	minQuality QualityTier // results below this quality are treated as empty
+	attempts    []Attempt[T]
+	isEmpty     func(T) bool
+	minQuality  QualityTier // results below this quality are treated as empty
+	interactive bool
 
 	mu    sync.RWMutex
 	cache *RaceResult[T]
@@ -71,9 +72,16 @@ func (r *Racer[T]) WithMinQuality(q QualityTier) *Racer[T] {
 	return r
 }
 
+// WithInteractive enables cancel-on-win: losing attempts are cancelled and
+// background cache upgrades are disabled.
+func (r *Racer[T]) WithInteractive(on bool) *Racer[T] {
+	r.interactive = on
+	return r
+}
+
 // Race runs all attempts in parallel. Returns the first non-empty result.
-// Losers continue in background and upgrade the cache if they produce
-// higher-quality results.
+// Non-interactive: losers continue in background and upgrade the cache.
+// Interactive: cancel losers immediately; no background upgrade.
 func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -87,6 +95,13 @@ func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
 		return &cached, nil
 	}
 	r.mu.RUnlock()
+
+	raceCtx := ctx
+	var cancel context.CancelFunc
+	if r.interactive {
+		raceCtx, cancel = context.WithCancel(ctx)
+		defer cancel()
+	}
 
 	// Race all attempts in parallel.
 	type result struct {
@@ -102,7 +117,7 @@ func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
 
 	for _, a := range r.attempts {
 		go func(attempt Attempt[T]) {
-			v, err := attempt.Fn(ctx)
+			v, err := attempt.Fn(raceCtx)
 			ch <- result{
 				value:   v,
 				name:    attempt.Name,
@@ -171,6 +186,14 @@ func (r *Racer[T]) Race(ctx context.Context) (*RaceResult[T], error) {
 				r.mu.Lock()
 				r.cache = rr
 				r.mu.Unlock()
+
+				if r.interactive {
+					// Cancel losers; do not background-upgrade (RSS safety).
+					if cancel != nil {
+						cancel()
+					}
+					return winner, nil
+				}
 
 				// Don't return yet — drain remaining results in background
 				// to potentially upgrade cache with higher quality.

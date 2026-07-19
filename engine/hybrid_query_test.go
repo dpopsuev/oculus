@@ -86,12 +86,24 @@ func ScanProject() {}
 
 func TestSgOptsOrQuick_DefaultQuick(t *testing.T) {
 	o := sgOptsOrQuick(nil)
-	if !o.Quick {
-		t.Fatal("default must be Quick")
+	if o.AllowLSP || !o.Quick {
+		t.Fatal("default must be AST-only (Quick / !AllowLSP)")
 	}
-	o = sgOptsOrQuick([]SymbolGraphOpts{{Quick: false}})
-	if o.Quick {
-		t.Fatal("explicit deep must disable Quick")
+	o = sgOptsOrQuick([]SymbolGraphOpts{{AllowLSP: true, FocusEntry: "Foo"}})
+	if !o.AllowLSP || o.Quick {
+		t.Fatal("AllowLSP=true must enable scoped LSP")
+	}
+	if o.FocusEntry != "Foo" {
+		t.Fatalf("FocusEntry=%q", o.FocusEntry)
+	}
+}
+
+func TestFocusEntryName(t *testing.T) {
+	if got := focusEntryName("pkg.Foo"); got != "Foo" {
+		t.Fatalf("got %q", got)
+	}
+	if got := focusEntryName("applySessionMetadataRefresh"); got != "applySessionMetadataRefresh" {
+		t.Fatalf("got %q", got)
 	}
 }
 
