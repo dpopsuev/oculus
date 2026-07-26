@@ -14,7 +14,7 @@ import (
 
 // TestLSPIntegration_Stress runs the full DeepFallback pipeline (LSP priority 100)
 // on generated Go projects at increasing scale via container pool.
-// This reproduces the Origami hang — if LSP is the bottleneck, it will show here.
+// Uses a bounded synthetic workload so LSP saturation remains reproducible.
 //
 // Run: go test -tags integration -run TestLSPIntegration_Stress -v -timeout 300s ./analyzer/...
 func TestLSPIntegration_Stress(t *testing.T) {

@@ -7,15 +7,12 @@ import (
 	"testing"
 
 	"github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/internal/testfixture"
 )
 
 func benchRoot(b *testing.B) string {
 	b.Helper()
-	dir, _ := filepath.Abs("..")
-	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
-		b.Skip("oculus root not found")
-	}
-	return dir
+	return testfixture.Repository(b, "go")
 }
 
 func BenchmarkParseGoAST(b *testing.B) {

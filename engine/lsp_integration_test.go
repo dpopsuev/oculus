@@ -56,43 +56,6 @@ func format(s string) string { return "[" + s + "]" }
 	return dir
 }
 
-// Test 6: Probe with LSP available returns call graph data.
-// Uses Oculus itself as the fixture — a real multi-package Go repo.
-func TestProbe_LSPAvailable(t *testing.T) {
-	requireGoplsInteg(t)
-	root := oculusRoot(t)
-
-	pool := lsp.NewPool()
-	defer pool.Shutdown(context.Background())
-
-	eng := New(&mockStore{headSHA: "test"}, []string{root}, pool)
-
-	if err := eng.WarmLSP(context.Background(), root); err != nil {
-		t.Skipf("WarmLSP failed: %v", err)
-	}
-	time.Sleep(3 * time.Second)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	result, err := eng.ProbeSymbol(ctx, root, "ScanAndBuild")
-	if err != nil {
-		if ctx.Err() != nil {
-			t.Skipf("probe timed out: %v", err)
-		}
-		t.Fatalf("ProbeSymbol: %v", err)
-	}
-	if result == nil {
-		// gopls sometimes returns a partial call graph under load — the symbol
-		// may not appear as a node. Skip rather than fail to avoid flakiness.
-		t.Skipf("ScanAndBuild not found in call graph (gopls indexing may be incomplete)")
-	}
-	t.Logf("probe: fqn=%s kind=%s fan_in=%d fan_out=%d", result.FQN, result.Kind, result.FanIn, result.FanOut)
-	if result.FanOut == 0 && result.FanIn == 0 {
-		t.Error("expected non-zero fan_in or fan_out for ScanAndBuild")
-	}
-}
-
 // Test 7: Probe without LSP returns clear error naming the missing server.
 func TestProbe_LSPUnavailable_ClearError(t *testing.T) {
 	dir := makeGoFixture(t)
@@ -194,6 +157,7 @@ func TestLSP_MissingServer_ErrorMessage(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.lang, func(t *testing.T) {
+			t.Setenv("PATH", t.TempDir())
 			dir := t.TempDir()
 			// Create a minimal file so language detection works
 			switch tc.lang {

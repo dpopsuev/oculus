@@ -7,6 +7,7 @@ import (
 
 	"github.com/dpopsuev/oculus/v3"
 	"github.com/dpopsuev/oculus/v3/analyzer"
+	"github.com/dpopsuev/oculus/v3/internal/testfixture"
 )
 
 // slowTypeAnalyzer simulates an analyzer that blocks for a long time.
@@ -116,19 +117,8 @@ func TestFallbackAnalyzerClassesHangsWithoutContext(t *testing.T) {
 	}
 }
 
-// TestGetSymbolGraphRespectsTimeout is the integration-level RED test.
-// It calls GetSymbolGraph with a short timeout and verifies it doesn't hang.
-//
-// Currently: may hang on repos where TypeAnalyzer is slow (Origami).
-// After fix: returns context.DeadlineExceeded within the timeout.
 func TestGetSymbolGraphRespectsTimeout(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping timeout test in -short mode")
-	}
-
-	// Use oculus itself as the test target — small enough to complete fast,
-	// but exercises the real analyzer chain.
-	root := ".."
+	root := testfixture.Repository(t, "go")
 	eng := analyzer.CachedDeepFallback(root, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

@@ -200,11 +200,11 @@ pub struct Server {
 }
 
 // TestRustScan_FileLevel_MultiModule verifies that FileLevel granularity splits a
-// single-crate repo into per-.rs namespaces with mod/use edges (Seeshell-shaped).
+// single-crate repository into per-file namespaces with module and import edges.
 func TestRustScan_FileLevel_MultiModule(t *testing.T) {
 	dir := setupCrate(t, map[string]string{
 		"Cargo.toml": `[package]
-name = "seeshell-lite"
+name = "multi-module-fixture"
 version = "0.1.0"
 edition = "2021"
 

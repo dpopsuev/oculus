@@ -2,138 +2,87 @@ package analyzer
 
 import (
 	"context"
-	"github.com/dpopsuev/oculus/v3"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/internal/testfixture"
 )
 
-func TestGoASTCallGraph_OnLocus(t *testing.T) {
-	root, err := filepath.Abs("../..")
+func TestGoASTCallGraph_SyntheticRepository(t *testing.T) {
+	root := testfixture.Repository(t, "go")
+	analyzer := NewGoASTDeep(root)
+	if analyzer == nil {
+		t.Fatal("expected Go AST analyzer")
+	}
+	callGraph, err := analyzer.CallGraph(context.Background(), root, oculus.CallGraphOpts{Entry: "main", Depth: 3})
 	if err != nil {
-		t.Skip("cannot resolve repo root")
+		t.Fatalf("CallGraph: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		t.Skip("not in a Go repo")
+	if len(callGraph.Nodes) == 0 || len(callGraph.Edges) == 0 {
+		t.Fatalf("call graph nodes=%d edges=%d", len(callGraph.Nodes), len(callGraph.Edges))
 	}
-
-	a := NewGoASTDeep(root)
-	if a == nil {
-		t.Fatal("expected GoASTDeepAnalyzer for Go repo")
+	if callGraph.Layer != oculus.LayerGoAST {
+		t.Errorf("layer = %q, want goast", callGraph.Layer)
 	}
-
-	cg, err := a.CallGraph(context.Background(), root, oculus.CallGraphOpts{
-		ExportedOnly: true,
-		Depth:        3,
-	})
-	if err != nil {
-		t.Fatalf("oculus.CallGraph: %v", err)
-	}
-	if len(cg.Nodes) == 0 {
-		t.Error("expected at least one node")
-	}
-	if len(cg.Edges) == 0 {
-		t.Error("expected at least one edge")
-	}
-	if cg.Layer != oculus.LayerGoAST {
-		t.Errorf("layer = %q, want goast", cg.Layer)
-	}
-	t.Logf("GoAST oculus.CallGraph: %d nodes, %d edges", len(cg.Nodes), len(cg.Edges))
 }
 
 func TestGoASTCallGraph_WithEntry(t *testing.T) {
-	root, err := filepath.Abs("../..")
+	root := testfixture.Repository(t, "go")
+	analyzer := NewGoASTDeep(root)
+	callGraph, err := analyzer.CallGraph(context.Background(), root, oculus.CallGraphOpts{Entry: "main", Depth: 3})
 	if err != nil {
-		t.Skip("cannot resolve repo root")
+		t.Fatalf("CallGraph: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		t.Skip("not in a Go repo")
-	}
-
-	a := NewGoASTDeep(root)
-	if a == nil {
-		t.Fatal("expected GoASTDeepAnalyzer")
-	}
-
-	cg, err := a.CallGraph(context.Background(), root, oculus.CallGraphOpts{
-		Entry: "ScanAndBuild",
-		Depth: 2,
-	})
-	if err != nil {
-		t.Fatalf("oculus.CallGraph: %v", err)
-	}
-	if len(cg.Edges) == 0 {
-		t.Error("expected edges from ScanAndBuild")
-	}
-
-	// Verify ScanAndBuild is in the graph.
 	found := false
-	for _, n := range cg.Nodes {
-		if n.Name == "ScanAndBuild" {
+	for _, node := range callGraph.Nodes {
+		if node.Name == "main" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Error("expected ScanAndBuild node in graph")
+		t.Error("expected main node")
 	}
-	t.Logf("ScanAndBuild oculus.CallGraph: %d nodes, %d edges", len(cg.Nodes), len(cg.Edges))
+	if len(callGraph.Edges) == 0 {
+		t.Error("expected edges from main")
+	}
 }
 
 func TestGoASTDataFlowTrace(t *testing.T) {
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Skip("cannot resolve repo root")
-	}
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		t.Skip("not in a Go repo")
-	}
-
-	a := NewGoASTDeep(root)
-	if a == nil {
-		t.Fatal("expected GoASTDeepAnalyzer")
-	}
-
-	df, err := a.DataFlowTrace(context.Background(), root, "ScanAndBuild", 3)
+	root := testfixture.Repository(t, "go")
+	analyzer := NewGoASTDeep(root)
+	dataFlow, err := analyzer.DataFlowTrace(context.Background(), root, "main", 3)
 	if err != nil {
 		t.Fatalf("DataFlowTrace: %v", err)
 	}
-	if len(df.Nodes) == 0 {
-		t.Error("expected at least one node")
+	if len(dataFlow.Nodes) == 0 {
+		t.Error("expected data-flow nodes")
 	}
-	if df.Layer != oculus.LayerGoAST {
-		t.Errorf("layer = %q, want goast", df.Layer)
+	if dataFlow.Layer != oculus.LayerGoAST {
+		t.Errorf("layer = %q, want goast", dataFlow.Layer)
 	}
-	t.Logf("DataFlowTrace: %d nodes, %d edges", len(df.Nodes), len(df.Edges))
 }
 
 func TestGoASTDeep_NonGoRepo(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[project]\n"), 0o644)
-
-	a := NewGoASTDeep(dir)
-	if a != nil {
-		t.Error("expected nil for non-Go repo")
+	if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[project]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if analyzer := NewGoASTDeep(dir); analyzer != nil {
+		t.Error("expected nil for non-Go repository")
 	}
 }
 
 func TestGoASTFallbackIntegration(t *testing.T) {
-	root, err := filepath.Abs("../..")
+	root := testfixture.Repository(t, "go")
+	fallback := NewDeepFallback(root, nil)
+	callGraph, err := fallback.CallGraph(context.Background(), root, oculus.CallGraphOpts{Entry: "main", Depth: 3})
 	if err != nil {
-		t.Skip("cannot resolve repo root")
+		t.Fatalf("CallGraph: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		t.Skip("not in a Go repo")
+	if len(callGraph.Edges) == 0 {
+		t.Error("expected fallback edges")
 	}
-
-	fb := NewDeepFallback(root, nil)
-	cg, err := fb.CallGraph(context.Background(), root, oculus.CallGraphOpts{Entry: "ScanAndBuild", Depth: 2})
-	if err != nil {
-		t.Fatalf("fallback oculus.CallGraph: %v", err)
-	}
-	if len(cg.Edges) == 0 {
-		t.Error("expected edges from fallback")
-	}
-	t.Logf("Fallback oculus.CallGraph: %d edges, layer=%s", len(cg.Edges), cg.Layer)
 }

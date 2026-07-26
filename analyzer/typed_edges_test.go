@@ -108,50 +108,32 @@ func TestFallback_TypedEdges(t *testing.T) {
 	t.Logf("Fallback typed edges: %d/%d (layer=%s)", typed, len(cg.Edges), cg.Layer)
 }
 
-// TestDogfood_TypedEdgeCoverage runs on the Oculus repo and asserts
-// minimum type coverage. This is the regression gate for OCL-BUG-2.
-func TestDogfood_TypedEdgeCoverage(t *testing.T) {
-	if testing.Short() {
-		t.Skip("dogfood: skipping in -short mode")
+func TestSyntheticRepository_TypedEdgeCoverage(t *testing.T) {
+	root := t.TempDir()
+	if err := buildFixture(root, typedEdgeFixture); err != nil {
+		t.Fatal(err)
 	}
-	root, err := filepath.Abs("..")
-	if err != nil {
-		t.Skip("cannot resolve repo root")
-	}
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		t.Skip("not in a Go repo")
-	}
-
-	da := NewDeepFallback(root, nil)
-	// Oculus is a library — no main function. Use exported-only mode.
-	cg, err := da.CallGraph(context.Background(), root, oculus.CallGraphOpts{ExportedOnly: true, Depth: 3})
+	deepAnalyzer := NewDeepFallback(root, nil)
+	callGraph, err := deepAnalyzer.CallGraph(context.Background(), root, oculus.CallGraphOpts{Entry: "main", Depth: 5})
 	if err != nil {
 		t.Fatalf("CallGraph: %v", err)
 	}
 
 	typed := 0
-	for _, e := range cg.Edges {
-		if len(e.ParamTypes) > 0 || len(e.ReturnTypes) > 0 {
+	for _, edge := range callGraph.Edges {
+		if len(edge.ParamTypes) > 0 || len(edge.ReturnTypes) > 0 {
 			typed++
 		}
 	}
-
-	pct := 0.0
-	if len(cg.Edges) > 0 {
-		pct = float64(typed) / float64(len(cg.Edges)) * 100
-	}
-	t.Logf("Dogfood typed edge coverage: %d/%d (%.0f%%, layer=%s)", typed, len(cg.Edges), pct, cg.Layer)
-
-	// GoAST layer should have 100% type coverage.
-	// LSP layer should have >80% (hover enrichment).
-	// Regex layer has 0% (expected — no AST).
-	// Gate: >50% for GoAST/LSP, skip for regex.
-	if cg.Layer == oculus.LayerRegex {
-		t.Logf("regex layer — typed edges not expected, skipping gate")
+	if callGraph.Layer == oculus.LayerRegex {
 		return
 	}
-	if pct < 50 {
-		t.Errorf("typed edge coverage %.0f%% < 50%% minimum (OCL-BUG-2 regression)", pct)
+	if len(callGraph.Edges) == 0 {
+		t.Fatal("expected call edges")
+	}
+	coverage := float64(typed) / float64(len(callGraph.Edges)) * 100
+	if coverage < 50 {
+		t.Errorf("typed edge coverage %.0f%% < 50%%", coverage)
 	}
 }
 

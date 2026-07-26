@@ -2,25 +2,15 @@ package engine
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/dpopsuev/oculus/v3"
+	"github.com/dpopsuev/oculus/v3/internal/testfixture"
 )
 
-// benchRoot returns the path to the oculus repo root for self-scan benchmarks.
 func benchRoot(b *testing.B) string {
 	b.Helper()
-	// Engine tests run from engine/ — go up one level.
-	dir, err := filepath.Abs("..")
-	if err != nil {
-		b.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
-		b.Skip("oculus root not found")
-	}
-	return dir
+	return testfixture.Repository(b, "go")
 }
 
 func BenchmarkEngine_ScanProject(b *testing.B) {

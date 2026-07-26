@@ -5,17 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/dpopsuev/oculus/v3/internal/testfixture"
 )
 
 func TestScanAndBuild_IntentLevels(t *testing.T) {
-	// Use the locus repo itself as a fixture.
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Skip("cannot resolve repo root")
-	}
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		t.Skip("not in a Go repo")
-	}
+	root := testfixture.Repository(t, "go")
 
 	tests := []struct {
 		intent         ScanIntent
@@ -81,7 +76,7 @@ func hasAnyNesting(r *ContextReport) bool {
 
 func TestScanIntentIncludes(t *testing.T) {
 	tests := []struct {
-		intent              ScanIntent
+		intent                 ScanIntent
 		coupling, health, full bool
 	}{
 		{IntentArchitecture, false, false, false},
@@ -191,10 +186,10 @@ func TestComputeHotSpots(t *testing.T) {
 func TestProjectToArch_TestCoverageMetadata(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
-		"go.mod":                 "module example.com/cov\n\ngo 1.21\n",
-		"api/api.go":             "package api\n\nfunc Handle() {}\n",
-		"api/api_test.go":        "package api\n\nimport \"testing\"\n\nfunc TestHandle(t *testing.T) {}\n",
-		"store/store.go":         "package store\n\nfunc Get() string { return \"\" }\n",
+		"go.mod":          "module example.com/cov\n\ngo 1.21\n",
+		"api/api.go":      "package api\n\nfunc Handle() {}\n",
+		"api/api_test.go": "package api\n\nimport \"testing\"\n\nfunc TestHandle(t *testing.T) {}\n",
+		"store/store.go":  "package store\n\nfunc Get() string { return \"\" }\n",
 		// store has no test file
 	}
 	for name, content := range files {
